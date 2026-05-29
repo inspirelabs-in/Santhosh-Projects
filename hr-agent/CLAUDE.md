@@ -22,11 +22,11 @@ For deeper exploration: `/graphify query "<question>"`
 ### Auto-update system (already configured)
 - **PostToolUse hook** (Edit/Write): flags `graphify-out/.needs_update`
 - **SessionStart hook**: if flag exists, runs AST-only rebuild (fast, no LLM cost)
-- For non-code changes (docs/prompts): run `/graphify D:\HR Agent --update` manually (needs LLM)
+- For non-code changes (docs/prompts): run `/graphify . --update` manually (needs LLM)
 
 ### If graph seems stale
 ```
-/graphify D:\HR Agent --update
+/graphify . --update
 ```
 
 ## Architecture Quick Reference
