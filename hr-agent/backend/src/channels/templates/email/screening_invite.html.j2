@@ -1,0 +1,16 @@
+{%- import "_macros.html.j2" as ui with context -%}
+{%- set subject = "Quick screening for " ~ role_title ~ " at GrabOn" -%}
+{{ ui.page_open() }}
+{% include "_header.html.j2" %}
+{{ ui.card_open() }}
+  {{ ui.eyebrow("Step 1 of 2 -- 5 minutes") }}
+  {{ ui.hero_title("Hi " ~ (candidate_name or "there") ~ ", quick questions on your fit.") }}
+  {{ ui.paragraph("Thanks for applying for the <strong>" ~ role_title ~ "</strong> role at GrabOn. To help us understand your fit better, we have a few short questions.") }}
+  {{ ui.highlight_box("<strong>Takes about 5 minutes.</strong> The link expires on " ~ expires_at ~ ".", accent="primary") }}
+  {{ ui.cta_button(form_url, "Complete screening", accent="primary") }}
+  {{ ui.fallback_link(form_url) }}
+  {{ ui.reference_line(application_id) }}
+  {{ ui.signoff() }}
+{{ ui.card_close() }}
+{% include "_footer.html.j2" %}
+{{ ui.page_close() }}

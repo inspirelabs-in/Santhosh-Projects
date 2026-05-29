@@ -1,0 +1,26 @@
+{%- import "_macros.html.j2" as ui with context -%}
+{%- set subject = "Update on your application to GrabOn" -%}
+{{ ui.page_open() }}
+{% include "_header.html.j2" %}
+{{ ui.card_open() }}
+  {{ ui.eyebrow("Application update") }}
+  {{ ui.hero_title("Hi " ~ (candidate_name or "there") ~ ".") }}
+  <div style="font-family:{{ brand.font_stack }};font-size:15px;line-height:1.6;color:{{ brand.ink }};">
+    {{ body_html | safe }}
+  </div>
+
+  {% if talent_pool_url %}
+    {{ ui.highlight_box("Want us to consider you for future roles? <a style='color:" ~ brand.info ~ ";font-weight:600;text-decoration:none;' href='" ~ talent_pool_url ~ "'>Opt into our talent pool</a> -- we'll keep your profile for up to 18 months.", accent="info") }}
+  {% endif %}
+
+  {% if feedback_url %}
+    <p style="margin:16px 0 0 0;font-family:{{ brand.font_stack }};font-size:13px;color:{{ brand.muted_text }};">
+      One-question feedback: <a style="color:{{ brand.info }};" href="{{ feedback_url }}">tell us how this went</a>.
+    </p>
+  {% endif %}
+
+  {{ ui.signoff() }}
+  {{ ui.reference_line(application_id) }}
+{{ ui.card_close() }}
+{% include "_footer.html.j2" %}
+{{ ui.page_close() }}

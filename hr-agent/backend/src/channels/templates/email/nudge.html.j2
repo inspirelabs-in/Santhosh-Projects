@@ -1,0 +1,18 @@
+{%- import "_macros.html.j2" as ui with context -%}
+{%- set subject = "Following up on your application for " ~ role_title -%}
+{{ ui.page_open() }}
+{% include "_header.html.j2" %}
+{{ ui.card_open() }}
+  {{ ui.eyebrow("Status update") }}
+  {{ ui.hero_title("Hi " ~ (candidate_name or "there") ~ ", quick check-in.") }}
+  {{ ui.paragraph("Just a quick note on your application for the <strong>" ~ role_title ~ "</strong> role at GrabOn.") }}
+  {% if extra_note %}
+    {{ ui.paragraph(extra_note) }}
+  {% else %}
+    {{ ui.paragraph("We're still processing applications and wanted to make sure you have any outstanding items on your side -- a quick reply would help us move things forward.") }}
+  {% endif %}
+  {{ ui.reference_line(reference_id) }}
+  {{ ui.signoff(name="GrabOn Hiring Team") }}
+{{ ui.card_close() }}
+{% include "_footer.html.j2" %}
+{{ ui.page_close() }}

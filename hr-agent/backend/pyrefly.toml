@@ -1,0 +1,15 @@
+# Pyrefly config for IDE-side type checking.
+#
+# Deps live inside Docker, not on the host. Silence missing-import warnings
+# so the IDE doesn't scream about sqlalchemy/litellm/etc. Real type checking
+# happens via `mypy` inside the container.
+
+project-includes = ["src"]
+python-version = "3.12"
+
+# Import roots: our package root is `src`, so `src.xxx` imports resolve.
+search-path = ["src"]
+
+# Most deps won't be on the host Python. Don't treat missing imports as errors.
+[errors]
+missing-import = false

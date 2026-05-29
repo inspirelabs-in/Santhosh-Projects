@@ -1,0 +1,23 @@
+{%- import "_macros.html.j2" as ui with context -%}
+{%- set subject = subject or email_subject or "Message from GrabOn Hiring" -%}
+{{ ui.page_open() }}
+{% include "_header.html.j2" %}
+{{ ui.card_open() }}
+  {{ ui.eyebrow("Message from the hiring team") }}
+  {{ ui.hero_title("Hi " ~ (candidate_name or "there") ~ ".") }}
+  <div style="font-family:{{ brand.font_stack }};font-size:15px;line-height:1.6;color:{{ brand.ink }};">
+    {% if body_html %}
+      {{ body_html | safe }}
+    {% elif body_markdown %}
+      {% for para in body_markdown.split('\n\n') %}
+        <p style="margin:0 0 12px 0;">{{ para | replace('\n', '<br>') | safe }}</p>
+      {% endfor %}
+    {% endif %}
+  </div>
+  {{ ui.signoff(name="GrabOn Hiring Team") }}
+  {% if application_id %}
+    {{ ui.reference_line(application_id) }}
+  {% endif %}
+{{ ui.card_close() }}
+{% include "_footer.html.j2" %}
+{{ ui.page_close() }}

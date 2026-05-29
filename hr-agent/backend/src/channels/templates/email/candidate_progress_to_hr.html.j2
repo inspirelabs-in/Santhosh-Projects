@@ -1,0 +1,30 @@
+{%- import "_macros.html.j2" as ui with context -%}
+{%- set subject = "Great news from " ~ company_name ~ " — final round next" -%}
+{{ ui.page_open() }}
+{% include "_header.html.j2" %}
+{{ ui.card_open() }}
+  {{ ui.eyebrow("Final round invitation") }}
+  {{ ui.hero_title("You've cleared the CEO round 🎉") }}
+
+  <div style="font-family:{{ brand.font_stack }};font-size:15px;line-height:1.6;color:{{ brand.ink }};">
+    <p>Hi {{ candidate_name or "there" }},</p>
+
+    <p>Brilliant news — you've cleared the CEO round for the <strong>{{ role_title or "role" }}</strong> position at <strong>{{ company_name }}</strong>.</p>
+
+    <p>The only thing left is a quick final conversation with our HR team to align on offer specifics, joining timeline, and any questions you have for us. Our HR partner will reach out shortly to schedule a slot that works for you.</p>
+
+    <p style="margin-top:12px;">In the meantime, do think about:</p>
+    <ul style="margin:8px 0 8px 20px;padding:0;color:{{ brand.ink }};">
+      <li>Your earliest realistic start date</li>
+      <li>Any questions about role scope, team, or trajectory</li>
+      <li>Compensation expectations (if not already discussed)</li>
+    </ul>
+
+    <p style="margin-top:12px;">We're excited to (hopefully) have you on board.</p>
+  </div>
+
+  {{ ui.signoff(name=company_name ~ " Hiring") }}
+  {{ ui.reference_line(application_id) }}
+{{ ui.card_close() }}
+{% include "_footer.html.j2" %}
+{{ ui.page_close() }}

@@ -1,0 +1,29 @@
+{%- import "_macros.html.j2" as ui with context -%}
+{%- set subject = "Offer of employment from " ~ company_name -%}
+{{ ui.page_open() }}
+{% include "_header.html.j2" %}
+{{ ui.card_open() }}
+  {{ ui.eyebrow("Offer of employment") }}
+  {{ ui.hero_title("Welcome to " ~ company_name ~ ", " ~ (candidate_name or "") ~ "!") }}
+
+  <div style="font-family:{{ brand.font_stack }};font-size:15px;line-height:1.6;color:{{ brand.ink }};">
+    <p>Hi {{ candidate_name or "there" }},</p>
+
+    <p>It's our pleasure to extend a formal offer for the <strong>{{ role_title or "role" }}</strong> position at <strong>{{ company_name }}</strong>.</p>
+
+    {{ ui.highlight_box("<strong>Role:</strong> " ~ (role_title or "—") ~ "<br/><strong>Reporting to:</strong> the hiring manager (intro to follow)<br/><strong>Joining timeline:</strong> to be confirmed with HR", accent="info") }}
+
+    {% if offer_note %}
+      <p style="margin-top:12px;">{{ offer_note }}</p>
+    {% endif %}
+
+    <p style="margin-top:12px;">Our HR partner will follow up with the formal offer letter (including compensation breakdown, benefits, and joining details) within the next business day. Please reply to this email to confirm your interest in proceeding so we can move quickly.</p>
+
+    <p style="margin-top:12px;color:{{ brand.muted_text }};font-size:13px;">If you have any questions before then, just hit reply — we'd love to hear from you.</p>
+  </div>
+
+  {{ ui.signoff(name=company_name ~ " Hiring") }}
+  {{ ui.reference_line(application_id) }}
+{{ ui.card_close() }}
+{% include "_footer.html.j2" %}
+{{ ui.page_close() }}

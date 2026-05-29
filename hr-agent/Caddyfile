@@ -1,0 +1,106 @@
+# Caddy reverse proxy: single ngrok tunnel serves both frontend + backend.
+#
+# Architecture:
+#   Candidate browser / ElevenLabs / Twilio
+#         |
+#         v   https://chili-congested-brethren.ngrok-free.dev
+#       ngrok
+#         |
+#         v   http://host.docker.internal:8080  (or localhost:8080 from host)
+#       Caddy  (this file)
+#         |
+#         +-- /webhooks/* /dashboard/* /agentic/* /diagnostics/* /healthz
+#         |       -> backend at :8000
+#         |
+#         +-- /apply/<token>  (Accept: text/html)
+#         |       -> frontend at :3100  (renders the React form)
+#         |
+#         +-- /apply/<token>  (Accept: */* JSON)
+#         |       -> backend at :8000   (returns ApplyContext JSON)
+#         |
+#         +-- /apply/<token>/screening | /apply/<token>/assignment
+#         |       -> backend at :8000   (POST submissions)
+#         |
+#         +-- /webhooks/voice/elevenlabs etc
+#         |       -> backend at :8000
+#         |
+#         +-- everything else -> frontend at :3100  (Next.js routes)
+#
+# Run:
+#   caddy run --config "D:/HR Agent/Caddyfile"
+#
+# Then point ngrok at port 8080 (NOT 8000) so this proxy gets first crack:
+#   ngrok http --domain=chili-congested-brethren.ngrok-free.dev 8080
+
+{
+    # Disable Caddy's auto-HTTPS; ngrok terminates TLS upstream.
+    auto_https off
+    admin off
+}
+
+:8080 {
+    # ------------------------------------------------------------------
+    # Backend-only paths: APIs + webhooks + health probes.
+    # ------------------------------------------------------------------
+    @backend path /webhooks/* /dashboard/* /agentic/* /diagnostics/* /healthz /metrics /events/* /v2/chat/* /v2/* /admin/*
+    handle @backend {
+        reverse_proxy localhost:8001 {
+            header_up Host {host}
+            header_up X-Forwarded-Proto https
+            # SSE streams (chat tokens, dashboard events) need
+            # immediate flushing -- Caddy default buffers responses.
+            flush_interval -1
+        }
+    }
+
+    # ------------------------------------------------------------------
+    # /apply submissions (POST screening/assignment) -> backend.
+    # Match before the GET html-rewrite below.
+    # ------------------------------------------------------------------
+    @apply_post {
+        path /apply/*/screening /apply/*/assignment /apply/*/screening/* /apply/*/assignment/*
+    }
+    handle @apply_post {
+        reverse_proxy localhost:8001 {
+            header_up Host {host}
+            header_up X-Forwarded-Proto https
+        }
+    }
+
+    # ------------------------------------------------------------------
+    # /apply/<token> GET: HTML browsers -> frontend, JSON callers -> backend.
+    # ------------------------------------------------------------------
+    @apply_html {
+        path /apply/*
+        header Accept *text/html*
+    }
+    handle @apply_html {
+        reverse_proxy localhost:3100 {
+            header_up Host {host}
+            header_up X-Forwarded-Proto https
+        }
+    }
+    handle /apply/* {
+        reverse_proxy localhost:8001 {
+            header_up Host {host}
+            header_up X-Forwarded-Proto https
+        }
+    }
+
+    # ------------------------------------------------------------------
+    # Default: Next.js (dashboard, candidate page, settings, login, etc).
+    # ------------------------------------------------------------------
+    handle {
+        reverse_proxy localhost:3100 {
+            header_up Host {host}
+            header_up X-Forwarded-Proto https
+        }
+    }
+
+    # Optional: lightweight access logs to console for debugging.
+    log {
+        output stdout
+        format console
+        level INFO
+    }
+}

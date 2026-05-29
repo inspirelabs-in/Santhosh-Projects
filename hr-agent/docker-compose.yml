@@ -1,0 +1,161 @@
+﻿name: hiring-agent
+
+# V1 stack. Temporal + mail-poller + worker removed (pipeline runs on
+# FastAPI BackgroundTasks).
+#
+#   docker compose up -d                       # core stack
+#   docker compose --profile dev up            # + MinIO console / MailHog
+
+services:
+  # ---------------------------------------------------------------
+  # Data tier
+  # ---------------------------------------------------------------
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: hiring-agent-postgres
+    restart: unless-stopped
+    # Host 5434 -> container 5432. Avoids conflicting with a local
+    # Windows postgres-x64 service that may already own 5432/5433. Set
+    # DATABASE_URL host to localhost:5434 from the Windows host.
+    ports: ["127.0.0.1:5434:5432"]
+    environment:
+      POSTGRES_DB: hiring_agent
+      POSTGRES_USER: agent
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-agent_dev_pw}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backend/infra/docker/postgres-init.sh:/docker-entrypoint-initdb.d/10-init-multi-db.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agent -d hiring_agent"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: hiring-agent-redis
+    restart: unless-stopped
+    ports: ["127.0.0.1:6380:6379"]
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ---------------------------------------------------------------
+  # Application tier
+  # ---------------------------------------------------------------
+  backend:
+    image: hiring-agent-backend:local
+    container_name: hiring-agent-backend
+    restart: unless-stopped
+    build:
+      context: ./backend
+      dockerfile: infra/docker/Dockerfile
+    command: uvicorn src.api.main:app --host 0.0.0.0 --port 8000
+    ports: ["127.0.0.1:8001:8000"]
+    env_file: ./backend/.env
+    environment:
+      RUN_MIGRATIONS: "1"
+    volumes:
+      - ./backend/secrets:/app/secrets
+    depends_on:
+      postgres:    { condition: service_healthy }
+      redis:       { condition: service_healthy }
+      minio:       { condition: service_healthy }
+      minio-init:  { condition: service_completed_successfully }
+
+  emotion:
+    image: hiring-agent-emotion:local
+    container_name: hiring-agent-emotion
+    restart: unless-stopped
+    profiles: ["voice"]
+    build:
+      context: ./emotion-service
+      dockerfile: Dockerfile
+    env_file: ./emotion-service/.env
+    ports: ["127.0.0.1:8090:8090"]
+
+  worker:
+    image: hiring-agent-backend:local
+    container_name: hiring-agent-worker
+    restart: unless-stopped
+    build:
+      context: ./backend
+      dockerfile: infra/docker/Dockerfile
+    command: arq src.workers.main.WorkerSettings
+    env_file: ./backend/.env
+    environment:
+      ARQ_ENABLED: "1"
+    volumes:
+      - ./backend/secrets:/app/secrets
+    depends_on:
+      backend:  { condition: service_started }
+      redis:    { condition: service_healthy }
+      postgres: { condition: service_healthy }
+
+  frontend:
+    image: hiring-agent-frontend:local
+    container_name: hiring-agent-frontend
+    restart: unless-stopped
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: "https://chili-congested-brethren.ngrok-free.dev"
+    ports: ["127.0.0.1:3100:3100"]
+    depends_on:
+      backend: { condition: service_started }
+
+  # ---------------------------------------------------------------
+  # Object store (S3-compatible) + init job
+  # ---------------------------------------------------------------
+  minio:
+    image: minio/minio:latest
+    container_name: hiring-agent-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes: [miniodata:/data]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: hiring-agent-minio-init
+    depends_on:
+      minio: { condition: service_healthy }
+    entrypoint: >
+      /bin/sh -c "
+      until /usr/bin/mc alias set local http://minio:9000 minioadmin minioadmin; do sleep 1; done;
+      /usr/bin/mc mb -p local/hiring-agent-resumes || true;
+      /usr/bin/mc mb -p local/hiring-agent-consent || true;
+      exit 0
+      "
+
+  # ---------------------------------------------------------------
+  # MailHog -- captures outbound email in dev; UI at http://localhost:8025
+  # ---------------------------------------------------------------
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: hiring-agent-mailhog
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:

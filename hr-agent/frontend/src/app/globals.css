@@ -1,0 +1,359 @@
+/* Tailwind v4: single import replaces the legacy three @tailwind directives.
+   `@config` keeps our existing JS config (theme tokens, plugins) loaded so
+   the rest of the app's utility classes resolve unchanged. */
+@import "tailwindcss";
+@config "../../tailwind.config.ts";
+
+/*
+ * GrabOn Hiring -- design tokens.
+ *
+ * Source of truth: https://www.grabon.in/branding/
+ *   Brand Green        #60A600   primary CTAs, success
+ *   Brand Green Light  #D1DE31   accents, highlights, focus glow
+ *   Deep Sea Blue Dark #061A38   primary text, dark surface
+ *   Bright Blue        #2491EF   secondary, info, links
+ *   Bright Blue Dark   #3F65A9   secondary deep / hover
+ *   Light Gray         #F7F7F8   page background
+ *
+ * Semantic warning + destructive are derived (brand page does not define
+ * them). They were tuned to harmonise against Brand Green + Bright Blue.
+ */
+
+@layer base {
+  :root {
+    /* Surfaces */
+    --background: 240 6% 97%;        /* #F7F7F8 light gray */
+    --foreground: 218 80% 12%;       /* #061A38 deep sea blue */
+    --card: 0 0% 100%;               /* paper white */
+    --card-foreground: 218 80% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 218 80% 12%;
+
+    /* Brand */
+    --primary: 85 100% 33%;          /* #60A600 brand green */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 208 86% 54%;        /* #2491EF bright blue */
+    --secondary-foreground: 0 0% 100%;
+    --accent: 64 73% 53%;            /* #D1DE31 green light */
+    --accent-foreground: 218 80% 12%;
+
+    /* Semantic */
+    --success: 85 100% 33%;
+    --success-foreground: 0 0% 100%;
+    --warning: 33 87% 59%;           /* derived #F2A93B */
+    --warning-foreground: 218 80% 12%;
+    --destructive: 0 78% 57%;        /* derived #E53E3E */
+    --destructive-foreground: 0 0% 100%;
+    --info: 208 86% 54%;
+    --info-foreground: 0 0% 100%;
+
+    /* Neutrals */
+    --muted: 240 6% 94%;
+    --muted-foreground: 218 25% 35%;
+    --border: 218 18% 88%;
+    --input: 218 18% 88%;
+    --ring: 85 100% 33%;             /* brand green focus ring */
+
+    /* Brand-specific tokens (consumable as bg-brand-* via theme.extend) */
+    --brand-green: 85 100% 33%;
+    --brand-green-light: 64 73% 53%;
+    --brand-blue-deep: 218 80% 12%;
+    --brand-blue: 208 86% 54%;
+    --brand-blue-dark: 216 45% 45%;
+
+    --radius: 0.625rem;              /* 10px */
+  }
+
+  .dark {
+    --background: 218 80% 8%;        /* near-#061A38 */
+    --foreground: 240 6% 97%;
+    --card: 218 50% 14%;
+    --card-foreground: 240 6% 97%;
+    --popover: 218 50% 14%;
+    --popover-foreground: 240 6% 97%;
+
+    --primary: 85 70% 50%;
+    --primary-foreground: 218 80% 8%;
+    --secondary: 208 86% 60%;
+    --secondary-foreground: 218 80% 8%;
+    --accent: 64 73% 53%;
+    --accent-foreground: 218 80% 12%;
+
+    --success: 85 70% 50%;
+    --success-foreground: 218 80% 8%;
+    --warning: 33 87% 65%;
+    --warning-foreground: 218 80% 8%;
+    --destructive: 0 78% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --info: 208 86% 60%;
+    --info-foreground: 218 80% 8%;
+
+    --muted: 218 30% 18%;
+    --muted-foreground: 218 15% 70%;
+    --border: 218 30% 22%;
+    --input: 218 30% 22%;
+    --ring: 85 70% 50%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "ss01", "cv11";
+  }
+
+  /* Themed scrollbars: Firefox */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+
+  /* Themed scrollbars: WebKit */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--border));
+    border: 2px solid hsl(var(--background));
+    border-radius: 9999px;
+    transition: background-color 150ms ease;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground) / 0.5);
+  }
+  ::-webkit-scrollbar-thumb:active {
+    background-color: hsl(var(--primary) / 0.7);
+  }
+  ::-webkit-scrollbar-corner { background: transparent; }
+
+  .scrollbar-slim::-webkit-scrollbar { width: 6px; height: 6px; }
+  .scrollbar-slim::-webkit-scrollbar-thumb {
+    border-width: 1px;
+    background-color: hsl(var(--border));
+  }
+  .scrollbar-slim { scrollbar-width: thin; }
+
+  /* Headings: Nunito Sans tightened. GrabOn brand uses one family across
+     display + body, so we tighten letter-spacing for hierarchy instead. */
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+    letter-spacing: -0.015em;
+    color: hsl(var(--foreground));
+  }
+  h1 { line-height: 1.1; font-weight: 800; }
+  h2 { line-height: 1.15; font-weight: 700; }
+  h3 { line-height: 1.2; font-weight: 700; }
+  h4 { line-height: 1.25; font-weight: 600; }
+
+  ::selection {
+    background: hsl(var(--accent));
+    color: hsl(var(--accent-foreground));
+  }
+}
+
+@layer utilities {
+  /* Brand spec: Nunito Sans is the only family. font-display + font-mono
+     stay as utility hooks but resolve to Nunito with different weights /
+     features so callsites do not need to be rewritten. */
+  .font-display {
+    font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+    font-weight: 800;
+    letter-spacing: -0.015em;
+  }
+  .font-mono {
+    font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum", "ss01";
+  }
+
+  /* Subtle dotted texture -- light variant on background, dark variant on
+     coloured hero panels. Kept low-intensity so it never fights brand
+     colour. */
+  .grain {
+    background-image: radial-gradient(hsl(var(--brand-blue-deep) / 0.025) 1px, transparent 1px);
+    background-size: 3px 3px;
+  }
+  .grain-dark {
+    background-image: radial-gradient(hsl(var(--accent) / 0.06) 1px, transparent 1px);
+    background-size: 4px 4px;
+  }
+
+  /* Brand-green focus halo for marketing-grade buttons. */
+  .brand-glow {
+    box-shadow:
+      0 0 0 1px hsl(var(--primary) / 0.2),
+      0 8px 24px -8px hsl(var(--primary) / 0.45);
+  }
+
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      hsl(var(--muted)) 0%,
+      hsl(var(--border)) 50%,
+      hsl(var(--muted)) 100%
+    );
+    background-size: 200% 100%;
+    animation: skeleton-pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes skeleton-pulse {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+  /* Pulse premium surface tokens. Used by /dashboard chat shell. */
+  .pulse-surface {
+    background:
+      radial-gradient(at 18% -10%, hsl(var(--primary) / 0.08) 0%, transparent 45%),
+      radial-gradient(at 92% 110%, hsl(var(--secondary) / 0.06) 0%, transparent 50%),
+      linear-gradient(to bottom, hsl(var(--background)), hsl(var(--background)));
+  }
+  .pulse-glass {
+    background-color: hsl(var(--background) / 0.72);
+    backdrop-filter: saturate(140%) blur(12px);
+    -webkit-backdrop-filter: saturate(140%) blur(12px);
+  }
+  .pulse-card {
+    background-color: hsl(var(--card));
+    box-shadow:
+      0 0 0 1px hsl(var(--border) / 0.6),
+      0 1px 2px hsl(var(--brand-blue-deep) / 0.04),
+      0 12px 28px -12px hsl(var(--brand-blue-deep) / 0.10);
+  }
+  .pulse-bubble-user {
+    background: linear-gradient(135deg, hsl(var(--primary)), hsl(85 100% 28%));
+    color: hsl(var(--primary-foreground));
+    box-shadow:
+      0 1px 0 hsl(var(--primary) / 0.4) inset,
+      0 6px 24px -10px hsl(var(--primary) / 0.55);
+  }
+  .pulse-bubble-bot {
+    background: hsl(var(--card));
+    box-shadow:
+      0 0 0 1px hsl(var(--border) / 0.55),
+      0 1px 1px hsl(var(--brand-blue-deep) / 0.04),
+      0 8px 24px -12px hsl(var(--brand-blue-deep) / 0.10);
+  }
+  .pulse-glow-ring {
+    position: relative;
+  }
+  .pulse-glow-ring::before {
+    content: "";
+    position: absolute;
+    inset: -2px;
+    border-radius: inherit;
+    background: radial-gradient(circle at 50% 50%, hsl(var(--primary) / 0.55), transparent 70%);
+    opacity: 0.25;
+    filter: blur(8px);
+    pointer-events: none;
+    z-index: -1;
+  }
+  .pulse-online-dot {
+    background: hsl(var(--primary));
+    box-shadow: 0 0 0 3px hsl(var(--primary) / 0.18);
+  }
+  /* Grouped conversation list dividers */
+  .pulse-divider {
+    border-top: 1px solid hsl(var(--border) / 0.5);
+  }
+
+  .rise-in { animation: rise-in 300ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+  @keyframes rise-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .stagger > * { animation: rise-in 400ms cubic-bezier(0.22,1,0.36,1) both; }
+  .stagger > *:nth-child(1) { animation-delay: 40ms; }
+  .stagger > *:nth-child(2) { animation-delay: 100ms; }
+  .stagger > *:nth-child(3) { animation-delay: 160ms; }
+  .stagger > *:nth-child(4) { animation-delay: 220ms; }
+  .stagger > *:nth-child(5) { animation-delay: 280ms; }
+  .stagger > *:nth-child(6) { animation-delay: 340ms; }
+  .stagger > *:nth-child(7) { animation-delay: 400ms; }
+
+  .font-data {
+    font-family: var(--font-data), 'JetBrains Mono', ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .card-lift {
+    transition: transform 200ms ease, box-shadow 200ms ease;
+  }
+  .card-lift:hover {
+    transform: translateY(-2px);
+    box-shadow:
+      0 4px 16px -4px hsl(var(--brand-blue-deep) / 0.12),
+      0 1px 2px hsl(var(--brand-blue-deep) / 0.04);
+  }
+
+  .page-enter { animation: page-enter 350ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+  @keyframes page-enter {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes slide-in-right {
+    from { opacity: 0; transform: translateX(100%); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+  .slide-in-right { animation: slide-in-right 250ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+  /* Agent activity ticker: new event highlight */
+  .agent-event-enter {
+    animation: agent-event-flash 1.5s ease-out both;
+  }
+  @keyframes agent-event-flash {
+    0%   { background-color: hsl(var(--primary) / 0.12); transform: translateX(-4px); }
+    40%  { background-color: hsl(var(--primary) / 0.06); transform: translateX(0); }
+    100% { background-color: transparent; transform: translateX(0); }
+  }
+
+  /* Agent processing shimmer for candidate rows */
+  .agent-processing {
+    position: relative;
+    overflow: hidden;
+  }
+  .agent-processing::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      hsl(var(--primary) / 0.06) 50%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
+    animation: agent-shimmer 2s ease-in-out infinite;
+    pointer-events: none;
+  }
+  @keyframes agent-shimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  /* Agent status pulse for sidebar badge */
+  .agent-pulse {
+    animation: agent-pulse-glow 2s ease-in-out infinite;
+  }
+  @keyframes agent-pulse-glow {
+    0%, 100% { box-shadow: 0 0 0 0 hsl(var(--primary) / 0.3); }
+    50%      { box-shadow: 0 0 0 4px hsl(var(--primary) / 0); }
+  }
+
+  /* Toast slide-up for agent action notifications */
+  .toast-enter {
+    animation: toast-slide-up 400ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  @keyframes toast-slide-up {
+    from { opacity: 0; transform: translateY(16px) scale(0.96); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  .toast-exit {
+    animation: toast-slide-out 300ms ease-in both;
+  }
+  @keyframes toast-slide-out {
+    from { opacity: 1; transform: translateY(0) scale(1); }
+    to   { opacity: 0; transform: translateY(-8px) scale(0.96); }
+  }
+}

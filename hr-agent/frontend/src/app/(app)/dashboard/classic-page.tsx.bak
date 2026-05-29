@@ -1,0 +1,519 @@
+"use client";
+
+import useSWR from "swr";
+import Link from "next/link";
+import {
+  ArrowRight,
+  AlertCircle,
+  Briefcase,
+  PhoneCall,
+  ClipboardCheck,
+  Video,
+  Sparkles,
+  Plus,
+  Inbox,
+  CircleDashed,
+} from "lucide-react";
+
+import { Topbar } from "@/components/layout/topbar";
+import { StatusTag, STAGE_ORDER, type Stage } from "@/components/status-tag";
+import { Card, CardContent } from "@/components/ui/card";
+import { AgentActivityCard } from "@/components/agent-activity";
+import { swrFetcher } from "@/lib/api";
+import {
+  voiceCalls,
+  assessments,
+  meetings,
+  type VoiceCallListItem,
+  type AssessmentListItem,
+  type MeetingListItem,
+} from "@/lib/api/agentic";
+import { fmtRelative } from "@/lib/utils";
+
+interface StageCounts {
+  counts: Record<string, number>;
+  total: number;
+  needs_hr_review: number;
+}
+
+interface CandidateItem {
+  application_id: string;
+  candidate_id: string;
+  name: string | null;
+  email: string | null;
+  role_title: string | null;
+  current_stage: Stage;
+  screening_score: number | null;
+  updated_at: string;
+}
+
+interface CandidatePage {
+  items: CandidateItem[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export default function DashboardPage() {
+  const { data: stages } = useSWR<StageCounts>("/dashboard/v1/stages", swrFetcher, {
+    refreshInterval: 10_000,
+  });
+  const { data: reviewPage } = useSWR<CandidatePage>(
+    "/dashboard/v1/candidates?stage=needs_hr_review&limit=6",
+    swrFetcher,
+    { refreshInterval: 15_000 },
+  );
+  const { data: latestPage } = useSWR<CandidatePage>(
+    "/dashboard/v1/candidates?limit=6",
+    swrFetcher,
+    { refreshInterval: 15_000 },
+  );
+  const { data: voice } = useSWR<VoiceCallListItem[]>(
+    "/agentic/voice-calls?limit=20",
+    () => voiceCalls.list({ limit: 20 }),
+    { refreshInterval: 20_000 },
+  );
+  const { data: assess } = useSWR<AssessmentListItem[]>(
+    "/agentic/assessments?limit=20",
+    () => assessments.list({ limit: 20 }),
+    { refreshInterval: 20_000 },
+  );
+  const { data: meets } = useSWR<MeetingListItem[]>(
+    "/agentic/meetings?limit=20",
+    () => meetings.list({ limit: 20 }),
+    { refreshInterval: 20_000 },
+  );
+  const { data: rolesList } = useSWR<{ id: string; title: string; status: string }[]>(
+    "/dashboard/roles",
+    swrFetcher,
+    { refreshInterval: 30_000 },
+  );
+
+  const totalApps = stages?.total ?? 0;
+  const review = reviewPage?.items ?? [];
+  const latest = latestPage?.items ?? [];
+  const rolesCount = rolesList?.length ?? 0;
+  const noRoles = rolesList !== undefined && rolesCount === 0;
+  const empty = totalApps === 0;
+
+  // Agentic round counts
+  const voiceActive = (voice ?? []).filter((v) =>
+    ["pending", "dialing", "in_progress", "callback_requested"].includes(v.status),
+  ).length;
+  const voiceCompleted = (voice ?? []).filter((v) => v.status === "completed").length;
+  const assessActive = (assess ?? []).filter((a) =>
+    ["invited", "in_progress"].includes(a.status),
+  ).length;
+  const assessCompleted = (assess ?? []).filter((a) => a.status === "completed").length;
+  const meetActive = (meets ?? []).filter((m) =>
+    ["pending", "scheduled", "in_call"].includes(m.bot_status),
+  ).length;
+
+  return (
+    <>
+      <Topbar title="Overview" subtitle="agentic hiring at a glance" />
+      <div className="flex-1 overflow-auto bg-muted/30">
+        <div className="mx-auto max-w-7xl px-8 py-8 space-y-6">
+          {/* Hero band */}
+          <Hero
+            totalApps={totalApps}
+            needsReview={stages?.needs_hr_review ?? 0}
+            voiceActive={voiceActive}
+            assessActive={assessActive}
+            meetActive={meetActive}
+            empty={empty}
+          />
+
+          {empty ? (
+            noRoles ? <FirstRunPanel /> : <NoApplicationsPanel rolesCount={rolesCount} />
+          ) : (
+            <>
+              {/* Live agent activity */}
+              <AgentActivityCard />
+
+              {/* Funnel: compact bar chart */}
+              <FunnelBars stages={stages?.counts ?? {}} total={totalApps} />
+
+              {/* Agentic round summary */}
+              <section className="grid gap-4 lg:grid-cols-3">
+                <RoundCard
+                  icon={PhoneCall}
+                  label="Phone screens"
+                  active={voiceActive}
+                  completed={voiceCompleted}
+                  href="/voice-screens"
+                />
+                <RoundCard
+                  icon={ClipboardCheck}
+                  label="Assessments"
+                  active={assessActive}
+                  completed={assessCompleted}
+                  href="/assessments"
+                />
+                <RoundCard
+                  icon={Video}
+                  label="Meetings"
+                  active={meetActive}
+                  completed={(meets ?? []).filter((m) => m.bot_status === "done").length}
+                  href="/meetings"
+                />
+              </section>
+
+              {/* Two-up: HR queue + recent movement */}
+              <section className="grid gap-4 lg:grid-cols-2">
+                <ListCard
+                  title="Waiting on you"
+                  href="/candidates?stage=needs_hr_review"
+                  items={review}
+                  emptyText="Nothing in your queue. Agent is handling everything."
+                  emptyIcon={AlertCircle}
+                />
+                <ListCard
+                  title="Recent movement"
+                  href="/candidates"
+                  items={latest}
+                  emptyText="No applications yet."
+                  emptyIcon={Inbox}
+                />
+              </section>
+            </>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Hero
+// ---------------------------------------------------------------------------
+
+function Hero({
+  totalApps,
+  needsReview,
+  voiceActive,
+  assessActive,
+  meetActive,
+  empty,
+}: {
+  totalApps: number;
+  needsReview: number;
+  voiceActive: number;
+  assessActive: number;
+  meetActive: number;
+  empty: boolean;
+}) {
+  return (
+    <div className="relative overflow-hidden rounded-2xl bg-brand-blue-deep p-6 text-white shadow-card sm:p-8">
+      <div
+        className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-brand-green/30 blur-3xl"
+        aria-hidden
+      />
+      <div className="absolute inset-0 grain-dark" aria-hidden />
+      <div className="relative grid gap-6 lg:grid-cols-[1.4fr_2fr] lg:items-center">
+        <div>
+          <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em]">
+            <Sparkles className="h-3 w-3" />
+            Agentic hiring V2
+          </div>
+          <h1 className="mt-3 text-3xl font-extrabold tracking-tight leading-[1.05] sm:text-4xl text-white">
+            {empty ? (
+              "Start by posting a role."
+            ) : (
+              <>
+                Your pipeline,{" "}
+                <span className="text-brand-green-light">working while you sleep.</span>
+              </>
+            )}
+          </h1>
+          <p className="mt-2 max-w-md text-white/75">
+            {empty
+              ? "Create a role with a JD; the agent intakes applications, screens them by phone, ships assessments, and joins interviews."
+              : "Resume → phone screen → assessment → technical → CEO. The agent handles the rounds, you handle the calls."}
+          </p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <HeroStat label="Applications" value={totalApps} />
+          <HeroStat label="Awaiting you" value={needsReview} accent="warning" />
+          <HeroStat label="Phone screens" value={voiceActive} accent="info" sub="active" />
+          <HeroStat
+            label="Assessments + meetings"
+            value={assessActive + meetActive}
+            accent="info"
+            sub="in flight"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HeroStat({
+  label,
+  value,
+  sub,
+  accent,
+}: {
+  label: string;
+  value: number;
+  sub?: string;
+  accent?: "info" | "warning";
+}) {
+  const valueColor =
+    accent === "warning"
+      ? "text-brand-green-light"
+      : accent === "info"
+      ? "text-white"
+      : "text-white";
+  return (
+    <div className="rounded-xl bg-white/5 p-4 backdrop-blur ring-1 ring-white/10">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/55">
+        {label}
+      </p>
+      <p className={`mt-1 text-3xl font-extrabold tabular-nums ${valueColor}`}>
+        {value}
+      </p>
+      {sub ? <p className="text-[11px] text-white/55">{sub}</p> : null}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// First-run / empty state
+// ---------------------------------------------------------------------------
+
+function FirstRunPanel() {
+  return (
+    <Card>
+      <CardContent className="flex flex-col items-center gap-4 py-14 text-center">
+        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+          <Briefcase className="h-6 w-6" />
+        </div>
+        <div className="space-y-1">
+          <p className="text-lg font-bold">No roles yet</p>
+          <p className="max-w-md text-sm text-muted-foreground">
+            Post a role to start receiving applications. Once the first applicant
+            lands, you’ll see the funnel, agentic rounds, and HR queue here.
+          </p>
+        </div>
+        <Link
+          href="/roles/new"
+          className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-90"
+        >
+          <Plus className="h-4 w-4" />
+          Create your first role
+        </Link>
+      </CardContent>
+    </Card>
+  );
+}
+
+function NoApplicationsPanel({ rolesCount }: { rolesCount: number }) {
+  return (
+    <Card>
+      <CardContent className="flex flex-col items-center gap-4 py-14 text-center">
+        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+          <Inbox className="h-6 w-6" />
+        </div>
+        <div className="space-y-1">
+          <p className="text-lg font-bold">No applications yet</p>
+          <p className="max-w-md text-sm text-muted-foreground">
+            {rolesCount} role{rolesCount === 1 ? "" : "s"} live. Share the apply
+            link or wait for the IMAP poller to pick up emails. The funnel,
+            agentic rounds, and HR queue appear here as candidates land.
+          </p>
+        </div>
+        <div className="flex flex-wrap justify-center gap-2">
+          <Link
+            href="/roles"
+            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-90"
+          >
+            <Briefcase className="h-4 w-4" />
+            View roles
+          </Link>
+          <Link
+            href="/roles/new"
+            className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-4 py-2 text-sm font-semibold transition hover:bg-muted"
+          >
+            <Plus className="h-4 w-4" />
+            Add another role
+          </Link>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Funnel: horizontal bars, only show stages that have anyone in them
+// ---------------------------------------------------------------------------
+
+function FunnelBars({
+  stages,
+  total,
+}: {
+  stages: Record<string, number>;
+  total: number;
+}) {
+  const rows = STAGE_ORDER.map((s) => ({ stage: s, n: stages[s] ?? 0 }));
+  const populated = rows.filter((r) => r.n > 0);
+  const display = populated.length > 0 ? populated : rows.slice(0, 6);
+  const max = Math.max(1, ...display.map((r) => r.n));
+
+  return (
+    <Card>
+      <CardContent className="p-5">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-sm font-bold uppercase tracking-[0.12em]">Funnel</h2>
+          <span className="text-[11px] uppercase tracking-[0.15em] text-muted-foreground">
+            {total} applications · {populated.length} stages active
+          </span>
+        </div>
+        <div className="space-y-2">
+          {display.map(({ stage, n }) => {
+            const pct = (n / max) * 100;
+            return (
+              <Link
+                key={stage}
+                href={`/candidates?stage=${stage}`}
+                className="grid grid-cols-[200px_1fr_50px] items-center gap-3 rounded-md px-2 py-1.5 transition hover:bg-muted/40"
+              >
+                <StatusTag stage={stage} />
+                <div className="h-2 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full bg-primary/70 transition-[width]"
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+                <span className="text-right text-sm font-bold tabular-nums">{n}</span>
+              </Link>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Agentic round summary card
+// ---------------------------------------------------------------------------
+
+function RoundCard({
+  icon: Icon,
+  label,
+  active,
+  completed,
+  href,
+}: {
+  icon: typeof PhoneCall;
+  label: string;
+  active: number;
+  completed: number;
+  href: string;
+}) {
+  const empty = active === 0 && completed === 0;
+  return (
+    <Link href={href} className="block">
+      <Card className="h-full transition hover:border-primary/40 hover:shadow-pop">
+        <CardContent className="space-y-3 p-5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Icon className="h-4 w-4 text-primary" />
+              <p className="text-sm font-bold">{label}</p>
+            </div>
+            <ArrowRight className="h-4 w-4 text-muted-foreground" />
+          </div>
+          {empty ? (
+            <div className="flex items-center gap-2 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+              <CircleDashed className="h-3.5 w-3.5" />
+              None yet — dispatched rounds will land here.
+            </div>
+          ) : (
+            <div className="flex items-baseline gap-4">
+              <div>
+                <p className="text-3xl font-extrabold tabular-nums text-primary">
+                  {active}
+                </p>
+                <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
+                  active
+                </p>
+              </div>
+              <div>
+                <p className="text-3xl font-extrabold tabular-nums text-foreground/70">
+                  {completed}
+                </p>
+                <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
+                  completed
+                </p>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </Link>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// List card (HR queue + recent)
+// ---------------------------------------------------------------------------
+
+function ListCard({
+  title,
+  href,
+  items,
+  emptyText,
+  emptyIcon: EmptyIcon,
+}: {
+  title: string;
+  href: string;
+  items: CandidateItem[];
+  emptyText: string;
+  emptyIcon: typeof Inbox;
+}) {
+  return (
+    <Card>
+      <CardContent className="p-0">
+        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+          <h2 className="text-sm font-bold uppercase tracking-[0.12em]">{title}</h2>
+          <Link
+            href={href}
+            className="text-[11px] uppercase tracking-[0.15em] text-muted-foreground hover:text-foreground"
+          >
+            view all →
+          </Link>
+        </div>
+        {items.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 p-10 text-center text-sm text-muted-foreground">
+            <EmptyIcon className="h-5 w-5" />
+            <span>{emptyText}</span>
+          </div>
+        ) : (
+          <ul className="divide-y divide-border">
+            {items.map((c) => (
+              <li key={c.application_id}>
+                <Link
+                  href={`/candidates/${c.application_id}`}
+                  className="flex items-center gap-3 px-5 py-3 transition hover:bg-muted/40"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-bold">
+                      {c.name ?? c.email ?? "Unnamed"}
+                    </p>
+                    <p className="truncate text-[11px] text-muted-foreground">
+                      {c.role_title ?? "—"} · {fmtRelative(c.updated_at)}
+                    </p>
+                  </div>
+                  <StatusTag stage={c.current_stage} />
+                  <ArrowRight className="h-4 w-4 text-muted-foreground" />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+}

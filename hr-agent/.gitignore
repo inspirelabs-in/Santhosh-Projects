@@ -1,0 +1,46 @@
+# Root-level ignores (frontend + backend each have their own too)
+.DS_Store
+.idea/
+.vscode/
+*.log
+
+# Never commit any of these at any level
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.local.example
+
+# Python
+**/__pycache__/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.venv/
+
+# Node
+**/node_modules/
+**/.next/
+
+# Docker volumes mounted during local dev
+pgdata/
+redisdata/
+
+# Secrets and credentials
+backend/secrets/
+CREDENTIALS.md
+
+# Internal planning docs
+PLAN_PULSE.md
+
+# Generated / local-only
+graphify-out/
+.agents/
+.claude/
+
+# Skill archive + source
+hiring-agent-skill.skill
+hiring-agent-skill/
+
+# Caddy dev logs
+caddy.err
+caddy.out

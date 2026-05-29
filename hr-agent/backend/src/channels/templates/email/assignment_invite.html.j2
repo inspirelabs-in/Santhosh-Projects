@@ -1,0 +1,43 @@
+{%- import "_macros.html.j2" as ui with context -%}
+{%- set subject = "Next step: assignment for " ~ role_title ~ " at GrabOn" -%}
+{{ ui.page_open() }}
+{% include "_header.html.j2" %}
+{{ ui.card_open() }}
+  {{ ui.eyebrow("You cleared screening -- nice.") }}
+  {{ ui.hero_title("Hi " ~ (candidate_name or "there") ~ ", here is the take-home.") }}
+  {{ ui.paragraph("Thanks for completing the screening for the <strong>" ~ role_title ~ "</strong> role. The next step is a short take-home assignment.") }}
+
+  <p style="margin:22px 0 8px 0;font-family:{{ brand.font_stack }};font-size:13px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:{{ brand.primary }};">
+    The assignment
+  </p>
+  <div style="white-space:pre-wrap;background:{{ brand.surface }};padding:14px 16px;border-radius:8px;border:1px solid {{ brand.border }};font-family:{{ brand.font_stack }};font-size:14px;line-height:1.6;color:{{ brand.ink }};">{{ assignment_brief }}</div>
+
+  {% if assignment_instructions %}
+  <p style="margin:22px 0 8px 0;font-family:{{ brand.font_stack }};font-size:13px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:{{ brand.primary }};">
+    Instructions
+  </p>
+  <div style="white-space:pre-wrap;background:{{ brand.surface }};padding:14px 16px;border-radius:8px;border:1px solid {{ brand.border }};font-family:{{ brand.font_stack }};font-size:14px;line-height:1.6;color:{{ brand.ink }};">{{ assignment_instructions }}</div>
+  {% endif %}
+
+  {% if problem_doc_filename %}
+    {{ ui.highlight_box("The full problem statement is attached to this email (<strong>" ~ problem_doc_filename ~ "</strong>).", accent="info") }}
+  {% endif %}
+
+  <p style="margin:22px 0 8px 0;font-family:{{ brand.font_stack }};font-size:13px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:{{ brand.primary }};">
+    Submission format
+  </p>
+  <ul style="margin:0 0 14px 18px;padding:0;font-family:{{ brand.font_stack }};font-size:14px;line-height:1.7;color:{{ brand.ink }};">
+    <li><strong>GitHub repo</strong> -- public, with a README explaining setup.</li>
+    <li><strong>Loom walkthrough</strong> -- video demonstrating your build.</li>
+  </ul>
+
+  {{ ui.highlight_box("<strong>Deadline:</strong> please submit by <strong>" ~ deadline_at ~ "</strong> (" ~ deadline_days ~ " days from today).", accent="primary") }}
+
+  {{ ui.cta_button(upload_url, "Submit assignment", accent="primary") }}
+  {{ ui.fallback_link(upload_url) }}
+
+  {{ ui.reference_line(application_id) }}
+  {{ ui.signoff() }}
+{{ ui.card_close() }}
+{% include "_footer.html.j2" %}
+{{ ui.page_close() }}

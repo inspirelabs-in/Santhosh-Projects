@@ -1,0 +1,21 @@
+{%- import "_macros.html.j2" as ui with context -%}
+{%- set subject = "An offer from " ~ brand.org_name ~ " -- " ~ (role_title or "your role") -%}
+{{ ui.page_open() }}
+{% include "_header.html.j2" %}
+{{ ui.card_open() }}
+  {{ ui.eyebrow("Offer") }}
+  {{ ui.hero_title("Welcome to the team, " ~ (candidate_name or "there") ~ ".") }}
+
+  <div style="font-family:{{ brand.font_stack }};font-size:15px;line-height:1.6;color:{{ brand.ink }};">
+    <p>You cleared every round. We'd like to extend an offer for the <strong>{{ role_title or "role" }}</strong> position.</p>
+    {% if notes %}
+      <p style="margin-top:8px;color:{{ brand.muted_text }};">{{ notes }}</p>
+    {% endif %}
+    <p>HR will reach out shortly with next steps and paperwork.</p>
+  </div>
+
+  {{ ui.signoff() }}
+  {{ ui.reference_line(application_id) }}
+{{ ui.card_close() }}
+{% include "_footer.html.j2" %}
+{{ ui.page_close() }}

@@ -1,0 +1,27 @@
+{%- import "_macros.html.j2" as ui with context -%}
+{%- set subject = "Action needed: " ~ (round_label or "Round") ~ " review for " ~ (candidate_name or "candidate") -%}
+{{ ui.page_open() }}
+{% include "_header.html.j2" %}
+{{ ui.card_open() }}
+  {{ ui.eyebrow("Admin review required") }}
+  {{ ui.hero_title((round_label or "Round") ~ " complete -- ready for your review") }}
+
+  <div style="font-family:{{ brand.font_stack }};font-size:15px;line-height:1.6;color:{{ brand.ink }};">
+    <p><strong>{{ candidate_name or "Candidate" }}</strong> has completed the {{ round_label or "round" }} stage.</p>
+    {% if overall_score is not none %}
+      <p>Agent verdict: <strong>{{ verdict or "n/a" }}</strong> &middot; Overall: <strong>{{ overall_score }}/100</strong></p>
+    {% endif %}
+    {% if summary %}
+      <p style="margin-top:8px;color:{{ brand.muted_text }};">{{ summary }}</p>
+    {% endif %}
+  </div>
+
+  {% if review_url %}
+    {{ ui.cta_button(review_url, "Review " ~ (candidate_name or "candidate")) }}
+  {% endif %}
+
+  {{ ui.signoff() }}
+  {{ ui.reference_line(application_id) }}
+{{ ui.card_close() }}
+{% include "_footer.html.j2" %}
+{{ ui.page_close() }}

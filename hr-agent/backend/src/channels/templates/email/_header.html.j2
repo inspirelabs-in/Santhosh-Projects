@@ -1,0 +1,29 @@
+{# Brand header: green bar + logo. Used as the first row inside <body>.
+   All inline styles -- email clients ignore <style> blocks intermittently. #}
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+  style="background:{{ brand.surface }};">
+  <tr>
+    <td align="center" style="padding:24px 16px 0 16px;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0"
+        width="100%" style="max-width:560px;">
+        <tr>
+          <td align="left" style="padding-bottom:18px;">
+            <a href="https://www.grabon.in" style="text-decoration:none;display:inline-block;">
+              <img src="{{ brand.logo_url }}" alt="GrabOn" width="132" height="36"
+                style="display:block;border:0;outline:none;text-decoration:none;height:auto;max-width:132px;" />
+            </a>
+          </td>
+          <td align="right" style="padding-bottom:18px;">
+            <span style="font-family:{{ brand.font_stack }};font-size:10px;letter-spacing:2px;
+              text-transform:uppercase;color:{{ brand.muted_text }};font-weight:700;">
+              {{ brand.tagline }}
+            </span>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+  <tr>
+    <td style="height:3px;background:{{ brand.primary }};line-height:3px;font-size:0;">&nbsp;</td>
+  </tr>
+</table>

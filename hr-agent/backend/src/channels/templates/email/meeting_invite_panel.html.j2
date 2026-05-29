@@ -1,0 +1,22 @@
+{%- import "_macros.html.j2" as ui with context -%}
+{%- set subject = round_label ~ " interview · " ~ candidate_name ~ " · " ~ role_title -%}
+{{ ui.page_open() }}
+{% include "_header.html.j2" %}
+{{ ui.card_open() }}
+  {{ ui.eyebrow(round_label ~ " interview -- panel") }}
+  {{ ui.hero_title(candidate_name ~ " is booked.") }}
+  {{ ui.paragraph("<strong>" ~ candidate_name ~ "</strong> (" ~ candidate_email ~ ") is booked for the <strong>" ~ round_label ~ " interview</strong> on the <strong>" ~ role_title ~ "</strong> role:") }}
+  {{ ui.highlight_box("<strong>" ~ slot_human ~ "</strong><br/>Duration: " ~ duration_minutes ~ " minutes", accent="info") }}
+  {{ ui.cta_button(teams_link, "Join the Teams meeting", accent="info") }}
+  {{ ui.fallback_link(teams_link) }}
+
+  <p style="margin:18px 0 0 0;font-family:{{ brand.font_stack }};font-size:13px;color:{{ brand.muted_text }};line-height:1.5;">
+    The candidate gets a separate confirmation call from the AI assistant. If
+    they request a different time we will reschedule and send a fresh invite --
+    treat this slot as tentative until you see a follow-up email.
+  </p>
+
+  {{ ui.signoff(name=company_name ~ " Hiring Agent") }}
+{{ ui.card_close() }}
+{% include "_footer.html.j2" %}
+{{ ui.page_close() }}

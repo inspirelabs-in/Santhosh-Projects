@@ -1,0 +1,36 @@
+{%- import "_macros.html.j2" as ui with context -%}
+{%- set subject = "HR round: " ~ (candidate_name or "candidate") ~ " — schedule final conversation" -%}
+{{ ui.page_open() }}
+{% include "_header.html.j2" %}
+{{ ui.card_open() }}
+  {{ ui.eyebrow("HR round — final conversation") }}
+  {{ ui.hero_title((candidate_name or "Candidate") ~ " has cleared CEO review") }}
+
+  <div style="font-family:{{ brand.font_stack }};font-size:15px;line-height:1.6;color:{{ brand.ink }};">
+    <p><strong>{{ candidate_name or "Candidate" }}</strong> ({{ candidate_email or "" }}) has been approved by the CEO for the <strong>{{ role_title or "role" }}</strong> position and is ready for the final HR round.</p>
+
+    {% if ceo_decision_actor %}
+      <p style="color:{{ brand.muted_text }};">CEO sign-off: <strong>{{ ceo_decision_actor }}</strong>{% if ceo_decision_note %} — "{{ ceo_decision_note }}"{% endif %}</p>
+    {% endif %}
+
+    {% if fit_score is not none %}
+      <p>Agent fit score: <strong>{{ fit_score }}/100</strong>{% if fit_tier %} &middot; tier <strong>{{ fit_tier }}</strong>{% endif %}</p>
+    {% endif %}
+
+    <p style="margin-top:12px;">Please reach out to the candidate to schedule the HR conversation (offer alignment, joining timeline, comp confirmation), then either:</p>
+    <ul style="margin:8px 0 8px 20px;padding:0;color:{{ brand.ink }};">
+      <li><strong>Extend offer</strong> — sends the offer email and marks the candidate as hired.</li>
+      <li><strong>Reject</strong> — closes the application with a polite rejection email.</li>
+    </ul>
+  </div>
+
+  {% if review_url %}
+    {{ ui.cta_button(review_url, "Open HR dashboard") }}
+    {{ ui.fallback_link(review_url) }}
+  {% endif %}
+
+  {{ ui.signoff(name=company_name ~ " Hiring Agent") }}
+  {{ ui.reference_line(application_id) }}
+{{ ui.card_close() }}
+{% include "_footer.html.j2" %}
+{{ ui.page_close() }}

@@ -1,0 +1,19 @@
+{%- import "_macros.html.j2" as ui with context -%}
+{%- set subject = ("Final reminder: " if is_final else "Reminder: ") ~ "screening for " ~ role_title -%}
+{{ ui.page_open() }}
+{% include "_header.html.j2" %}
+{{ ui.card_open() }}
+  {{ ui.eyebrow("Action needed -- 5 minutes") }}
+  {{ ui.hero_title("Your screening is still pending.") }}
+  {{ ui.paragraph("Hi " ~ (candidate_name or "there") ~ ", a quick nudge on your screening for the <strong>" ~ role_title ~ "</strong> role. It takes about 5 minutes and unlocks the next stage of the process.") }}
+  {% if is_final %}
+    {{ ui.highlight_box("<strong>This is the final reminder.</strong> The link expires on " ~ expires_at ~ ".", accent="info") }}
+  {% else %}
+    {{ ui.highlight_box("Link expires on " ~ expires_at ~ ".", accent="primary") }}
+  {% endif %}
+  {{ ui.cta_button(form_url, "Complete screening", accent="primary") }}
+  {{ ui.fallback_link(form_url) }}
+  {{ ui.signoff() }}
+{{ ui.card_close() }}
+{% include "_footer.html.j2" %}
+{{ ui.page_close() }}

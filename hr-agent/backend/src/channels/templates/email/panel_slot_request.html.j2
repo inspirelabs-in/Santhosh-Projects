@@ -1,0 +1,19 @@
+{%- import "_macros.html.j2" as ui with context -%}
+{%- set subject = "Interview scheduling — please share your availability" -%}
+{{ ui.page_open() }}
+{% include "_header.html.j2" %}
+{{ ui.card_open() }}
+  {{ ui.eyebrow("Interview scheduling") }}
+  {{ ui.hero_title("Hi " ~ (panel_name or "there") ~ ".") }}
+  {{ ui.paragraph("We're scheduling a <strong>" ~ (round or "interview") ~ "</strong> round for <strong>" ~ (candidate_name or "a candidate") ~ "</strong> applying for the <strong>" ~ (role_title or "open role") ~ "</strong> position.") }}
+  {{ ui.paragraph("We couldn't find a free slot that works for everyone. Could you reply with a few time slots that work for you over the next week?") }}
+  {% if review_url %}
+    {{ ui.cta_button("View candidate profile", review_url) }}
+  {% endif %}
+  {{ ui.signoff(name="GrabOn Hiring Agent") }}
+  {% if application_id %}
+    {{ ui.reference_line(application_id) }}
+  {% endif %}
+{{ ui.card_close() }}
+{% include "_footer.html.j2" %}
+{{ ui.page_close() }}

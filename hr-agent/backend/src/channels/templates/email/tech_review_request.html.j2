@@ -1,0 +1,36 @@
+{%- import "_macros.html.j2" as ui with context -%}
+{%- set subject = "Tech review: " ~ (candidate_name or "candidate") ~ " — confirm CEO interview slot" -%}
+{{ ui.page_open() }}
+{% include "_header.html.j2" %}
+{{ ui.card_open() }}
+  {{ ui.eyebrow("Technical panel — review needed") }}
+  {{ ui.hero_title((candidate_name or "Candidate") ~ " is ready for tech panel review") }}
+
+  <div style="font-family:{{ brand.font_stack }};font-size:15px;line-height:1.6;color:{{ brand.ink }};">
+    <p><strong>{{ candidate_name or "Candidate" }}</strong> ({{ candidate_email or "" }}) has submitted the assignment for the <strong>{{ role_title or "role" }}</strong> position. The agent has parsed the submission and prepared a journey report.</p>
+
+    <p>Please review the journey report on the dashboard, then either:</p>
+    <ul style="margin:8px 0 8px 20px;padding:0;color:{{ brand.ink }};">
+      <li><strong>Advance to CEO round</strong> — and reply to this email with 2–3 date/time options for the CEO interview (we'll coordinate from there).</li>
+      <li><strong>Reject</strong> — if the assignment doesn't meet the bar.</li>
+    </ul>
+
+    {% if fit_score is not none %}
+      <p style="margin-top:12px;">Agent fit score: <strong>{{ fit_score }}/100</strong>{% if fit_tier %} &middot; tier <strong>{{ fit_tier }}</strong>{% endif %}</p>
+    {% endif %}
+  </div>
+
+  {% if review_url %}
+    {{ ui.cta_button(review_url, "Open candidate in dashboard") }}
+    {{ ui.fallback_link(review_url) }}
+  {% endif %}
+
+  <p style="margin:18px 0 0 0;font-family:{{ brand.font_stack }};font-size:13px;color:{{ brand.muted_text }};line-height:1.5;">
+    Once you confirm a slot, we'll book the CEO meeting and dispatch the AI notetaker automatically.
+  </p>
+
+  {{ ui.signoff(name=company_name ~ " Hiring Agent") }}
+  {{ ui.reference_line(application_id) }}
+{{ ui.card_close() }}
+{% include "_footer.html.j2" %}
+{{ ui.page_close() }}

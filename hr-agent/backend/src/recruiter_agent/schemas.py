@@ -1,0 +1,497 @@
+"""OpenAI-format tool schemas exposed to the recruiter agent."""
+
+from __future__ import annotations
+
+RECRUITER_TOOLS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "list_candidates",
+            "description": "List recent candidate applications. Filter by stage, role, recency. Use when the user asks to see candidates, applicants, the pipeline, or recent applications.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "stage": {
+                        "type": "string",
+                        "description": "Pipeline stage to filter by (e.g. applied, screening_sent, screening_evaluated, assignment_sent, assignment_submitted, hired, rejected, needs_hr_review).",
+                    },
+                    "role_id": {"type": "string", "description": "Role UUID to filter by."},
+                    "days_since_applied": {
+                        "type": "integer",
+                        "description": "Only show candidates who applied within the last N days.",
+                    },
+                    "limit": {"type": "integer", "default": 25, "minimum": 1, "maximum": 100},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_candidate",
+            "description": "Full candidate detail: stage, screening summary, assignment, links. Use when the user asks for a specific candidate's status / details / journey.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "application_id": {"type": "string", "description": "Application UUID."}
+                },
+                "required": ["application_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_roles",
+            "description": "List open roles + applicant counts. Use when the user asks about roles / job openings / postings.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "status": {"type": "string", "description": "open | closed | draft"},
+                    "limit": {"type": "integer", "default": 50},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "pipeline_metrics",
+            "description": "Counts of applications per stage + last-7-day inflow. Use for dashboard-style overviews ('what does the pipeline look like?', 'how many candidates are stuck?').",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "stuck_applications",
+            "description": "Applications that haven't moved in N hours. Use for 'who's stuck?', 'what needs attention?'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "hours": {"type": "integer", "default": 48, "minimum": 1},
+                    "limit": {"type": "integer", "default": 25},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "trigger_chat_invite",
+            "description": "Re-send the V2 chat-invite email to a candidate. Use when the user explicitly asks to nudge a candidate, re-send their link, or kick off chat for an application that didn't get one.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "application_id": {"type": "string"},
+                },
+                "required": ["application_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "audit_tail",
+            "description": "Recent audit-log entries. Use for 'what has the agent done?', 'show recent activity', 'why did X happen?'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "application_id": {"type": "string", "description": "Filter to one application."},
+                    "limit": {"type": "integer", "default": 20},
+                },
+                "required": [],
+            },
+        },
+    },
+    # ---------------- Phase 1 write tools ----------------
+    {
+        "type": "function",
+        "function": {
+            "name": "search_candidates",
+            "description": "Free-text search over candidate name / email / role title. Use when the user names someone or partially identifies them.",
+            "parameters": {
+                "type": "object",
+                "properties": {"query": {"type": "string"}, "limit": {"type": "integer", "default": 25}},
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_role",
+            "description": "Create a new open role. Use when the user asks to add a role, post a job, onboard a position. Requires confirmation.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "jd_text": {"type": "string", "description": "Job description, plain text or markdown."},
+                    "ctc_min_lpa": {"type": "number"},
+                    "ctc_max_lpa": {"type": "number"},
+                    "location": {"type": "string"},
+                    "remote_policy": {"type": "string", "enum": ["on_site", "hybrid", "remote"]},
+                    "max_notice_days": {"type": "integer"},
+                    "screening_modality": {"type": "string", "enum": ["chat", "voice"], "default": "chat"},
+                },
+                "required": ["title", "jd_text"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_role",
+            "description": "Patch an existing role. Use for edits to JD, CTC, location, etc. Requires confirmation.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "role_id": {"type": "string"},
+                    "title": {"type": "string"},
+                    "jd_text": {"type": "string"},
+                    "ctc_min_lpa": {"type": "number"},
+                    "ctc_max_lpa": {"type": "number"},
+                    "location": {"type": "string"},
+                    "remote_policy": {"type": "string"},
+                    "max_notice_days": {"type": "integer"},
+                    "screening_modality": {"type": "string", "enum": ["chat", "voice"]},
+                    "status": {"type": "string", "enum": ["open", "closed", "draft"]},
+                },
+                "required": ["role_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "archive_role",
+            "description": "Close a role (status -> closed). Requires confirmation.",
+            "parameters": {
+                "type": "object",
+                "properties": {"role_id": {"type": "string"}},
+                "required": ["role_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_role_assignment_brief",
+            "description": "Set or replace the take-home assignment brief for a role. Requires confirmation.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "role_id": {"type": "string"},
+                    "assignment_brief": {"type": "string"},
+                    "assignment_instructions": {"type": "string"},
+                    "assignment_deadline_days": {"type": "integer"},
+                },
+                "required": ["role_id", "assignment_brief"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "override_stage",
+            "description": "HR override: force a candidate's pipeline stage (rejected, hired, advance, parking). Requires confirmation. Bypasses normal transition rules.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "application_id": {"type": "string"},
+                    "to_stage": {"type": "string", "description": "PipelineStage enum value."},
+                    "reason": {"type": "string"},
+                },
+                "required": ["application_id", "to_stage"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "send_custom_email",
+            "description": "Send a one-off email to a candidate (re-engage, ask for clarification, etc.). Uses configured email channel. Requires confirmation.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "application_id": {"type": "string"},
+                    "subject": {"type": "string"},
+                    "body_markdown": {"type": "string"},
+                },
+                "required": ["application_id", "subject", "body_markdown"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_candidate_note",
+            "description": "Append a recruiter note to an application's audit log. Use for private commentary HR wants to keep.",
+            "parameters": {
+                "type": "object",
+                "properties": {"application_id": {"type": "string"}, "note": {"type": "string"}},
+                "required": ["application_id", "note"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "schedule_interview",
+            "description": "Persist an interview slot HR has already agreed with the candidate. For finding slots from scratch use propose_slots first. Requires confirmation.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "application_id": {"type": "string"},
+                    "scheduled_at": {"type": "string", "description": "ISO-8601 UTC timestamp."},
+                    "meeting_link": {"type": "string"},
+                },
+                "required": ["application_id", "scheduled_at"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_slots",
+            "description": "Generate candidate interview slots based on panel availability. Read-only; HR confirms one of the slots, then schedule_interview.",
+            "parameters": {
+                "type": "object",
+                "properties": {"application_id": {"type": "string"}, "count": {"type": "integer", "default": 3}},
+                "required": ["application_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_panel_member",
+            "description": "Assign a panel member to a role for a given round (technical | hr | ceo). Requires confirmation.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "role_id": {"type": "string"},
+                    "panel_member_id": {"type": "string"},
+                    "round": {"type": "string", "enum": ["technical", "hr", "ceo"]},
+                },
+                "required": ["role_id", "panel_member_id", "round"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_candidates",
+            "description": "(duplicate dropped, see above)",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_journey_report",
+            "description": "Return the full markdown journey report for an application (built post-screening / interviews).",
+            "parameters": {
+                "type": "object",
+                "properties": {"application_id": {"type": "string"}},
+                "required": ["application_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "metrics_period",
+            "description": "Funnel for the last N days. For the all-time pipeline use pipeline_metrics.",
+            "parameters": {
+                "type": "object",
+                "properties": {"days": {"type": "integer", "default": 30}},
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_meetings",
+            "description": "Recent / upcoming Teams or in-person interview meetings.",
+            "parameters": {
+                "type": "object",
+                "properties": {"days": {"type": "integer", "default": 14}, "limit": {"type": "integer"}},
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_voice_calls",
+            "description": "Recent AI phone-screen voice calls.",
+            "parameters": {
+                "type": "object",
+                "properties": {"days": {"type": "integer", "default": 14}, "limit": {"type": "integer"}},
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_audit",
+            "description": "Audit log for ONE application (deeper than audit_tail).",
+            "parameters": {
+                "type": "object",
+                "properties": {"application_id": {"type": "string"}, "limit": {"type": "integer", "default": 30}},
+                "required": ["application_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_setting",
+            "description": "Admin-only. Write a runtime config-settings key. Use sparingly. Requires confirmation.",
+            "parameters": {
+                "type": "object",
+                "properties": {"key": {"type": "string"}, "value": {}},
+                "required": ["key", "value"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "parse_attachment",
+            "description": "Parse a PDF/DOCX/text file (by R2 file_ref returned from /upload) or fetch + clean a whitelisted URL. Returns the extracted text the agent can feed to create_role / get_candidate / etc.",
+            "parameters": {
+                "type": "object",
+                "properties": {"file_ref": {"type": "string"}, "url": {"type": "string"}},
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "remember",
+            "description": "Long-term per-recruiter memory write. Use ONLY when the user explicitly asks you to remember something or makes a clear standing preference. NEVER auto-remember chat content.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "key": {"type": "string", "description": "stable.dotted.key"},
+                    "value": {},
+                    "scope": {"type": "string", "default": "self"},
+                },
+                "required": ["key", "value"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_role_with_assignment",
+            "description": "PREFERRED tool for 'create a role'. One-shot: creates the role AND drafts + persists a take-home with N problems (default 2). Single confirm card shows both. Use this whenever the user asks for a new role -- skip the separate create_role + generate_assignment_for_role calls.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "jd_text": {"type": "string"},
+                    "n_problems": {"type": "integer", "default": 2, "minimum": 1, "maximum": 8},
+                    "ctc_min_lpa": {"type": "number"},
+                    "ctc_max_lpa": {"type": "number"},
+                    "location": {"type": "string"},
+                    "remote_policy": {"type": "string", "enum": ["on_site", "hybrid", "remote"]},
+                    "max_notice_days": {"type": "integer"},
+                    "screening_modality": {"type": "string", "enum": ["chat", "voice"], "default": "chat"},
+                    "time_budget_hours": {"type": "integer", "default": 6},
+                    "deadline_days": {"type": "integer", "default": 7},
+                },
+                "required": ["title", "jd_text"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_assignment_for_role",
+            "description": "Draft a take-home assignment with N distinct problems for a given role. Pulls JD from the role row. Default n_problems=2, time_budget_hours=6, deadline_days=7. Set save=true ONLY after the user confirmed; default false (preview).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "role_id": {"type": "string"},
+                    "n_problems": {"type": "integer", "default": 2, "minimum": 1, "maximum": 8},
+                    "time_budget_hours": {"type": "integer", "default": 6},
+                    "deadline_days": {"type": "integer", "default": 7},
+                    "save": {"type": "boolean", "default": False},
+                },
+                "required": ["role_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "draft_linkedin_post",
+            "description": "Draft a punchy founder-voice LinkedIn post for a role opening. Either role_id or role_title required. Optional 'angle' is a hook ('vibe coders', 'founder's office', etc). Returns {text, hashtags, char_count}. Does NOT publish.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "role_id": {"type": "string"},
+                    "role_title": {"type": "string"},
+                    "angle": {"type": "string"},
+                    "apply_url": {"type": "string"},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "publish_linkedin_post",
+            "description": "Publish a text post to LinkedIn on the configured author URN. Confirm-gated. Requires LINKEDIN_ACCESS_TOKEN + LINKEDIN_AUTHOR_URN env vars. Use draft_linkedin_post first to produce the body, then call this with the approved text.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "minLength": 80, "maxLength": 3000},
+                    "visibility": {"type": "string", "enum": ["PUBLIC", "CONNECTIONS"], "default": "PUBLIC"},
+                },
+                "required": ["text"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "smart_defaults_for_role",
+            "description": "Compute sensible defaults (CTC band, location, remote policy, screening modality, JD skeleton) for a new role based on seniority hints in the title and the closest existing role. Call this BEFORE create_role so you can fill in the create_role args without asking the user.",
+            "parameters": {
+                "type": "object",
+                "properties": {"title": {"type": "string"}},
+                "required": ["title"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "recall",
+            "description": "List the recruiter's stored memory entries (optionally filtered by key prefix).",
+            "parameters": {
+                "type": "object",
+                "properties": {"prefix": {"type": "string"}, "limit": {"type": "integer", "default": 50}},
+                "required": [],
+            },
+        },
+    },
+]
+
+
+# Drop the duplicate placeholder schema (some servers reject duplicates).
+RECRUITER_TOOLS = [t for i, t in enumerate(RECRUITER_TOOLS) if not (
+    t.get("function", {}).get("name") == "search_candidates"
+    and t["function"].get("description", "").startswith("(duplicate")
+)]

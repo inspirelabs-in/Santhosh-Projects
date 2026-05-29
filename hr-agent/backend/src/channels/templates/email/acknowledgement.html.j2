@@ -1,0 +1,28 @@
+{%- import "_macros.html.j2" as ui with context -%}
+{%- set subject = "Application received -- " ~ role_title ~ " at GrabOn (Ref: " ~ reference_id ~ ")" -%}
+{{ ui.page_open() }}
+{% include "_header.html.j2" %}
+{{ ui.card_open() }}
+  {{ ui.eyebrow("Application received") }}
+  {{ ui.hero_title("Thanks for applying, " ~ (candidate_name or "there") ~ ".") }}
+  {{ ui.paragraph("We have your application for the <strong>" ~ role_title ~ "</strong> role at GrabOn. The agent has logged it and will move it through screening over the next 3-5 business days.") }}
+
+  {{ ui.highlight_box("<strong>Application reference:</strong> " ~ reference_id ~ "<br/><strong>Received:</strong> " ~ received_at, accent="primary") }}
+
+  <p style="margin:18px 0 8px 0;font-family:{{ brand.font_stack }};font-size:13px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:{{ brand.muted_text }};">
+    What happens next
+  </p>
+  <ul style="margin:0 0 16px 18px;padding:0;font-family:{{ brand.font_stack }};font-size:14px;line-height:1.7;color:{{ brand.ink }};">
+    <li>If shortlisted, you receive a brief screening questionnaire.</li>
+    <li>Then a short AI phone screen on the role.</li>
+    <li>Assessments and interviews follow only if the earlier stages clear.</li>
+  </ul>
+
+  <p style="margin:14px 0 0 0;font-family:{{ brand.font_stack }};font-size:13px;color:{{ brand.muted_text }};line-height:1.6;">
+    This application is processed with AI assistance. A human recruiter reviews every outcome before it is communicated.
+  </p>
+
+  {{ ui.signoff() }}
+{{ ui.card_close() }}
+{% include "_footer.html.j2" %}
+{{ ui.page_close() }}

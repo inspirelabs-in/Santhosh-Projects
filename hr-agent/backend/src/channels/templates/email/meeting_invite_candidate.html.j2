@@ -1,0 +1,21 @@
+{%- import "_macros.html.j2" as ui with context -%}
+{%- set subject = round_label ~ " interview · " ~ role_title ~ " at " ~ company_name -%}
+{{ ui.page_open() }}
+{% include "_header.html.j2" %}
+{{ ui.card_open() }}
+  {{ ui.eyebrow(round_label ~ " interview") }}
+  {{ ui.hero_title("Hi " ~ (candidate_name or "there") ~ ", you are scheduled.") }}
+  {{ ui.paragraph("Your <strong>" ~ round_label ~ " interview</strong> for the <strong>" ~ role_title ~ "</strong> role at " ~ company_name ~ " is scheduled for:") }}
+  {{ ui.highlight_box("<strong>" ~ slot_human ~ "</strong><br/>Duration: " ~ duration_minutes ~ " minutes", accent="primary") }}
+  {{ ui.cta_button(teams_link, "Join the Teams meeting", accent="primary") }}
+  {{ ui.fallback_link(teams_link) }}
+
+  <p style="margin:18px 0 0 0;font-family:{{ brand.font_stack }};font-size:13px;color:{{ brand.muted_text }};line-height:1.5;">
+    Our AI hiring assistant will call you shortly to confirm this time. If it
+    doesn't work, just say so on the call and we'll pick a new one.
+  </p>
+
+  {{ ui.signoff(name=company_name ~ " Talent Acquisition") }}
+{{ ui.card_close() }}
+{% include "_footer.html.j2" %}
+{{ ui.page_close() }}
