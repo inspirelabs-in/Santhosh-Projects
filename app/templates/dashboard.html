@@ -1,0 +1,990 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+
+{% macro engine_icon(engine, size="16") %}
+{% if engine == 'google_aio' %}
+<svg class="shrink-0" width="{{ size }}" height="{{ size }}" viewBox="0 0 24 24">
+    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
+    <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+    <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+    <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+</svg>
+{% elif engine == 'google_ai_mode' %}
+<svg class="shrink-0" width="{{ size }}" height="{{ size }}" viewBox="0 0 24 24">
+    <defs><linearGradient id="aimode_g" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#4285F4"/><stop offset="33%" stop-color="#9B72CB"/><stop offset="66%" stop-color="#D96570"/><stop offset="100%" stop-color="#D96570"/></linearGradient></defs>
+    <path d="M12 2C12 7.52 7.52 12 2 12C7.52 12 12 16.48 12 22C12 16.48 16.48 12 22 12C16.48 12 12 7.52 12 2Z" fill="url(#aimode_g)"/>
+</svg>
+{% elif engine == 'perplexity' %}
+<svg class="shrink-0" width="{{ size }}" height="{{ size }}" viewBox="0 0 24 24" fill="none">
+    <path d="M7.5 2L12 7.33 16.5 2v6.33L22 12l-5.5 3.67V22L12 16.67 7.5 22v-6.33L2 12l5.5-3.67V2z" fill="#20B8CD" opacity="0.15"/>
+    <path d="M7.5 2L12 7.33 16.5 2M7.5 22L12 16.67 16.5 22M2 12l5.5-3.67L12 12l4.5-3.67L22 12M2 12l5.5 3.67L12 12l4.5 3.67L22 12M12 7.33V16.67" stroke="#20B8CD" stroke-width="1.5" stroke-linejoin="round"/>
+</svg>
+{% elif engine == 'gemini' %}
+<svg class="shrink-0" width="{{ size }}" height="{{ size }}" viewBox="0 0 24 24">
+    <defs><linearGradient id="gem_g" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#4285F4"/><stop offset="50%" stop-color="#9B72CB"/><stop offset="100%" stop-color="#886FBF"/></linearGradient></defs>
+    <path d="M12 2C12 7.52 7.52 12 2 12C7.52 12 12 16.48 12 22C12 16.48 16.48 12 22 12C16.48 12 12 7.52 12 2Z" fill="url(#gem_g)"/>
+</svg>
+{% elif engine == 'chatgpt' %}
+<svg class="shrink-0" width="{{ size }}" height="{{ size }}" viewBox="0 0 24 24" fill="#10a37f">
+    <path d="M22.282 9.821a5.985 5.985 0 00-.516-4.91 6.046 6.046 0 00-6.51-2.9A6.065 6.065 0 0011.29.34a6.044 6.044 0 00-5.772 4.206 5.984 5.984 0 00-3.935 2.911 6.05 6.05 0 00.749 7.11 5.98 5.98 0 00.51 4.911 6.051 6.051 0 006.515 2.9A5.985 5.985 0 0013.26 23.66a6.044 6.044 0 005.772-4.206 5.984 5.984 0 003.935-2.911 6.045 6.045 0 00-.749-7.11l.064.388zM13.26 22.43a4.476 4.476 0 01-2.876-1.04l.141-.081 4.779-2.758a.795.795 0 00.392-.681v-6.737l2.02 1.168a.071.071 0 01.038.052v5.583a4.504 4.504 0 01-4.494 4.494zM3.6 18.304a4.47 4.47 0 01-.535-3.014l.142.085 4.783 2.759a.771.771 0 00.78 0l5.843-3.369v2.332a.08.08 0 01-.033.062L9.74 19.95a4.5 4.5 0 01-6.14-1.646zM2.34 7.896a4.485 4.485 0 012.366-1.973V11.6a.766.766 0 00.388.676l5.815 3.355-2.02 1.168a.076.076 0 01-.071 0l-4.83-2.786A4.504 4.504 0 012.34 7.872v.024zm16.597 3.855l-5.833-3.387L15.119 7.2a.076.076 0 01.071 0l4.83 2.791a4.494 4.494 0 01-.676 8.105v-5.678a.79.79 0 00-.407-.667zm2.01-3.023l-.141-.085-4.774-2.782a.776.776 0 00-.785 0L9.409 9.23V6.897a.066.066 0 01.028-.061l4.83-2.787a4.5 4.5 0 016.68 4.66v.018zm-12.64 4.135l-2.02-1.164a.08.08 0 01-.038-.057V6.075a4.5 4.5 0 017.375-3.453l-.142.08L8.704 5.46a.795.795 0 00-.393.681l-.004 6.722zm1.097-2.365l2.602-1.5 2.607 1.5v2.999l-2.597 1.5-2.607-1.5z"/>
+</svg>
+{% elif engine == 'claude' %}
+<svg class="shrink-0" width="{{ size }}" height="{{ size }}" viewBox="0 0 24 24" fill="#D97757">
+    <path d="M16.98 5.13L12 12l4.98 6.87h-3.36L9.6 13.2H6.84v5.67H4V5.13h2.84v5.67h2.77l4.01-5.67h3.36z"/>
+    <path d="M14.4 5.13L19.38 12l-4.98 6.87h3.36L21.78 13.2h-2.77v5.67H22V5.13h-2.84v5.67h-2.77l-4.01-5.67h-3.36z" opacity="0.6"/>
+</svg>
+{% elif engine == 'grok' %}
+<svg class="shrink-0" width="{{ size }}" height="{{ size }}" viewBox="0 0 24 24" fill="#fff">
+    <path d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z"/>
+</svg>
+{% endif %}
+{% endmacro %}
+
+{% block content %}
+<div class="space-y-5 max-w-[1440px] mx-auto">
+    <!-- Header -->
+    <div class="flex items-center justify-between pb-1">
+        <div>
+            <h2 class="text-xl font-bold text-slate-100 tracking-tight">AI Search Visibility</h2>
+            <p class="text-[11px] text-slate-500 mt-0.5">GrabOn brand presence across generative AI search engines</p>
+        </div>
+        <div class="flex items-center gap-1.5 px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 rounded-md text-[9px] text-emerald-400 font-bold uppercase tracking-wider">
+            <span class="relative flex h-1.5 w-1.5">
+                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span class="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+            </span>
+            Live
+        </div>
+    </div>
+
+    <!-- Command Center: KPIs + Agent Activity + Controls -->
+    <div class="glass-panel border border-slate-900/60 rounded-xl overflow-hidden">
+        <div class="grid grid-cols-1 lg:grid-cols-12">
+            <!-- Left: Visibility Score Hero -->
+            <div class="lg:col-span-3 border-b lg:border-b-0 lg:border-r border-slate-900/40 p-5 flex flex-col items-center justify-center bg-slate-950/30">
+                <div class="relative" style="width: 140px; height: 85px;">
+                    <canvas id="visGauge" width="140" height="85"></canvas>
+                    <div class="absolute inset-0 flex items-end justify-center pb-0.5">
+                        <span class="text-3xl font-black text-slate-100 glow-amber">{{ ai_visibility }}</span>
+                        <span class="text-xs text-slate-600 ml-0.5 mb-0.5">/100</span>
+                    </div>
+                </div>
+                <div class="text-[9px] text-slate-500 uppercase tracking-widest font-semibold mt-1">AI Visibility Score</div>
+                <div class="mt-3 grid grid-cols-4 gap-2 text-center w-full">
+                    <div><div class="text-[8px] text-slate-600 uppercase">SoV</div><div class="text-[11px] font-bold text-amber-400">{{ sov }}%</div></div>
+                    <div><div class="text-[8px] text-slate-600 uppercase">Cited</div><div class="text-[11px] font-bold text-cyan-400">{{ citation_rate }}%</div></div>
+                    <div><div class="text-[8px] text-slate-600 uppercase">Pos</div><div class="text-[11px] font-bold text-emerald-400">{{ pos_rate }}%</div></div>
+                    <div><div class="text-[8px] text-slate-600 uppercase">Total</div><div class="text-[11px] font-bold text-slate-300">{{ total_grabon }}</div></div>
+                </div>
+            </div>
+
+            <!-- Middle: KPI Cards 2x2 -->
+            <div class="lg:col-span-4 border-b lg:border-b-0 lg:border-r border-slate-900/40 grid grid-cols-2 divide-x divide-y divide-slate-900/30">
+                <div class="p-4">
+                    <div class="text-[9px] text-slate-500 uppercase tracking-wider font-semibold">Share of Voice</div>
+                    <div class="text-xl font-bold text-amber-400 glow-amber mt-1">{{ sov }}%</div>
+                    <div class="mt-2 h-1 bg-slate-800 rounded-full overflow-hidden"><div class="h-full bg-amber-500 rounded-full" style="width: {{ sov }}%"></div></div>
+                    <div class="text-[9px] text-slate-600 mt-1">{{ total_grabon }} GrabOn mentions</div>
+                </div>
+                <div class="p-4">
+                    <div class="text-[9px] text-slate-500 uppercase tracking-wider font-semibold">Citations</div>
+                    <div class="flex items-baseline gap-1 mt-1"><span class="text-xl font-bold text-cyan-400">{{ citations }}</span><span class="text-[10px] text-slate-600">/ {{ total_grabon }}</span></div>
+                    <div class="mt-2 h-1 bg-slate-800 rounded-full overflow-hidden"><div class="h-full bg-cyan-500 rounded-full" style="width: {{ citation_rate }}%"></div></div>
+                    <div class="text-[9px] text-slate-600 mt-1">{{ citation_rate }}% with backlink</div>
+                </div>
+                <div class="p-4">
+                    <div class="text-[9px] text-slate-500 uppercase tracking-wider font-semibold">Sentiment</div>
+                    <div class="flex items-baseline gap-1 mt-1">
+                        <span class="text-lg font-bold text-emerald-400">{{ pos }}</span><span class="text-slate-700">/</span>
+                        <span class="text-sm text-slate-500">{{ neu }}</span><span class="text-slate-700">/</span>
+                        <span class="text-sm text-rose-400">{{ neg }}</span>
+                    </div>
+                    {% set sent_total = pos + neu + neg %}
+                    <div class="mt-2 flex h-1 rounded-full overflow-hidden bg-slate-800">
+                        {% if sent_total > 0 %}
+                        <div class="h-full bg-emerald-500" style="width: {{ (pos / sent_total * 100)|round(1) }}%"></div>
+                        <div class="h-full bg-slate-500" style="width: {{ (neu / sent_total * 100)|round(1) }}%"></div>
+                        <div class="h-full bg-rose-500" style="width: {{ (neg / sent_total * 100)|round(1) }}%"></div>
+                        {% endif %}
+                    </div>
+                    <div class="text-[9px] text-slate-600 mt-1">{{ pos_rate }}% positive</div>
+                </div>
+                <div class="p-4">
+                    <div class="text-[9px] text-slate-500 uppercase tracking-wider font-semibold">Organic Reach</div>
+                    <div class="text-xl font-bold text-teal-400 mt-1">{{ footprint|int }}%</div>
+                    <div class="mt-2 h-1 bg-slate-800 rounded-full overflow-hidden"><div class="h-full bg-teal-500 rounded-full" style="width: {{ footprint|int }}%"></div></div>
+                    <div class="text-[9px] text-slate-600 mt-1">{{ total_grabon - citations }} no-backlink</div>
+                </div>
+            </div>
+
+            <!-- Right: Agent Activity + Quick Actions -->
+            <div class="lg:col-span-5 flex flex-col">
+                <!-- Agent Status Bar -->
+                <div class="px-4 py-2 border-b border-slate-900/40 bg-slate-950/40 flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <span id="agentPulse" class="relative flex h-2 w-2">
+                            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                            <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                        </span>
+                        <span class="text-[11px] font-semibold text-slate-300">Agent</span>
+                        <span id="agentStatus" class="text-[10px] text-emerald-400">Continuous mode</span>
+                        <span id="agentTimer" class="text-[10px] text-cyan-400 ml-1 font-mono hidden"></span>
+                        <span id="agentCounter" class="text-[10px] text-slate-600 ml-1"></span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button onclick="document.getElementById('agentLog').innerHTML=''" class="text-[10px] text-slate-600 hover:text-slate-400 cursor-pointer">Clear</button>
+                        <form action="/api/trigger" method="POST" class="inline">
+                            <button type="submit" {% if not prompts %}disabled{% endif %}
+                                class="flex items-center gap-1 bg-amber-500 hover:bg-amber-600 text-slate-950 px-2.5 py-1 rounded-md text-[10px] font-bold transition-all active:scale-95 disabled:opacity-50 cursor-pointer">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/></svg>
+                                Run Sweep
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Agent Log -->
+                <div id="agentLog" class="flex-1 max-h-[120px] overflow-y-auto px-4 py-2 space-y-0.5 text-[10px] font-mono">
+                    <div class="text-slate-700 text-center py-4">Waiting for agent activity...</div>
+                </div>
+
+                <!-- Engine Health Strip -->
+                <div class="border-t border-slate-900/40 px-4 py-2 bg-slate-950/30">
+                    <div class="flex items-center gap-3 mb-1.5">
+                        <span class="text-slate-600 uppercase tracking-wider text-[8px] font-semibold">Engine Health</span>
+                        <span class="text-slate-600 uppercase tracking-wider text-[8px] font-semibold ml-auto">API ${{ "%.4f"|format(cost_data.total_cost) }}</span>
+                    </div>
+                    <div class="flex gap-1.5 flex-wrap">
+                        {% for eng in all_engines %}
+                        {% set h = engine_health.get(eng, {}) %}
+                        {% set health = h.get('health', 'inactive') %}
+                        <div class="flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-900/60 text-[9px]" data-health-engine="{{ eng }}" title="{{ eng }}: {{ h.get('success_24h', 0) }} ok / {{ h.get('errors_24h', 0) }} fail (24h)">
+                            <svg class="health-dot w-2 h-2 {% if health == 'healthy' %}text-emerald-400{% elif health == 'degraded' %}text-amber-400{% elif health == 'blocked' %}text-rose-400{% else %}text-slate-600{% endif %}" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6"/></svg>
+                            <span class="text-slate-400">{{ engine_display.get(eng, eng)[:6] }}</span>
+                            <span class="health-errors {% if h.get('errors_24h', 0) > 0 %}text-rose-400 font-bold{% endif %}">{% if h.get('errors_24h', 0) > 0 %}{{ h.get('errors_24h') }}{% endif %}</span>
+                        </div>
+                        {% endfor %}
+                        {% if unparsed_count > 0 %}
+                        <form method="POST" action="/api/reparse?batch_size=100" class="inline ml-auto">
+                            <button type="submit" class="text-[9px] text-amber-400 hover:text-amber-300 underline cursor-pointer">{{ unparsed_count }} unparsed</button>
+                        </form>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tools -->
+    <div class="flex flex-wrap items-center gap-2 text-xs">
+        <form action="/api/seed" method="POST" class="inline">
+            <button type="submit" {% if prompts %}disabled{% endif %}
+                class="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800/80 cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed text-[10px]">
+                <svg class="w-3 h-3 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"/></svg>
+                Seed{% if prompts %} ({{ prompts|length }}){% endif %}
+            </button>
+        </form>
+        <form action="/api/clear-logs" method="POST" class="inline" onsubmit="return confirm('Wipe all logs, mentions, and coupons?')">
+            <button type="submit" {% if total_raw_logs == 0 %}disabled{% endif %}
+                class="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-red-950/20 hover:bg-red-950/30 text-red-400 border border-red-900/30 cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed text-[10px]">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                Wipe{% if total_raw_logs %} ({{ total_raw_logs }}){% endif %}
+            </button>
+        </form>
+    </div>
+
+    <!-- Cookie Warnings -->
+    {% if not has_google_cookies %}
+    <div class="bg-amber-500/5 border border-amber-500/20 rounded-lg px-3 py-2 flex items-center gap-3 text-xs">
+        {{ engine_icon('google_aio', '16') }}
+        <span class="text-amber-400/80 flex-1">Google engines limited — <a href="/google-login" class="underline hover:text-amber-300">login</a></span>
+    </div>
+    {% endif %}
+    {% if not has_chatgpt_cookies %}
+    <div class="bg-amber-500/5 border border-amber-500/20 rounded-lg px-3 py-2 flex items-center gap-3 text-xs">
+        {{ engine_icon('chatgpt', '16') }}
+        <span class="text-amber-400/80 flex-1">ChatGPT disabled — <a href="/chatgpt-login" class="underline hover:text-amber-300">login</a></span>
+    </div>
+    {% endif %}
+
+    <!-- Engine Health Alerts -->
+    {% set blocked_engines = [] %}
+    {% set degraded_engines = [] %}
+    {% for eng in all_engines %}
+        {% set h = engine_health.get(eng, {}) %}
+        {% if h.get('health') == 'blocked' %}{% if blocked_engines.append(eng) %}{% endif %}
+        {% elif h.get('health') == 'degraded' %}{% if degraded_engines.append(eng) %}{% endif %}
+        {% endif %}
+    {% endfor %}
+    {% if blocked_engines %}
+    <div class="bg-rose-500/5 border border-rose-500/20 rounded-lg px-3 py-2 flex items-center gap-3 text-xs">
+        <svg class="w-4 h-4 text-rose-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg>
+        <span class="text-rose-400/90 flex-1">
+            <span class="font-bold">Blocked:</span>
+            {% for eng in blocked_engines %}{{ engine_display.get(eng, eng) }}{% if not loop.last %}, {% endif %}{% endfor %}
+            — 80%+ failure rate in last 24h. Check auth/cookies.
+        </span>
+    </div>
+    {% endif %}
+    {% if degraded_engines %}
+    <div class="bg-amber-500/5 border border-amber-500/20 rounded-lg px-3 py-2 flex items-center gap-3 text-xs">
+        <svg class="w-4 h-4 text-amber-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg>
+        <span class="text-amber-400/80 flex-1">
+            <span class="font-bold">Degraded:</span>
+            {% for eng in degraded_engines %}{{ engine_display.get(eng, eng) }}{% if not loop.last %}, {% endif %}{% endfor %}
+            — 40%+ failure rate in last 24h.
+        </span>
+    </div>
+    {% endif %}
+    {% if recent_failures %}
+    <details class="glass-panel border border-slate-900/60 rounded-xl overflow-hidden">
+        <summary class="px-4 py-2 text-[11px] text-rose-400/70 font-semibold cursor-pointer hover:text-rose-400 flex items-center gap-2">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            {{ recent_failures|length }} recent failure{{ 's' if recent_failures|length != 1 }} (last 24h)
+        </summary>
+        <div class="px-4 pb-2 space-y-1 max-h-[120px] overflow-y-auto">
+            {% for f in recent_failures %}
+            <div class="flex items-start gap-2 text-[10px] font-mono py-0.5">
+                <span class="text-slate-600 shrink-0">{{ f.captured_at[:16] }}</span>
+                <span class="text-slate-500 shrink-0 uppercase font-bold">{{ f.engine_name.replace('_', ' ')[:8] }}</span>
+                <span class="text-rose-400/60 truncate">{{ f.error_msg }}</span>
+            </div>
+            {% endfor %}
+        </div>
+    </details>
+    {% endif %}
+
+    <!-- Filters -->
+    <div class="flex flex-wrap items-center gap-3">
+        <div class="flex flex-wrap gap-1.5">
+            {% for engine in all_engines %}
+            {% set is_active = engine in active_engines %}
+            {% set other_engines = active_engines|reject("equalto", engine)|list if is_active else active_engines + [engine] %}
+            <a href="/?engines={{ other_engines|join(',') if other_engines else engine }}&category={{ active_category }}&intent={{ active_intent }}"
+               class="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-all {% if is_active %}bg-amber-500/15 text-amber-400 border border-amber-500/30{% else %}bg-slate-950 text-slate-500 border border-slate-900 hover:text-slate-300{% endif %}">
+                {{ engine_icon(engine, "14") }}
+                {{ engine_display.get(engine, engine) }}
+            </a>
+            {% endfor %}
+        </div>
+        <div class="h-4 w-px bg-slate-800"></div>
+        <div class="flex flex-wrap gap-1">
+            {% for cat in ["All"] + categories %}
+            <a href="/?engines={{ active_engines|join(',') }}&category={{ cat }}&intent={{ active_intent }}"
+               class="px-2.5 py-1 rounded-md text-[11px] font-medium transition-all {% if active_category == cat %}bg-slate-800 text-amber-400{% else %}text-slate-500 hover:text-slate-300{% endif %}">
+                {{ cat }}
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+
+    {% if not prompts %}
+    <div class="glass-panel border border-slate-900/60 p-10 rounded-xl text-center space-y-4 max-w-lg mx-auto">
+        <div class="w-14 h-14 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-500 mx-auto">
+            <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"/></svg>
+        </div>
+        <h3 class="text-lg font-bold text-slate-100">No Search Queries</h3>
+        <p class="text-xs text-slate-500">Seed natural search prompts to start tracking AI visibility.</p>
+        <form action="/api/seed" method="POST">
+            <button class="bg-amber-500 hover:bg-amber-600 text-slate-950 px-5 py-2 rounded-lg text-xs font-bold cursor-pointer active:scale-95">Seed Prompts</button>
+        </form>
+    </div>
+
+    {% elif total_raw_logs == 0 %}
+    <div class="glass-panel border border-slate-900/60 p-10 rounded-xl text-center space-y-4 max-w-lg mx-auto">
+        <h3 class="text-lg font-bold text-slate-100">Ready to Scrape</h3>
+        <p class="text-xs text-slate-500">{{ total_prompts }} prompts loaded. Trigger sweep to populate dashboard.</p>
+        <form action="/api/trigger" method="POST">
+            <button class="bg-amber-500 hover:bg-amber-600 text-slate-950 px-5 py-2 rounded-lg text-xs font-bold cursor-pointer active:scale-95">Run First Sweep</button>
+        </form>
+    </div>
+
+    {% elif total_logs == 0 %}
+    <div class="glass-panel border border-slate-900/60 p-8 rounded-xl text-center max-w-md mx-auto">
+        <p class="text-sm text-slate-400">{{ total_raw_logs }} logs exist but none match current filters.</p>
+        <a href="/" class="inline-block mt-3 px-4 py-1.5 bg-slate-900 text-slate-300 border border-slate-800 text-xs rounded-lg">Clear Filters</a>
+    </div>
+
+    {% else %}
+
+    <!-- Engine Breakdown (full width, combined with country stats) -->
+    <div class="glass-panel border border-slate-900/60 rounded-xl overflow-hidden">
+        <div class="px-5 py-3 border-b border-slate-900/60 bg-slate-950/40 flex items-center justify-between">
+            <div>
+                <h3 class="text-sm font-semibold text-slate-200">Engine Breakdown</h3>
+                <p class="text-[10px] text-slate-600 mt-0.5">GrabOn visibility per AI engine — health based on last 4h activity</p>
+            </div>
+            <div class="flex items-center gap-4 text-[10px]">
+                {% for cc, st in country_stats.items() %}
+                <div class="flex items-center gap-2">
+                    <span class="text-slate-500">🇮🇳 {{ cc }}</span>
+                    <span class="text-amber-400 font-semibold">{{ st.visibility }}% SoV</span>
+                    <span class="text-slate-600">·</span>
+                    <span class="text-slate-400">{{ st.mentions }}</span>
+                    <span class="text-slate-600">/</span>
+                    <span class="text-slate-500">{{ st.total_mentions }} mentions</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        <table class="w-full text-xs">
+            <thead>
+                <tr class="border-b border-slate-900/50 text-[10px] text-slate-500 uppercase tracking-wider">
+                    <th class="text-left px-5 py-2.5">Engine</th>
+                    <th class="text-center px-3 py-2.5">Health</th>
+                    <th class="text-center px-3 py-2.5">Streak</th>
+                    <th class="text-center px-3 py-2.5">24h OK/Fail</th>
+                    <th class="text-center px-3 py-2.5">Error Rate</th>
+                    <th class="text-center px-3 py-2.5">Mentions</th>
+                    <th class="text-center px-3 py-2.5">Cited</th>
+                    <th class="text-center px-3 py-2.5">Total</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-900/30">
+                {% for eng in all_engines %}
+                {% set st = engine_stats.get(eng, {}) %}
+                {% set h = engine_health.get(eng, {}) %}
+                {% set health = h.get('health', 'inactive') %}
+                <tr class="hover:bg-slate-900/20 transition-colors">
+                    <td class="px-5 py-3">
+                        <div class="flex items-center gap-2.5">
+                            {{ engine_icon(eng, "18") }}
+                            <div>
+                                <span class="font-semibold text-slate-200">{{ st.get('display_name', eng) }}</span>
+                                {% if h.get('last_success') %}
+                                <div class="text-[9px] text-slate-600 mt-0.5">Last OK: {{ h.last_success }}</div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </td>
+                    <td class="text-center px-3 py-3">
+                        {% if st.get('status') == 'auth_required' %}
+                            <span class="px-2 py-0.5 rounded bg-amber-500/10 text-amber-500 text-[10px] font-medium border border-amber-500/20">Auth Req</span>
+                        {% elif health == 'blocked' %}
+                            <span class="px-2 py-0.5 rounded bg-rose-500/10 text-rose-400 text-[10px] font-bold border border-rose-500/20">Blocked</span>
+                        {% elif health == 'degraded' %}
+                            <span class="px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 text-[10px] font-bold border border-amber-500/20">Degraded</span>
+                        {% elif health == 'healthy' %}
+                            <span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-medium border border-emerald-500/20">Healthy</span>
+                        {% else %}
+                            <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-500 text-[10px] font-medium">No Data</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center px-3 py-3">
+                        {% set streak = h.get('streak', 0) %}
+                        {% if streak >= 5 %}
+                            <span class="text-emerald-400 font-bold">{{ streak }}✓</span>
+                        {% elif streak >= 3 %}
+                            <span class="text-emerald-400">{{ streak }}✓</span>
+                        {% elif streak > 0 %}
+                            <span class="text-slate-400">{{ streak }}✓</span>
+                        {% else %}
+                            <span class="text-slate-600">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center px-3 py-3">
+                        <span class="text-emerald-400 font-semibold">{{ h.get('success_24h', 0) }}</span>
+                        <span class="text-slate-700">/</span>
+                        <span class="{% if h.get('errors_24h', 0) > 0 %}text-rose-400 font-bold{% else %}text-slate-600{% endif %}">{{ h.get('errors_24h', 0) }}</span>
+                    </td>
+                    <td class="text-center px-3 py-3">
+                        {% set rate = h.get('error_rate', 0) %}
+                        <span class="{% if rate >= 50 %}text-rose-400 font-bold{% elif rate >= 20 %}text-amber-400{% else %}text-emerald-400{% endif %}">{{ rate }}%</span>
+                    </td>
+                    <td class="text-center px-3 py-3 font-semibold text-slate-300">{{ st.get('mentions', 0) }}</td>
+                    <td class="text-center px-3 py-3 font-semibold text-cyan-400">{{ st.get('cited_pages', 0) }}</td>
+                    <td class="text-center px-3 py-3 text-slate-500">{{ st.get('total_mentions', 0) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Rankings Matrix -->
+    <div class="glass-panel border border-slate-900/60 rounded-xl overflow-hidden">
+        <div class="border-b border-slate-900/60 bg-slate-950/40 px-5 py-3 flex items-center justify-between">
+            <div>
+                <h3 class="text-sm font-semibold text-slate-200">Rankings Matrix</h3>
+                <p class="text-[10px] text-slate-500">{{ total_prompts }} canonical keywords — page {{ page }}/{{ total_pages }}</p>
+            </div>
+            <div class="flex items-center gap-2">
+                {% for t in [0,1,2,3] %}
+                <a href="/?tier={{ t }}&page=1&engines={{ active_engines|join(',') }}&category={{ active_category }}&intent={{ active_intent }}"
+                   class="px-2 py-1 rounded text-[10px] font-medium {% if active_tier == t %}bg-amber-500/20 text-amber-400 border border-amber-500/30{% else %}bg-slate-900 text-slate-500 border border-slate-800{% endif %}">
+                    {% if t == 0 %}All{% else %}Tier {{ t }}{% endif %}
+                </a>
+                {% endfor %}
+            </div>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+                <thead>
+                    <tr class="border-b border-slate-900/60 bg-slate-950/40 text-slate-500 text-[10px] uppercase tracking-wider font-semibold">
+                        <th class="px-4 py-2.5 min-w-[240px] text-left">Search Query</th>
+                        {% for engine in all_engines %}
+                        <th class="px-3 py-2.5 text-center whitespace-nowrap">
+                            <div class="flex items-center justify-center gap-1.5">
+                                {{ engine_icon(engine, "14") }}
+                                <span>{{ engine_display.get(engine, engine) }}</span>
+                            </div>
+                        </th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-900/30 text-xs">
+                    {% for prompt in prompts %}
+                    <tr class="hover:bg-slate-900/20 transition-colors group">
+                        <td class="px-4 py-2.5">
+                            <p class="font-medium text-slate-200 text-[12px] leading-snug">{{ prompt.text }}</p>
+                            <div class="flex gap-1.5 mt-1">
+                                <span class="px-1.5 py-0.5 rounded bg-slate-900/80 text-[9px] text-slate-500">{{ prompt.merchant_category }}</span>
+                                <span class="px-1.5 py-0.5 rounded bg-slate-900/80 text-[9px] text-slate-500">{{ prompt.intent_type }}</span>
+                            </div>
+                        </td>
+                        {% for engine in all_engines %}
+                        {% set r = rankings.get(prompt.id|string, {}).get(engine, {"status": "pending"}) %}
+                        <td class="px-3 py-2.5 text-center {% if r.log_id %}cursor-pointer hover:bg-slate-800/40{% endif %}" {% if r.log_id %}onclick="showResponse('{{ r.log_id }}')"{% endif %}>
+                            {% if engine in ('chatgpt', 'claude', 'gemini') and r.status == 'pending' %}
+                                <span class="text-[10px] text-amber-500/60">Auth</span>
+                            {% elif r.status == "pending" %}
+                                <span class="text-slate-700">-</span>
+                            {% elif r.status == "no_aio" %}
+                                <span class="px-1.5 py-0.5 rounded bg-slate-800/30 text-slate-600 text-[10px] font-medium {% if r.log_id %}cursor-pointer hover:bg-slate-800/50{% endif %}" {% if r.log_id %}onclick="showResponse('{{ r.log_id }}')"{% endif %} title="Google did not show AI Overview for this query">No AIO</span>
+                            {% elif r.status == "error" %}
+                                <span class="px-1.5 py-0.5 rounded bg-rose-950/20 text-rose-500/60 text-[10px] font-medium {% if r.log_id %}cursor-pointer hover:bg-rose-950/30{% endif %}" {% if r.log_id %}onclick="showResponse('{{ r.log_id }}')"{% endif %} title="Scrape failed — click to see error">Error</span>
+                            {% elif r.status == "no_mention" %}
+                                <span class="px-1.5 py-0.5 rounded bg-slate-800/40 text-slate-500 text-[10px] font-medium">No brands</span>
+                            {% elif r.status == "unranked" %}
+                                <span class="px-1.5 py-0.5 rounded bg-red-950/20 text-red-500/80 text-[10px] font-medium">Out</span>
+                            {% elif r.rank == 1 %}
+                                <span class="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold text-[10px]">
+                                    <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                                    #1
+                                </span>
+                            {% elif r.rank <= 3 %}
+                                <span class="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-bold text-[10px]">#{{ r.rank }}</span>
+                            {% else %}
+                                <span class="px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 font-semibold text-[10px]">#{{ r.rank }}</span>
+                            {% endif %}
+                        </td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if total_pages > 1 %}
+        <div class="border-t border-slate-900/60 px-5 py-2.5 flex items-center justify-between">
+            <div class="flex gap-2">
+                {% if page > 1 %}
+                <a href="/?tier={{ active_tier }}&page={{ page - 1 }}&engines={{ active_engines|join(',') }}&category={{ active_category }}&intent={{ active_intent }}"
+                   class="px-3 py-1.5 rounded-lg bg-slate-900 text-slate-400 text-xs hover:text-slate-200 border border-slate-800">Prev</a>
+                {% endif %}
+                {% if page < total_pages %}
+                <a href="/?tier={{ active_tier }}&page={{ page + 1 }}&engines={{ active_engines|join(',') }}&category={{ active_category }}&intent={{ active_intent }}"
+                   class="px-3 py-1.5 rounded-lg bg-slate-900 text-slate-400 text-xs hover:text-slate-200 border border-slate-800">Next</a>
+                {% endif %}
+            </div>
+            <span class="text-[10px] text-slate-500">Page {{ page }} / {{ total_pages }} ({{ total_prompts }} keywords)</span>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- SoV Chart -->
+    <div class="glass-panel border border-slate-900/60 p-5 rounded-xl">
+        <div class="border-b border-slate-900/60 pb-3 mb-4 flex items-center justify-between">
+            <div>
+                <h3 class="text-sm font-semibold text-slate-200">Share of Voice Over Time</h3>
+                <p class="text-[10px] text-slate-500">Weighted rank share — GrabOn vs competitors</p>
+            </div>
+            <div class="flex items-center gap-3 text-[10px]">
+                <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-amber-500"></span> GrabOn</span>
+                <span class="flex items-center gap-1 text-slate-500"><span class="w-2 h-2 rounded-full bg-indigo-500"></span> CouponDunia</span>
+                <span class="flex items-center gap-1 text-slate-500"><span class="w-2 h-2 rounded-full bg-emerald-500"></span> CashKaro</span>
+                <span class="flex items-center gap-1 text-slate-500"><span class="w-2 h-2 rounded-full bg-rose-500"></span> DesiDime</span>
+            </div>
+        </div>
+        <div style="height: 260px;">
+            <canvas id="sovChart"></canvas>
+        </div>
+    </div>
+
+    <!-- Add Prompt -->
+    <div class="glass-panel border border-slate-900/60 p-5 rounded-xl">
+        <div class="flex items-center justify-between mb-3">
+            <h3 class="text-xs font-semibold text-slate-300">Add Search Query</h3>
+            <span id="addStatus" class="text-[10px] text-slate-600 hidden"></span>
+        </div>
+        <form id="addQueryForm" class="grid grid-cols-1 md:grid-cols-12 gap-2 items-end">
+            <div class="md:col-span-5">
+                <label class="text-[10px] text-slate-500 uppercase tracking-wider mb-1 block">Search Query</label>
+                <input name="text" id="addQueryText" required placeholder="e.g. myntra coupon code, best deals app india..."
+                    class="w-full text-xs p-2.5 bg-slate-950 border border-slate-900 rounded-lg text-slate-300 placeholder-slate-600 outline-none focus:border-amber-500/60 transition-colors">
+            </div>
+            <div class="md:col-span-2">
+                <label class="text-[10px] text-slate-500 uppercase tracking-wider mb-1 block">Category</label>
+                <select name="category" id="addQueryCat" class="w-full text-xs p-2.5 bg-slate-950 border border-slate-900 rounded-lg text-slate-300 outline-none focus:border-amber-500/60 transition-colors">
+                    {% set all_cats = categories + ['Education', 'Electronics', 'Entertainment', 'Fashion', 'Finance', 'Food', 'Gaming', 'General', 'Health & Beauty', 'Home', 'Jewelry', 'Tech', 'Telecom', 'Travel'] %}
+                    {% for cat in all_cats|unique|sort %}
+                    <option>{{ cat }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="md:col-span-2">
+                <label class="text-[10px] text-slate-500 uppercase tracking-wider mb-1 block">Intent</label>
+                <select name="intent" id="addQueryIntent" class="w-full text-xs p-2.5 bg-slate-950 border border-slate-900 rounded-lg text-slate-300 outline-none focus:border-amber-500/60 transition-colors">
+                    <option>Transactional</option><option>Commercial</option><option>Direct Brand</option><option>Informational</option>
+                </select>
+            </div>
+            <div class="md:col-span-3 flex gap-2">
+                <button type="submit" class="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-lg cursor-pointer active:scale-95 transition-colors">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                    Add
+                </button>
+                <button type="button" onclick="addAndRun()" class="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs rounded-lg cursor-pointer active:scale-95 transition-colors" title="Add query and immediately run across all engines">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    Add & Run
+                </button>
+            </div>
+        </form>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if ai_visibility is defined %}
+<script>
+// AI Visibility Gauge (half-doughnut)
+(function() {
+    const score = {{ ai_visibility }};
+    const canvas = document.getElementById('visGauge');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const cx = 70, cy = 75, r = 55, lineW = 12;
+
+    function getColor(v) {
+        if (v >= 70) return '#10b981';
+        if (v >= 40) return '#f59e0b';
+        return '#ef4444';
+    }
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, Math.PI, 2 * Math.PI);
+    ctx.lineWidth = lineW;
+    ctx.strokeStyle = 'rgba(30,41,59,0.5)';
+    ctx.lineCap = 'round';
+    ctx.stroke();
+
+    const endAngle = Math.PI + (score / 100) * Math.PI;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, Math.PI, endAngle);
+    ctx.lineWidth = lineW;
+    ctx.strokeStyle = getColor(score);
+    ctx.lineCap = 'round';
+    ctx.stroke();
+})();
+</script>
+{% endif %}
+
+{% if chart_data is defined and chart_data %}
+<script>
+const chartData = {{ chart_data | tojson }};
+const ctx = document.getElementById('sovChart').getContext('2d');
+
+const allVals = chartData.flatMap(d => [d.GrabOn, d.CouponDunia, d.CashKaro, d.DesiDime]).filter(v => v > 0);
+const maxVal = allVals.length ? Math.max(...allVals) : 50;
+const yMax = Math.min(100, Math.ceil((maxVal + 10) / 10) * 10);
+
+new Chart(ctx, {
+    type: 'line',
+    data: {
+        labels: chartData.map(d => d.date),
+        datasets: [
+            {
+                label: 'GrabOn',
+                data: chartData.map(d => d.GrabOn),
+                borderColor: '#f59e0b',
+                backgroundColor: 'rgba(245, 158, 11, 0.12)',
+                fill: true,
+                tension: 0.3,
+                borderWidth: 2.5,
+                pointRadius: 4,
+                pointHoverRadius: 7,
+                pointBackgroundColor: '#f59e0b',
+                pointBorderColor: '#0a0f1d',
+                pointBorderWidth: 2,
+            },
+            {
+                label: 'CouponDunia',
+                data: chartData.map(d => d.CouponDunia),
+                borderColor: '#6366f1',
+                backgroundColor: 'rgba(99, 102, 241, 0.06)',
+                fill: true,
+                tension: 0.3,
+                borderWidth: 2,
+                pointRadius: 3,
+                pointHoverRadius: 6,
+                pointBackgroundColor: '#6366f1',
+                pointBorderColor: '#0a0f1d',
+                pointBorderWidth: 2,
+            },
+            {
+                label: 'CashKaro',
+                data: chartData.map(d => d.CashKaro),
+                borderColor: '#10b981',
+                backgroundColor: 'rgba(16, 185, 129, 0.06)',
+                fill: true,
+                tension: 0.3,
+                borderWidth: 2,
+                pointRadius: 3,
+                pointHoverRadius: 6,
+                pointBackgroundColor: '#10b981',
+                pointBorderColor: '#0a0f1d',
+                pointBorderWidth: 2,
+            },
+            {
+                label: 'DesiDime',
+                data: chartData.map(d => d.DesiDime),
+                borderColor: '#f43f5e',
+                backgroundColor: 'rgba(244, 63, 94, 0.06)',
+                fill: true,
+                tension: 0.3,
+                borderWidth: 2,
+                pointRadius: 3,
+                pointHoverRadius: 6,
+                pointBackgroundColor: '#f43f5e',
+                pointBorderColor: '#0a0f1d',
+                pointBorderWidth: 2,
+            },
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+            legend: { display: false },
+            tooltip: {
+                backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                borderColor: 'rgba(51, 65, 85, 0.5)',
+                borderWidth: 1,
+                titleColor: '#e2e8f0',
+                bodyColor: '#94a3b8',
+                titleFont: { size: 11, weight: 'bold' },
+                bodyFont: { size: 11 },
+                padding: 10,
+                cornerRadius: 8,
+                displayColors: true,
+                boxPadding: 4,
+                callbacks: {
+                    label: function(ctx) {
+                        return ' ' + ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(1) + '%';
+                    }
+                }
+            },
+        },
+        scales: {
+            x: {
+                ticks: { color: '#475569', font: { size: 10 }, maxRotation: 45 },
+                grid: { color: 'rgba(30,41,59,0.3)', drawBorder: false },
+            },
+            y: {
+                min: 0,
+                max: yMax,
+                ticks: { color: '#475569', font: { size: 10 }, callback: v => v + '%', stepSize: yMax <= 20 ? 5 : 10 },
+                grid: { color: 'rgba(30,41,59,0.3)', drawBorder: false },
+            },
+        }
+    }
+});
+</script>
+{% endif %}
+
+<script>
+// Live Agent Activity Feed (SSE)
+(function() {
+    const log = document.getElementById('agentLog');
+    const pulse = document.getElementById('agentPulse');
+    const status = document.getElementById('agentStatus');
+    const timer = document.getElementById('agentTimer');
+    const counter = document.getElementById('agentCounter');
+    if (!log) return;
+
+    const ENGINE_NAMES = {
+        google_aio: 'AI Overview', google_ai_mode: 'AI Mode', perplexity: 'Perplexity',
+        gemini: 'Gemini', chatgpt: 'ChatGPT', claude: 'Claude', grok: 'Grok'
+    };
+
+    let eventCount = 0;
+    let countdownInterval = null;
+    let resumeTarget = 0;
+
+    function fmtDuration(sec) {
+        if (sec <= 0) return '0s';
+        const m = Math.floor(sec / 60);
+        const s = sec % 60;
+        if (m > 0) return m + 'm ' + s + 's';
+        return s + 's';
+    }
+
+    function startCountdown(seconds, label) {
+        clearInterval(countdownInterval);
+        resumeTarget = Date.now() + seconds * 1000;
+        timer.classList.remove('hidden');
+        status.textContent = label;
+        status.className = 'text-[10px] text-cyan-400';
+        pulse.innerHTML = '<span class="animate-pulse relative inline-flex rounded-full h-2.5 w-2.5 bg-cyan-500"></span>';
+
+        function tick() {
+            const remaining = Math.max(0, Math.ceil((resumeTarget - Date.now()) / 1000));
+            timer.textContent = '⏱ ' + fmtDuration(remaining);
+            if (remaining <= 0) {
+                clearInterval(countdownInterval);
+                timer.classList.add('hidden');
+                setWorking('Resuming...');
+            }
+        }
+        tick();
+        countdownInterval = setInterval(tick, 1000);
+    }
+
+    function setWorking(label) {
+        clearInterval(countdownInterval);
+        timer.classList.add('hidden');
+        status.textContent = label;
+        status.className = 'text-[10px] text-amber-400';
+        pulse.innerHTML = '<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span><span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>';
+    }
+
+    function setContinuous() {
+        clearInterval(countdownInterval);
+        timer.classList.add('hidden');
+        status.textContent = 'Continuous mode';
+        status.className = 'text-[10px] text-emerald-400';
+        pulse.innerHTML = '<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>';
+    }
+
+    function addLine(html) {
+        const firstChild = log.firstElementChild;
+        if (firstChild && firstChild.textContent.includes('Waiting for')) firstChild.remove();
+        const div = document.createElement('div');
+        div.innerHTML = html;
+        div.className = 'flex items-start gap-2 py-0.5 animate-fade-in';
+        log.appendChild(div);
+        if (log.children.length > 100) log.removeChild(log.firstChild);
+        log.scrollTop = log.scrollHeight;
+        eventCount++;
+        counter.textContent = eventCount + ' events';
+    }
+
+    function ts() {
+        const d = new Date();
+        return d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+
+    function eng(name) { return ENGINE_NAMES[name] || name; }
+
+    function handleEvent(type, data) {
+        switch(type) {
+            case 'agent_mode':
+                setContinuous();
+                addLine(`<span class="text-slate-600">${ts()}</span> <span class="text-emerald-400">MODE</span> <span class="text-emerald-400/80">Agent switched to continuous operation</span>`);
+                break;
+            case 'batch_start':
+                setWorking('Processing ' + data.total_prompts + ' keywords...');
+                addLine(`<span class="text-slate-600">${ts()}</span> <span class="text-cyan-400">BATCH</span> <span class="text-slate-400">Tier ${data.tier} started — ${data.total_prompts} prompts × ${data.engines} engines</span>`);
+                break;
+            case 'scrape_start':
+                setWorking('Scraping ' + eng(data.engine));
+                addLine(`<span class="text-slate-600">${ts()}</span> <span class="text-amber-400">SCRAPE</span> <span class="text-slate-500">${eng(data.engine)}</span> <span class="text-slate-400">${data.prompt}</span>`);
+                break;
+            case 'scrape_done':
+                addLine(`<span class="text-slate-600">${ts()}</span> <span class="text-emerald-400">DONE</span> <span class="text-slate-500">${eng(data.engine)}</span> <span class="text-slate-600">${data.chars} chars, ${data.urls} URLs</span>`);
+                break;
+            case 'scrape_fail':
+                addLine(`<span class="text-slate-600">${ts()}</span> <span class="text-red-400">FAIL</span> <span class="text-slate-500">${eng(data.engine)}</span> <span class="text-red-400/60">${data.error}</span>`);
+                break;
+            case 'parse_done':
+                addLine(`<span class="text-slate-600">${ts()}</span> <span class="text-violet-400">PARSE</span> <span class="text-slate-500">${eng(data.engine)}</span> <span class="text-slate-600">${data.brands} brands, ${data.coupons} coupons</span>`);
+                break;
+            case 'engine_cooldown':
+                addLine(`<span class="text-slate-600">${ts()}</span> <span class="text-rose-400">COOLDOWN</span> <span class="text-slate-500">${eng(data.engine)}</span> <span class="text-rose-400/70">${data.fails} fails → paused ${fmtDuration(data.cooldown_seconds)}</span>`);
+                updateCooldownChip(data.engine, data.cooldown_seconds);
+                break;
+            case 'agent_waiting': {
+                const reason = data.reason;
+                let label = 'Anti-detection pause';
+                if (reason === 'all_engines_cooldown') label = 'All engines cooling down';
+                else if (reason === 'no_prompts') label = 'No prompts — waiting';
+                else if (reason === 'error_recovery') label = 'Error recovery';
+                else if (reason === 'batch_cooldown') label = 'Anti-detection pause';
+                startCountdown(data.resume_in, label);
+                addLine(`<span class="text-slate-600">${ts()}</span> <span class="text-cyan-400">WAIT</span> <span class="text-slate-500">${label}</span> <span class="text-cyan-400/60">resuming in ${fmtDuration(data.resume_in)}</span>`);
+                if (data.cooldowns) {
+                    Object.entries(data.cooldowns).forEach(([e, secs]) => {
+                        if (secs > 0) updateCooldownChip(e, secs);
+                    });
+                }
+                break;
+            }
+            case 'batch_done':
+                addLine(`<span class="text-slate-600">${ts()}</span> <span class="text-cyan-400">BATCH</span> <span class="text-emerald-400">Tier ${data.tier} complete — ${data.processed} prompts processed</span>`);
+                refreshHealth();
+                break;
+        }
+    }
+
+    function updateCooldownChip(engine, seconds) {
+        const el = document.querySelector(`[data-health-engine="${engine}"]`);
+        if (!el) return;
+        let cdSpan = el.querySelector('.cooldown-timer');
+        if (!cdSpan) {
+            cdSpan = document.createElement('span');
+            cdSpan.className = 'cooldown-timer text-rose-400/80 font-mono';
+            el.appendChild(cdSpan);
+        }
+        let target = Date.now() + seconds * 1000;
+        const iv = setInterval(() => {
+            const rem = Math.max(0, Math.ceil((target - Date.now()) / 1000));
+            cdSpan.textContent = rem > 0 ? fmtDuration(rem) : '';
+            if (rem <= 0) {
+                clearInterval(iv);
+                cdSpan.remove();
+            }
+        }, 1000);
+    }
+
+    // Connect SSE
+    let es = null;
+    function connect() {
+        es = new EventSource('/api/activity-stream');
+        const events = ['batch_start', 'batch_done', 'scrape_start', 'scrape_done', 'scrape_fail',
+                        'parse_done', 'agent_waiting', 'engine_cooldown', 'agent_mode'];
+        events.forEach(type => {
+            es.addEventListener(type, function(e) {
+                try { handleEvent(type, JSON.parse(e.data)); } catch(err) {}
+            });
+        });
+        es.onerror = function() {
+            es.close();
+            setTimeout(connect, 5000);
+        };
+    }
+    connect();
+
+    // Load recent events on page load
+    fetch('/api/activity-recent').then(r => r.json()).then(events => {
+        if (events.length > 0) {
+            events.slice(-20).forEach(evt => handleEvent(evt.type, evt));
+        }
+    }).catch(() => {});
+})();
+
+// Add Search Query form handlers
+document.getElementById('addQueryForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    submitQuery(false);
+});
+
+function submitQuery(andRun) {
+    const text = document.getElementById('addQueryText').value.trim();
+    const cat = document.getElementById('addQueryCat').value;
+    const intent = document.getElementById('addQueryIntent').value;
+    const status = document.getElementById('addStatus');
+    if (!text) return;
+
+    status.textContent = 'Adding...';
+    status.className = 'text-[10px] text-amber-400';
+    status.classList.remove('hidden');
+
+    const form = new FormData();
+    form.append('text', text);
+    form.append('category', cat);
+    form.append('intent', intent);
+
+    fetch('/api/add-prompt', { method: 'POST', body: form, redirect: 'manual' })
+        .then(() => {
+            status.textContent = 'Added!';
+            status.className = 'text-[10px] text-emerald-400';
+            if (andRun) {
+                status.textContent = 'Added! Running across all engines...';
+                const runForm = new FormData();
+                runForm.append('text', text);
+                fetch('/api/test-keyword', { method: 'POST', body: runForm })
+                    .then(() => {
+                        status.textContent = 'Added & running! Check activity feed.';
+                    });
+            }
+            document.getElementById('addQueryText').value = '';
+            setTimeout(() => { status.className = 'text-[10px] text-slate-600 hidden'; }, 5000);
+        })
+        .catch(err => {
+            status.textContent = 'Error: ' + err.message;
+            status.className = 'text-[10px] text-rose-400';
+        });
+}
+
+function addAndRun() {
+    submitQuery(true);
+}
+
+function refreshHealth() {
+    fetch('/api/engine-health').then(r => r.json()).then(data => {
+        const engines = data.engines || {};
+        document.querySelectorAll('[data-health-engine]').forEach(el => {
+            const eng = el.dataset.healthEngine;
+            const h = engines[eng];
+            if (!h) return;
+            const dot = el.querySelector('.health-dot');
+            const errSpan = el.querySelector('.health-errors');
+            if (dot) {
+                dot.className = 'health-dot w-2 h-2 ' + (
+                    h.health === 'healthy' ? 'text-emerald-400' :
+                    h.health === 'degraded' ? 'text-amber-400' :
+                    h.health === 'blocked' ? 'text-rose-400' : 'text-slate-600'
+                );
+            }
+            if (errSpan) {
+                errSpan.textContent = h.errors_24h > 0 ? h.errors_24h : '';
+                errSpan.className = 'health-errors ' + (h.errors_24h > 0 ? 'text-rose-400 font-bold' : '');
+            }
+        });
+    }).catch(() => {});
+}
+
+function showResponse(logId) {
+    const modal = document.getElementById('responseModal');
+    const body = document.getElementById('responseBody');
+    const meta = document.getElementById('responseMeta');
+    body.textContent = 'Loading...';
+    meta.textContent = '';
+    modal.classList.remove('hidden');
+    fetch('/api/log-response/' + logId)
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) { body.textContent = data.error; return; }
+            meta.innerHTML = '<span class="text-amber-400 font-bold uppercase">' + (data.engine_name||'').replace('_',' ') +
+                '</span> &mdash; <span class="text-slate-400">' + (data.prompt_text||'') +
+                '</span> &mdash; <span class="text-slate-500 text-[10px]">' + (data.captured_at||'') + '</span>';
+            const txt = data.raw_response_text || '(empty response)';
+            body.textContent = txt.length > 5000 ? txt.substring(0, 5000) + '\n\n... truncated ...' : txt;
+        })
+        .catch(e => { body.textContent = 'Failed to load: ' + e; });
+}
+function closeResponseModal() {
+    document.getElementById('responseModal').classList.add('hidden');
+}
+</script>
+
+<!-- Response Viewer Modal -->
+<div id="responseModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onclick="if(event.target===this)closeResponseModal()">
+    <div class="bg-slate-950 border border-slate-800/60 rounded-xl w-[90vw] max-w-4xl max-h-[80vh] flex flex-col shadow-2xl">
+        <div class="flex items-center justify-between px-5 py-3 border-b border-slate-800/60">
+            <div id="responseMeta" class="text-xs truncate flex-1 mr-4"></div>
+            <button onclick="closeResponseModal()" class="text-slate-500 hover:text-slate-200 text-lg font-bold px-2 cursor-pointer">&times;</button>
+        </div>
+        <pre id="responseBody" class="p-5 text-xs text-slate-300 overflow-auto flex-1 whitespace-pre-wrap leading-relaxed"></pre>
+    </div>
+</div>
+{% endblock %}

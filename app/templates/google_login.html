@@ -1,0 +1,416 @@
+{% extends "base.html" %}
+{% block title %}Google Login{% endblock %}
+
+{% block content %}
+<div class="space-y-6 max-w-5xl mx-auto">
+    <div class="border-b border-slate-900 pb-4">
+        <h2 class="text-2xl font-bold text-slate-100">Google Account Login</h2>
+        <p class="text-xs text-slate-500 mt-1">Login to enable Google AI Overview & AI Mode scraping</p>
+    </div>
+
+    <!-- Cookie Status -->
+    <div id="cookieStatus" class="glass-panel border border-slate-900 rounded-xl p-4">
+        {% if cookie_status.status == 'configured' %}
+        <div class="flex items-center gap-3">
+            <div class="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+            </div>
+            <div>
+                <p class="text-sm font-semibold text-emerald-400">Cookies Configured</p>
+                <p class="text-[10px] text-slate-500">{{ cookie_status.cookie_count }} Google cookies | Updated: {{ cookie_status.updated_at }}</p>
+            </div>
+            <button onclick="startLogin()" class="ml-auto px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs rounded-lg border border-slate-800 cursor-pointer">Re-login</button>
+        </div>
+        {% else %}
+        <div class="flex items-center gap-3">
+            <div class="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center">
+                <svg class="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg>
+            </div>
+            <div>
+                <p class="text-sm font-semibold text-amber-400">No Google Cookies</p>
+                <p class="text-[10px] text-slate-500">Login to enable Google AI Overview & AI Mode engines</p>
+            </div>
+            <button onclick="startLogin()" class="ml-auto px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-bold rounded-lg cursor-pointer active:scale-95">Login to Google</button>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Browser View (hidden until login starts) -->
+    <div id="browserSection" class="hidden space-y-3">
+        <!-- Toolbar -->
+        <div class="flex items-center justify-between glass-panel border border-slate-900 rounded-xl px-4 py-2.5">
+            <div class="flex items-center gap-3">
+                <div id="statusDot" class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></div>
+                <span id="statusText" class="text-xs text-slate-400">Connecting...</span>
+            </div>
+            <div class="flex-1 mx-4">
+                <div id="urlBar" class="text-[10px] text-slate-500 font-mono bg-slate-950/60 px-3 py-1.5 rounded-lg truncate border border-slate-900"></div>
+            </div>
+            <div class="flex items-center gap-2">
+                <button onclick="saveCookies()" id="saveBtn" class="hidden px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-slate-950 text-xs font-bold rounded-lg cursor-pointer active:scale-95 transition-all">Save Cookies & Close</button>
+                <button onclick="cancelLogin()" class="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-red-400 text-xs rounded-lg border border-slate-800 cursor-pointer">Cancel</button>
+            </div>
+        </div>
+
+        <!-- Screenshot display — fixed width container, no aspect-ratio distortion -->
+        <div id="browserContainer" class="glass-panel border border-slate-900 rounded-xl overflow-hidden relative" style="width:100%; max-width:1280px; margin:0 auto;">
+            <canvas id="browserCanvas" class="w-full cursor-crosshair block" style="image-rendering: auto;"></canvas>
+            <div id="loadingOverlay" class="absolute inset-0 flex items-center justify-center bg-slate-950/80">
+                <div class="text-center">
+                    <svg class="w-8 h-8 text-amber-500 animate-spin mx-auto" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    <p class="text-xs text-slate-400 mt-2">Starting browser...</p>
+                </div>
+            </div>
+            <!-- Click indicator -->
+            <div id="clickDot" class="absolute w-4 h-4 rounded-full bg-amber-500/60 border-2 border-amber-400 pointer-events-none hidden" style="transform: translate(-50%, -50%); z-index:10;"></div>
+        </div>
+
+        <!-- Input controls -->
+        <div class="glass-panel border border-slate-900 rounded-xl p-3 space-y-2">
+            <div class="flex gap-2">
+                <input id="keyboardInput" type="text" placeholder="Click here and type — keystrokes go to browser..."
+                    class="flex-1 text-sm p-3 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 placeholder-slate-600 outline-none focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/20 font-mono"
+                    onkeydown="handleKeyDown(event)" autocomplete="off" autocorrect="off" spellcheck="false" />
+                <button onclick="sendEnter()" class="px-4 py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 text-xs rounded-lg border border-amber-500/20 cursor-pointer font-mono font-bold transition-colors">Enter</button>
+                <button onclick="sendTab()" class="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs rounded-lg border border-slate-800 cursor-pointer font-mono transition-colors">Tab</button>
+                <button onclick="sendBackspace()" class="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs rounded-lg border border-slate-800 cursor-pointer font-mono transition-colors">Bksp</button>
+            </div>
+            <div class="flex items-center gap-4 text-[10px] text-slate-600">
+                <span>Click the browser image to focus input fields</span>
+                <span>|</span>
+                <span>Type in the box above</span>
+                <span>|</span>
+                <span id="actionLog" class="text-amber-500/70"></span>
+            </div>
+        </div>
+
+        <!-- Step guide -->
+        <div class="glass-panel border border-slate-900 rounded-xl p-3">
+            <div class="flex items-center gap-6 text-[10px]">
+                <div id="step1" class="flex items-center gap-1.5 text-amber-400 font-bold">
+                    <span class="w-5 h-5 rounded-full bg-amber-500/20 flex items-center justify-center text-amber-400">1</span>
+                    Click email field
+                </div>
+                <svg class="w-3 h-3 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                <div id="step2" class="flex items-center gap-1.5 text-slate-600">
+                    <span class="w-5 h-5 rounded-full bg-slate-900 flex items-center justify-center">2</span>
+                    Type email + Enter
+                </div>
+                <svg class="w-3 h-3 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                <div id="step3" class="flex items-center gap-1.5 text-slate-600">
+                    <span class="w-5 h-5 rounded-full bg-slate-900 flex items-center justify-center">3</span>
+                    Type password + Enter
+                </div>
+                <svg class="w-3 h-3 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                <div id="step4" class="flex items-center gap-1.5 text-slate-600">
+                    <span class="w-5 h-5 rounded-full bg-slate-900 flex items-center justify-center">4</span>
+                    Save Cookies
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- How it works -->
+    <div class="glass-panel border border-slate-900 rounded-xl p-5 space-y-3">
+        <h3 class="text-xs font-semibold text-slate-300 uppercase tracking-wider">How This Works</h3>
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 text-xs text-slate-500">
+            <div class="space-y-1">
+                <div class="text-amber-400 font-bold">1. Login Once</div>
+                <p>Click "Login to Google" above. A headless browser opens — you see its screen here and interact through clicks and typing.</p>
+            </div>
+            <div class="space-y-1">
+                <div class="text-amber-400 font-bold">2. Cookies Captured</div>
+                <p>After login, click "Save Cookies". Session cookies stored in database — no files on disk.</p>
+            </div>
+            <div class="space-y-1">
+                <div class="text-amber-400 font-bold">3. Auto-Used</div>
+                <p>Every Google scrape (AI Overview + AI Mode) automatically loads your cookies. Google sees a logged-in user.</p>
+            </div>
+            <div class="space-y-1">
+                <div class="text-amber-400 font-bold">4. Auto-Refreshed</div>
+                <p>Background task refreshes cookies every 6 hours. Re-login only if Google forces sign-out (~rare).</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let sessionId = null;
+let polling = null;
+let vpW = 1280, vpH = 800;
+let busy = false;
+
+const canvas = document.getElementById('browserCanvas');
+const ctx = canvas.getContext('2d');
+
+function logAction(msg) {
+    const el = document.getElementById('actionLog');
+    el.textContent = msg;
+    setTimeout(() => { if (el.textContent === msg) el.textContent = ''; }, 2000);
+}
+
+async function startLogin() {
+    document.getElementById('browserSection').classList.remove('hidden');
+    document.getElementById('loadingOverlay').classList.remove('hidden');
+    document.getElementById('statusText').textContent = 'Starting browser...';
+    document.getElementById('saveBtn').classList.add('hidden');
+
+    canvas.width = 1280;
+    canvas.height = 800;
+    ctx.fillStyle = '#0a0f1d';
+    ctx.fillRect(0, 0, 1280, 800);
+
+    try {
+        const res = await fetch('/api/google-login/start', { method: 'POST' });
+        const data = await res.json();
+
+        if (data.error) {
+            alert('Failed: ' + data.error);
+            document.getElementById('browserSection').classList.add('hidden');
+            return;
+        }
+
+        sessionId = data.session_id;
+        if (data.viewport) {
+            vpW = data.viewport.width;
+            vpH = data.viewport.height;
+        }
+
+        document.getElementById('statusText').textContent = 'Browser ready — login to Google';
+        document.getElementById('statusDot').className = 'w-2 h-2 rounded-full bg-emerald-500 animate-pulse';
+
+        polling = setInterval(refreshScreenshot, 800);
+        setTimeout(() => document.getElementById('loadingOverlay').classList.add('hidden'), 2000);
+        document.getElementById('keyboardInput').focus();
+
+    } catch (e) {
+        alert('Error starting login: ' + e.message);
+        document.getElementById('browserSection').classList.add('hidden');
+    }
+}
+
+async function refreshScreenshot() {
+    if (!sessionId || busy) return;
+
+    try {
+        const res = await fetch(`/api/google-login/screenshot/${sessionId}`);
+        const data = await res.json();
+        if (data.error) return;
+
+        const img = new Image();
+        img.onload = function() {
+            canvas.width = img.naturalWidth;
+            canvas.height = img.naturalHeight;
+            ctx.drawImage(img, 0, 0);
+        };
+        img.src = 'data:image/jpeg;base64,' + data.image;
+
+        document.getElementById('urlBar').textContent = data.url || '';
+
+        if (data.logged_in) {
+            document.getElementById('statusText').textContent = 'Logged in! Click "Save Cookies & Close" to finish.';
+            document.getElementById('statusDot').className = 'w-2 h-2 rounded-full bg-emerald-500';
+            document.getElementById('saveBtn').classList.remove('hidden');
+            highlightStep(4);
+        }
+    } catch (e) {}
+}
+
+function getCanvasCoords(event) {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x = (event.clientX - rect.left) * scaleX;
+    const y = (event.clientY - rect.top) * scaleY;
+    return { x: Math.round(x), y: Math.round(y) };
+}
+
+canvas.addEventListener('click', async function(event) {
+    if (!sessionId || busy) return;
+    busy = true;
+
+    const { x, y } = getCanvasCoords(event);
+
+    // Visual feedback — show click dot
+    const rect = canvas.getBoundingClientRect();
+    const dot = document.getElementById('clickDot');
+    dot.style.left = (event.clientX - rect.left + canvas.offsetLeft) + 'px';
+    dot.style.top = (event.clientY - rect.top + canvas.offsetTop) + 'px';
+    dot.classList.remove('hidden');
+    setTimeout(() => dot.classList.add('hidden'), 600);
+
+    logAction(`Clicked (${x}, ${y})`);
+
+    try {
+        await fetch(`/api/google-login/click/${sessionId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ x, y }),
+        });
+        await new Promise(r => setTimeout(r, 400));
+        await refreshScreenshot();
+    } catch (e) {
+        logAction('Click failed');
+    }
+    busy = false;
+    document.getElementById('keyboardInput').focus();
+});
+
+async function handleKeyDown(event) {
+    if (!sessionId || busy) return;
+
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        await sendEnter();
+        return;
+    }
+    if (event.key === 'Tab') {
+        event.preventDefault();
+        await sendTab();
+        return;
+    }
+    if (event.key === 'Backspace') {
+        event.preventDefault();
+        await sendBackspace();
+        return;
+    }
+    if (event.key === 'Escape') {
+        event.preventDefault();
+        await sendSpecialKey('Escape');
+        return;
+    }
+
+    if (event.key.length === 1) {
+        event.preventDefault();
+        busy = true;
+        logAction(`Typed: ${event.key}`);
+        try {
+            await fetch(`/api/google-login/type/${sessionId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: event.key }),
+            });
+        } catch (e) {}
+        busy = false;
+    }
+}
+
+async function sendEnter() {
+    if (!sessionId || busy) return;
+    busy = true;
+    logAction('Pressed Enter');
+    try {
+        await fetch(`/api/google-login/key/${sessionId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: 'Enter' }),
+        });
+        document.getElementById('keyboardInput').value = '';
+        await new Promise(r => setTimeout(r, 500));
+        await refreshScreenshot();
+    } catch (e) {}
+    busy = false;
+}
+
+async function sendTab() {
+    if (!sessionId || busy) return;
+    busy = true;
+    logAction('Pressed Tab');
+    try {
+        await fetch(`/api/google-login/key/${sessionId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: 'Tab' }),
+        });
+        await new Promise(r => setTimeout(r, 300));
+        await refreshScreenshot();
+    } catch (e) {}
+    busy = false;
+}
+
+async function sendBackspace() {
+    if (!sessionId || busy) return;
+    busy = true;
+    logAction('Pressed Backspace');
+    try {
+        await fetch(`/api/google-login/key/${sessionId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: 'Backspace' }),
+        });
+    } catch (e) {}
+    busy = false;
+}
+
+async function sendSpecialKey(key) {
+    if (!sessionId || busy) return;
+    busy = true;
+    logAction(`Pressed ${key}`);
+    try {
+        await fetch(`/api/google-login/key/${sessionId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key }),
+        });
+    } catch (e) {}
+    busy = false;
+}
+
+function highlightStep(n) {
+    for (let i = 1; i <= 4; i++) {
+        const el = document.getElementById('step' + i);
+        if (!el) continue;
+        if (i <= n) {
+            el.classList.remove('text-slate-600');
+            el.classList.add('text-amber-400', 'font-bold');
+            el.querySelector('span').className = 'w-5 h-5 rounded-full bg-amber-500/20 flex items-center justify-center text-amber-400';
+        } else {
+            el.classList.remove('text-amber-400', 'font-bold');
+            el.classList.add('text-slate-600');
+            el.querySelector('span').className = 'w-5 h-5 rounded-full bg-slate-900 flex items-center justify-center';
+        }
+    }
+}
+
+async function saveCookies() {
+    if (!sessionId) return;
+    logAction('Saving cookies...');
+
+    const res = await fetch(`/api/google-login/save/${sessionId}`, { method: 'POST' });
+    const data = await res.json();
+
+    if (data.error) {
+        alert('Failed to save: ' + data.error);
+        return;
+    }
+
+    clearInterval(polling);
+    sessionId = null;
+
+    document.getElementById('browserSection').classList.add('hidden');
+    document.getElementById('cookieStatus').innerHTML = `
+        <div class="flex items-center gap-3">
+            <div class="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+            </div>
+            <div>
+                <p class="text-sm font-semibold text-emerald-400">Cookies Saved!</p>
+                <p class="text-[10px] text-slate-500">${data.cookie_count} cookies captured. Google engines now active.</p>
+            </div>
+            <a href="/" class="ml-auto px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-bold rounded-lg">Go to Dashboard</a>
+        </div>
+    `;
+}
+
+async function cancelLogin() {
+    if (sessionId) {
+        await fetch(`/api/google-login/cancel/${sessionId}`, { method: 'POST' });
+    }
+    clearInterval(polling);
+    sessionId = null;
+    document.getElementById('browserSection').classList.add('hidden');
+}
+</script>
+{% endblock %}
