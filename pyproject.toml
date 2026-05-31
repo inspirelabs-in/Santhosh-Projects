@@ -1,0 +1,60 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "grabon-intel"
+version = "0.2.0"
+description = "Grabon autonomous lead intelligence — free / open-source stack"
+requires-python = ">=3.12"
+dependencies = [
+    "sqlalchemy[asyncio]>=2.0.43",
+    "asyncpg>=0.30.0",
+    "alembic>=1.16.0",
+    "pgvector>=0.4.1",
+    "pydantic>=2.11.0",
+    "pydantic-settings>=2.10.0",
+    "httpx>=0.28.1",
+    "tenacity>=9.1.2",
+    "structlog>=25.4.0",
+    "python-dotenv>=1.1.0",
+    "typer>=0.16.0",
+    "rich>=14.0.0",
+    "orjson>=3.11.0",
+    "temporalio>=1.18.0",
+    "litellm>=1.78.0",
+    "langgraph>=0.6.6",
+    "fastapi>=0.118.0",
+    "uvicorn[standard]>=0.37.0",
+    "sse-starlette>=2.4.0",
+    "feedparser>=6.0.12",
+    "selectolax>=0.3.34",
+    "scikit-learn>=1.7.0",
+    "numpy>=2.3.0",
+    "jinja2>=3.1.6",
+    "pyyaml>=6.0.2",
+    "fastembed>=0.7.0",
+    "aioimaplib>=2.0.1",
+    "dnspython>=2.7.0",
+    "google-play-scraper>=1.2.7",
+    "pytrends>=4.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.4.0",
+    "pytest-asyncio>=1.2.0",
+    "pytest-httpx>=0.36.0",
+    "ruff>=0.13.0",
+]
+
+[project.scripts]
+grabon-intel = "grabon_intel.cli:app"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

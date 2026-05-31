@@ -1,0 +1,25 @@
+# Golden brand set. Run with:
+#   grabon-intel eval run --file eval/golden.example.yaml
+
+- name: Mamaearth
+  domain: mamaearth.in
+  expected:
+    category_contains: [beauty, personal care, skincare]
+    services_recommended_any: [performance_marketing, social_media, influencer, seo]
+    tier_in: [hot, warm]
+    score_min: 60
+
+- name: boAt Lifestyle
+  domain: boat-lifestyle.com
+  expected:
+    category_contains: [audio, consumer electronics, lifestyle]
+    services_recommended_any: [performance_marketing, programmatic, influencer]
+    tier_in: [hot, warm]
+    score_min: 60
+
+- name: Nykaa
+  domain: nykaa.com
+  expected:
+    category_contains: [beauty, marketplace, ecommerce]
+    tier_in: [hot, warm, watchlist]
+    score_min: 50

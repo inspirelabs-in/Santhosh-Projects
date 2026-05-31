@@ -1,0 +1,88 @@
+use_default_settings:
+  engines:
+    keep_only:
+      - duckduckgo
+      - wikipedia
+      - bing
+      - qwant
+      - mojeek
+      - google
+      - brave
+
+server:
+  secret_key: "grabon-dev-searxng-key"
+  bind_address: "0.0.0.0"
+  port: 8080
+  limiter: false
+  image_proxy: false
+  method: "GET"
+
+search:
+  safe_search: 0
+  default_lang: "en"
+  formats:
+    - html
+    - json
+  autocomplete: ""
+
+outgoing:
+  request_timeout: 25.0
+  pool_connections: 100
+  pool_maxsize: 10
+  enable_http2: true
+
+  proxies:
+    all://:
+      - http://cloudproxy:nrSBpHgdntkfshEN@43.205.121.102:8899
+      - http://cloudproxy:nrSBpHgdntkfshEN@43.205.108.73:8899
+      - http://cloudproxy:nrSBpHgdntkfshEN@13.201.173.138:8899
+      - http://cloudproxy:nrSBpHgdntkfshEN@13.204.255.101:8899
+engines:
+  - name: bing
+    engine: bing
+    shortcut: bi
+    disabled: false
+    timeout: 20.0
+    weight: 2.0
+
+  - name: wikipedia
+    engine: wikipedia
+    shortcut: wp
+    disabled: false
+    timeout: 20.0
+    weight: 1.5
+
+  - name: duckduckgo
+    engine: duckduckgo
+    shortcut: ddg
+    disabled: false
+    timeout: 20.0
+    weight: 1.2
+
+  - name: qwant
+    engine: qwant
+    shortcut: qw
+    disabled: false
+    timeout: 20.0
+    weight: 1.0
+
+  - name: mojeek
+    engine: mojeek
+    shortcut: mj
+    disabled: false
+    timeout: 20.0
+    weight: 0.8
+
+  - name: brave
+    engine: brave
+    shortcut: br
+    disabled: false
+    timeout: 20.0
+    weight: 1.5
+
+  - name: google
+    engine: google
+    shortcut: g
+    disabled: false
+    timeout: 20.0
+    weight: 2.0

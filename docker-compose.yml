@@ -1,0 +1,161 @@
+services:
+  # ---- Postgres + pgvector ---------------------------------------------------
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: grabon
+      POSTGRES_PASSWORD: grabon
+      POSTGRES_DB: grabon
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U grabon"]
+      interval: 5s
+      retries: 10
+
+  # ---- Temporal server (dev, single-binary) ----------------------------------
+  temporal:
+    image: temporalio/auto-setup:latest
+    environment:
+      DB: postgres12_pgx
+      POSTGRES_SEEDS: postgres
+      POSTGRES_USER: grabon
+      POSTGRES_PWD: grabon
+      DB_PORT: "5432"
+    ports:
+      - "127.0.0.1:7233:7233"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "cat /proc/1/status || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+
+  temporal-ui:
+    image: temporalio/ui:latest
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+    ports:
+      - "127.0.0.1:8081:8080"
+    depends_on:
+      - temporal
+
+  # ---- SearXNG (free SERP) ---------------------------------------------------
+  searxng:
+    image: searxng/searxng:latest
+    ports:
+      - "127.0.0.1:8888:8080"
+    volumes:
+      - ./searxng-settings.yml:/etc/searxng/settings.yml
+      - ./searxng-limiter.toml:/etc/searxng/limiter.toml
+      - ./searxng-entrypoint.sh:/usr/local/bin/proxy-entrypoint.sh
+    entrypoint: ["/bin/sh", "/usr/local/bin/proxy-entrypoint.sh"]
+    environment:
+      SEARXNG_BASE_URL: http://localhost:8888
+      SEARXNG_BIND_ADDRESS: "0.0.0.0"
+      FORWARDED_ALLOW_IPS: "*"
+      CLOUDPROXY_URL: https://cloudproxy.grabcash.in
+      PROXY_SYNC_INTERVAL: "90"
+      SEARXNG_USE_PROXY: "true"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    cpus: 0.5
+    tmpfs:
+      - /tmp:size=50m
+
+  # ---- Vane (self-hosted Perplexity — AI search synthesis) ------------------
+  vane:
+    image: itzcrazykns1337/vane:slim-latest
+    ports:
+      - "127.0.0.1:3002:3000"
+    environment:
+      SEARXNG_API_URL: http://searxng:8080
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    volumes:
+      - vane-data:/home/vane/data
+    depends_on:
+      - searxng
+    restart: unless-stopped
+    mem_limit: 1536m
+    entrypoint:
+      - sh
+      - -c
+      - |
+        sed -i 's/setTimeout(()=>f.abort(),1e4)/setTimeout(()=>f.abort(),45e3)/g' /home/vane/.next/server/chunks/641.js
+        exec node server.js
+
+  # ---- Backend API -----------------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:8002:8000"
+    env_file:
+      - .env
+    environment:
+      GRABON_DATABASE_URL: postgresql+asyncpg://grabon:grabon@postgres:5432/grabon
+      TEMPORAL_ADDRESS: temporal:7233
+      SEARXNG_URL: http://searxng:8080
+      CLOUDPROXY_URL: https://cloudproxy.grabcash.in
+      VANE_URL: http://vane:3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn grabon_intel.api.main:create_app --factory --host 0.0.0.0 --port 8000"
+
+  # ---- Temporal worker -------------------------------------------------------
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      GRABON_DATABASE_URL: postgresql+asyncpg://grabon:grabon@postgres:5432/grabon
+      TEMPORAL_ADDRESS: temporal:7233
+      SEARXNG_URL: http://searxng:8080
+      CLOUDPROXY_URL: https://cloudproxy.grabcash.in
+      VANE_URL: http://vane:3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+    command: ["python", "-m", "grabon_intel.cli", "worker", "start"]
+    restart: on-failure
+    deploy:
+      replicas: 1
+
+  # ---- Next.js frontend ------------------------------------------------------
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE: http://localhost:8002
+        NEXT_PUBLIC_API_KEY: devkey1
+    ports:
+      - "127.0.0.1:${WEB_PORT:-3001}:3000"
+    environment:
+      GRABON_API_KEY: devkey1
+      BACKEND_URL: http://api:8000
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  vane-data:

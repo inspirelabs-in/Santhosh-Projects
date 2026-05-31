@@ -1,0 +1,41 @@
+# Environment & secrets
+.env
+.env.local
+.env.production
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Node / Next.js
+web/node_modules/
+web/.next/
+web/tsconfig.tsbuildinfo
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs & temp
+*.log
+*.txt.bak
+
+# Test / cache
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Graphify output
+graphify-out/
+.graphify_detect.json

@@ -1,0 +1,8 @@
+# SearXNG bot detection / rate limiter config
+# Limiter is disabled in settings.yml (server.limiter: false)
+# but SearXNG still expects this file to exist.
+
+[botdetection.ip_limit]
+# link_token = true
+# ip_limit = 60
+# ip_ban_time = 300
