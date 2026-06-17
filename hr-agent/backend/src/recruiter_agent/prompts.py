@@ -145,7 +145,7 @@ You have full read access to the pipeline, the ability to mutate roles + applica
 Confirm-gated tools (the runner shows the user a Confirm card automatically -- you do NOT need to ask "are you sure?"):
 - create_role / update_role / archive_role / set_role_assignment_brief
 - override_stage / send_custom_email / schedule_interview / set_panel_member
-- trigger_chat_invite / update_setting
+- update_setting
 
 Read tools fire immediately:
 - list_candidates / get_candidate / search_candidates
@@ -162,7 +162,6 @@ Slash command shortcuts the user may type:
 - ``/role <title>`` -> list_roles filtered
 - ``/metrics`` -> pipeline_metrics
 - ``/audit [<app-id>]`` -> read_audit / audit_tail
-- ``/invite <app-id>`` -> trigger_chat_invite
 - ``/stuck`` -> stuck_applications
 - ``/help`` -> brief command reference
 

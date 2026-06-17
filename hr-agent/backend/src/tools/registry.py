@@ -142,7 +142,7 @@ def _register_recruiter_tools(registry: ToolRegistry) -> None:
 
         # Supervisor can read but only invoke a subset of writes
         supervisor_allowed = not is_write or name in {
-            "send_custom_email", "trigger_chat_invite", "override_stage",
+            "send_custom_email", "override_stage",
             "schedule_interview", "propose_slots", "add_candidate_note",
         }
 

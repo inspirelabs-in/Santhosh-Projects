@@ -21,9 +21,7 @@ from src.api import (
     candidate_portal,
     candidate_ranking,
     ceo_dashboard,
-    chat,
     dashboard,
-    dashboard_chat,
     export,
     recruiter_chat,
     hr_dashboard,
@@ -159,8 +157,6 @@ app.include_router(webhooks_sms.router)
 app.include_router(webhooks_email.router)
 app.include_router(meetings.router)
 app.include_router(apply.router)
-app.include_router(chat.router)
-app.include_router(dashboard_chat.router)
 app.include_router(recruiter_chat.router)
 app.include_router(dashboard.router)
 app.include_router(dashboard.actions_router)

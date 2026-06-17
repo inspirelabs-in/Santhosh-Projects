@@ -81,20 +81,6 @@ RECRUITER_TOOLS: list[dict] = [
     {
         "type": "function",
         "function": {
-            "name": "trigger_chat_invite",
-            "description": "Re-send the V2 chat-invite email to a candidate. Use when the user explicitly asks to nudge a candidate, re-send their link, or kick off chat for an application that didn't get one.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "application_id": {"type": "string"},
-                },
-                "required": ["application_id"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "audit_tail",
             "description": "Recent audit-log entries. Use for 'what has the agent done?', 'show recent activity', 'why did X happen?'.",
             "parameters": {
@@ -450,7 +436,7 @@ RECRUITER_TOOLS: list[dict] = [
                     "pipeline_template": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "Ordered list of pipeline step IDs. Presets: standard_engineer, senior_engineer, intern, executive, referral, contract, campus, internal_transfer, rehire. Or custom list from: fit_score, voice_screen, chat_screen, assignment, cognitive_test, technical_interview, hiring_manager, ceo_interview, hr_interview, panel_interview, bar_raiser, reference_check, background_check, offer. Must end with 'offer'.",
+                        "description": "Ordered list of pipeline step IDs. Presets: standard_engineer, senior_engineer, intern, executive, referral, contract, campus, internal_transfer, rehire. Or custom list from: fit_score, voice_screen, assignment, cognitive_test, technical_interview, hiring_manager, ceo_interview, hr_interview, panel_interview, bar_raiser, reference_check, background_check, offer. Must end with 'offer'.",
                     },
                     "time_budget_hours": {"type": "integer", "default": 6},
                     "deadline_days": {"type": "integer", "default": 7},

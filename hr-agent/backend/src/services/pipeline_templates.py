@@ -70,17 +70,6 @@ _reg(StepDef(
     action="voice_screen",
 ))
 
-_reg(StepDef(
-    id="chat_screen",
-    label="Chat Screen",
-    category="screening",
-    entry_stage=PipelineStage.SCREENING_SENT,
-    completed_stages=frozenset({
-        PipelineStage.SCREENING_EVALUATED,
-        PipelineStage.REPORT_READY,
-    }),
-    action="chat_screen",
-))
 
 # ── Assessment ─────────────────────────────────────────────────────────
 

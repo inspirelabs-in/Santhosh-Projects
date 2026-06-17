@@ -302,46 +302,6 @@ async def stuck_applications(*, hours: int = 48, limit: int = 25) -> dict[str, A
 
 
 # ---------------------------------------------------------------------------
-# trigger_chat_invite
-# ---------------------------------------------------------------------------
-
-
-async def trigger_chat_invite(*, application_id: str) -> dict[str, Any]:
-    """Re-issue the V2 chat-invite email for a given application.
-
-    Useful when the candidate lost the email, or when HR creates a candidate
-    manually in the dashboard and wants to push them into the agent flow.
-    """
-    from src.pipeline.chat_invite import run_apply_to_chat
-
-    app_id = UUID(application_id)
-    async with session_scope() as session:
-        app = await session.get(Application, app_id)
-        if app is None:
-            return {"error": "application_not_found"}
-        if app.role_id is None:
-            return {"error": "role_missing_on_application"}
-        candidate_id = app.candidate_id
-        role_id = app.role_id
-
-    try:
-        await run_apply_to_chat(
-            application_id=app_id,
-            candidate_id=candidate_id,
-            role_id=role_id,
-        )
-    except Exception as e:  # noqa: BLE001
-        logger.exception("recruiter trigger_chat_invite failed")
-        return {"error": f"send_failed: {e}"}
-
-    return {
-        "ok": True,
-        "application_id": str(app_id),
-        "message": "Chat invite re-sent. Candidate should receive an email shortly.",
-    }
-
-
-# ---------------------------------------------------------------------------
 # audit_tail
 # ---------------------------------------------------------------------------
 
@@ -1586,7 +1546,6 @@ TOOLS: dict[str, Any] = {
     "generate_assignment_for_role": generate_assignment_for_role,
     "draft_linkedin_post": draft_linkedin_post,
     # Writes
-    "trigger_chat_invite": trigger_chat_invite,
     "create_role_with_assignment": create_role_with_assignment,
     "create_role": create_role,
     "update_role": update_role,

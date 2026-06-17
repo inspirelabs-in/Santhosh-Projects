@@ -211,8 +211,6 @@ def _propose_preview(tool_name: str, args: dict[str, Any]) -> str:
     Surfaces in the confirm card so the user clicks Confirm with full context.
     """
     a = args or {}
-    if tool_name == "trigger_chat_invite":
-        return f"Re-send chat invite to application {a.get('application_id')}."
     if tool_name == "create_role":
         return f"Create role '{a.get('title')}' (modality={a.get('screening_modality', 'voice')})."
     if tool_name == "create_role_with_assignment":
@@ -573,8 +571,6 @@ def _attachment_for_tool(name: str, result: dict[str, Any]) -> dict[str, Any] | 
         return {"kind": "metrics", "data": result}
     if name == "get_candidate":
         return {"kind": "candidate-detail", "data": result}
-    if name == "trigger_chat_invite":
-        return {"kind": "action-result", "data": result}
     if name == "draft_linkedin_post" and result.get("ok"):
         return {"kind": "linkedin-post", "data": result}
     if name == "create_role_with_assignment" and result.get("ok"):

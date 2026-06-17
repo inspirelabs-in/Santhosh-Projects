@@ -39,7 +39,6 @@ TOOL_ROLES: dict[str, Role] = {
     "draft_linkedin_post": "recruiter",
     "publish_linkedin_post": "recruiter",
     # Recruiter writes
-    "trigger_chat_invite": "recruiter",
     "create_role": "recruiter",
     "create_role_with_assignment": "recruiter",
     "update_role": "recruiter",
@@ -63,7 +62,6 @@ TOOL_ROLES: dict[str, Role] = {
 # they execute. Reads + memory + recruiter-private actions are exempt.
 CONFIRM_REQUIRED: frozenset[str] = frozenset(
     {
-        "trigger_chat_invite",
         "create_role",
         "create_role_with_assignment",
         "update_role",
