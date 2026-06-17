@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}GEO Agent{% endblock %} - GrabOn</title>
+    <link rel="stylesheet" href="/static/css/app.css">
+    {% block head_scripts %}{% endblock %}
+    <style>
+        body { background: #0a0f1d; }
+        .glass-panel { background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(12px); }
+        .glass-card { background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(30, 41, 59, 0.5); }
+        .glow-amber { text-shadow: 0 0 20px rgba(245, 158, 11, 0.15); }
+        @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+        .pulse-dot { animation: pulse-dot 2s ease-in-out infinite; }
+
+        /* Custom scrollbar - dark theme */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(51, 65, 85, 0.5);
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(71, 85, 105, 0.7); }
+        ::-webkit-scrollbar-corner { background: transparent; }
+        * { scrollbar-width: thin; scrollbar-color: rgba(51,65,85,0.5) transparent; }
+
+        /* Info tooltip styles */
+        .info-btn { position: relative; display: inline-flex; align-items: center; cursor: help; }
+        .info-btn .info-tip {
+            display: none; position: absolute; top: calc(100% + 6px); left: 0;
+            width: 260px; padding: 10px 12px;
+            background: rgba(15, 23, 42, 0.97); border: 1px solid rgba(51, 65, 85, 0.6);
+            border-radius: 8px; font-size: 11px; line-height: 1.5; color: #94a3b8;
+            z-index: 9999; box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            pointer-events: none;
+            text-transform: none; letter-spacing: normal; font-weight: 400;
+            text-align: left; white-space: normal;
+        }
+        .info-btn .info-tip::before {
+            content: ''; position: absolute; bottom: 100%; left: 16px;
+            border: 5px solid transparent; border-bottom-color: rgba(51, 65, 85, 0.6);
+        }
+        /* info-tip shown via JS floating tooltip, not CSS hover */
+
+        /* Brand ladder tooltip */
+        .rank-cell { position: relative; }
+        .rank-cell .brand-ladder {
+            display: none; position: absolute; top: calc(100% + 4px); left: 50%;
+            transform: translateX(-50%); min-width: 180px; padding: 8px;
+            background: rgba(15, 23, 42, 0.97); border: 1px solid rgba(51, 65, 85, 0.6);
+            border-radius: 8px; font-size: 10px; z-index: 40;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+        }
+        /* brand-ladder shown via JS floating tooltip, not CSS hover */
+
+        /* Sidebar transitions */
+        .sidebar { transition: width 0.2s ease, padding 0.2s ease; }
+        .sidebar nav a { padding-top: 0.375rem; padding-bottom: 0.375rem; }
+        .sidebar.collapsed { width: 64px; padding-left: 0.75rem; padding-right: 0.75rem; }
+        .sidebar.collapsed .sidebar-label { display: none; }
+        .sidebar.collapsed .sidebar-header-text { display: none; }
+        .sidebar.collapsed .sidebar-footer-text { display: none; }
+        .sidebar.collapsed .sidebar-logo { justify-content: center; }
+        .sidebar.collapsed .sidebar-logo button:first-child { justify-content: center; }
+        .sidebar.collapsed nav a { justify-content: center; padding-left: 0; padding-right: 0; }
+        .sidebar.collapsed .theme-toggle { justify-content: center; padding-left: 0; padding-right: 0; }
+        .sidebar.collapsed nav a svg, .sidebar.collapsed nav a img { margin: 0; }
+        /* Pre-render collapsed state from <html> class (set in <head> before body) */
+        html.sidebar-is-collapsed .sidebar { width: 64px; padding-left: 0.75rem; padding-right: 0.75rem; }
+        html.sidebar-is-collapsed .sidebar .sidebar-label { display: none; }
+        html.sidebar-is-collapsed .sidebar .sidebar-header-text { display: none; }
+        html.sidebar-is-collapsed .sidebar .sidebar-footer-text { display: none; }
+        html.sidebar-is-collapsed .sidebar .sidebar-logo { justify-content: center; }
+        html.sidebar-is-collapsed .sidebar .sidebar-logo button:first-child { justify-content: center; }
+        html.sidebar-is-collapsed .sidebar nav a { justify-content: center; padding-left: 0; padding-right: 0; }
+        html.sidebar-is-collapsed .sidebar .theme-toggle { justify-content: center; padding-left: 0; padding-right: 0; }
+        html.sidebar-is-collapsed .sidebar nav a svg, html.sidebar-is-collapsed .sidebar nav a img { margin: 0; }
+
+        /* Hide sidebar scrollbar */
+        .sidebar-nav { scrollbar-width: none; -ms-overflow-style: none; }
+        .sidebar-nav::-webkit-scrollbar { display: none; }
+
+        /* ════ Light Theme ════ */
+        html.light body { background: #f1f5f9 !important; color: #0f172a !important; }
+        html.light .glass-panel { background: #ffffff; border-color: rgba(203,213,225,0.5); box-shadow: 0 1px 3px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.03); }
+        html.light .glass-card { background: #ffffff; border-color: rgba(203,213,225,0.6); box-shadow: 0 1px 3px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.03); }
+        html.light .glow-amber { text-shadow: none; }
+
+        html.light ::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.3); }
+        html.light ::-webkit-scrollbar-thumb:hover { background: rgba(148,163,184,0.5); }
+
+        html.light #sidebar { background: rgba(255,255,255,0.95) !important; border-color: #e2e8f0 !important; }
+
+        html.light .text-slate-100 { color: #0f172a !important; }
+        html.light .text-slate-200 { color: #1e293b !important; }
+        html.light .text-slate-300 { color: #1e293b !important; }
+        html.light .text-slate-400 { color: #334155 !important; }
+        html.light .text-slate-500 { color: #475569 !important; }
+        html.light .text-slate-600 { color: #64748b !important; }
+        html.light .text-slate-700 { color: #64748b !important; }
+
+        html.light .text-amber-400 { color: #d97706 !important; }
+        html.light .text-amber-500\/70 { color: #b45309 !important; }
+        html.light .text-emerald-400 { color: #059669 !important; }
+        html.light .text-rose-400 { color: #e11d48 !important; }
+        html.light .text-rose-500\/80 { color: #be123c !important; }
+        html.light .text-red-500\/80 { color: #be123c !important; }
+        html.light .text-cyan-400 { color: #0891b2 !important; }
+        html.light .text-cyan-500 { color: #0e7490 !important; }
+        html.light .text-blue-400 { color: #2563eb !important; }
+        html.light .text-violet-400 { color: #7c3aed !important; }
+        html.light .text-teal-400 { color: #0d9488 !important; }
+        html.light .text-green-400 { color: #16a34a !important; }
+        html.light .text-purple-400 { color: #9333ea !important; }
+        html.light .text-orange-400 { color: #ea580c !important; }
+        html.light .text-red-400 { color: #dc2626 !important; }
+
+        html.light .bg-slate-950 { background-color: #f8fafc !important; }
+        html.light .bg-slate-900 { background-color: #f1f5f9 !important; }
+        html.light .bg-slate-800 { background-color: #e2e8f0 !important; }
+
+        html.light .bg-slate-950\/80, html.light .bg-slate-950\/60, html.light .bg-slate-950\/70,
+        html.light .bg-slate-950\/50, html.light .bg-slate-950\/40, html.light .bg-slate-950\/30,
+        html.light .bg-slate-950\/90 { background-color: rgba(241,245,249,0.7) !important; }
+        html.light .bg-slate-900\/80, html.light .bg-slate-900\/60,
+        html.light .bg-slate-900\/50 { background-color: rgba(241,245,249,0.7) !important; }
+        html.light .bg-slate-900\/40, html.light .bg-slate-900\/30,
+        html.light .bg-slate-900\/20 { background-color: rgba(241,245,249,0.4) !important; }
+        html.light .bg-slate-800\/50, html.light .bg-slate-800\/40,
+        html.light .bg-slate-800\/30, html.light .bg-slate-800\/20 { background-color: rgba(226,232,240,0.4) !important; }
+        html.light .bg-slate-800\/60 { background-color: rgba(226,232,240,0.6) !important; }
+        html.light .bg-slate-800\/15 { background-color: rgba(226,232,240,0.15) !important; }
+
+        html.light .border-slate-900 { border-color: #e2e8f0 !important; }
+        html.light .border-slate-800 { border-color: #cbd5e1 !important; }
+        html.light .border-slate-700 { border-color: #cbd5e1 !important; }
+        html.light .border-slate-900\/60, html.light .border-slate-900\/30,
+        html.light .border-slate-900\/40, html.light .border-slate-900\/50,
+        html.light .border-slate-900\/20 { border-color: rgba(226,232,240,0.6) !important; }
+        html.light .border-slate-800\/60, html.light .border-slate-800\/50,
+        html.light .border-slate-800\/40 { border-color: rgba(203,213,225,0.5) !important; }
+
+        html.light .hover\:bg-slate-900\/20:hover { background-color: rgba(241,245,249,0.6) !important; }
+        html.light .hover\:bg-slate-900\/50:hover { background-color: rgba(241,245,249,0.8) !important; }
+        html.light .hover\:bg-slate-800\/50:hover { background-color: rgba(226,232,240,0.5) !important; }
+        html.light .hover\:bg-slate-800\/60:hover { background-color: rgba(226,232,240,0.6) !important; }
+        html.light .hover\:text-slate-200:hover { color: #0f172a !important; }
+        html.light .hover\:text-slate-300:hover { color: #1e293b !important; }
+        html.light .hover\:text-slate-400:hover { color: #334155 !important; }
+
+        html.light input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+        html.light select, html.light textarea {
+            background-color: #ffffff !important; border-color: #cbd5e1 !important; color: #334155 !important;
+        }
+        html.light input::placeholder, html.light textarea::placeholder { color: #94a3b8 !important; }
+
+        html.light .bg-black\/60 { background-color: rgba(0,0,0,0.15) !important; }
+        html.light .bg-slate-900\/60[class*="bg-"] { background-color: rgba(226,232,240,0.6) !important; }
+        html.light .shadow-lg { box-shadow: 0 4px 12px rgba(0,0,0,0.06) !important; }
+        html.light .shadow-2xl { box-shadow: 0 4px 24px rgba(0,0,0,0.06) !important; }
+
+        html.light .divide-slate-900\/30 > * + * { border-color: rgba(226,232,240,0.6) !important; }
+        html.light .divide-x > * + * { border-color: rgba(226,232,240,0.6); }
+        html.light .divide-y > * + * { border-color: rgba(226,232,240,0.6); }
+
+        html.light pre { background-color: #f1f5f9 !important; color: #1e293b !important; }
+        html.light details summary { color: #475569 !important; }
+        html.light details summary:hover { color: #1e293b !important; }
+
+        html.light .info-btn .info-tip {
+            background: rgba(255,255,255,0.97); border-color: rgba(203,213,225,0.6);
+            color: #475569; box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+        }
+        html.light .info-btn .info-tip::before { border-bottom-color: rgba(203,213,225,0.6); }
+        html.light .rank-cell .brand-ladder {
+            background: rgba(255,255,255,0.97); border-color: rgba(203,213,225,0.6);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+        }
+
+        /* Light theme: modals */
+        html.light .bg-black\/70 { background-color: rgba(0,0,0,0.25) !important; }
+        html.light [id$="Modal"] > div { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        html.light [id$="Modal"] pre { background: #f1f5f9 !important; color: #1e293b !important; }
+        html.light [id$="Modal"] .border-slate-800\/60 { border-color: #e2e8f0 !important; }
+
+        /* Light theme: response text in cards */
+        html.light .response-text { color: #1e293b !important; }
+
+        /* Light theme: gradient fade on response cards */
+        html.light .from-slate-950\/90 { --tw-gradient-from: rgba(255,255,255,0.9) !important; }
+    </style>
+    {% block head %}{% endblock %}
+    <script>
+    (function() {
+        if (localStorage.getItem('sidebar_collapsed') === '1') {
+            document.documentElement.classList.add('sidebar-is-collapsed');
+        }
+        if (localStorage.getItem('geo_theme') === 'light') {
+            document.documentElement.classList.remove('dark');
+            document.documentElement.classList.add('light');
+        }
+    })();
+    </script>
+</head>
+<body class="bg-slate-950 text-slate-300 min-h-screen font-outfit antialiased">
+    <div class="flex min-h-screen">
+        <!-- Sidebar -->
+        <aside id="sidebar" class="sidebar w-60 border-r border-slate-900/60 bg-slate-950/80 flex flex-col p-5 shrink-0 sticky top-0 h-screen">
+            <div class="flex items-center justify-between mb-4 sidebar-logo relative">
+                <button onclick="toggleSidebar()" class="flex items-center gap-2.5 cursor-pointer group" title="Toggle sidebar">
+                    <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center shadow-lg shadow-amber-500/20 group-hover:shadow-amber-500/40 transition-shadow">
+                        <svg class="w-4 h-4 text-slate-950" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                    </div>
+                    <div class="sidebar-header-text">
+                        <h1 class="text-sm font-bold text-slate-100 tracking-tight leading-none">GEO Agent</h1>
+                        <p class="text-[9px] text-amber-500/70 font-semibold uppercase tracking-widest mt-0.5">GrabOn</p>
+                    </div>
+                </button>
+                <div class="flex items-center gap-1 sidebar-header-text">
+                    <button onclick="toggleNotifPanel()" class="p-1.5 rounded-lg hover:bg-slate-900/50 text-slate-500 hover:text-amber-400 transition-colors cursor-pointer relative" title="Notifications" id="notifBellBtn">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+                        <span id="notifBadge" class="absolute -top-0.5 -right-0.5 w-4 h-4 bg-rose-500 text-white font-bold rounded-full items-center justify-center hidden" style="font-size:9px;">0</span>
+                    </button>
+                    <button onclick="toggleSidebar()" class="p-1.5 rounded-lg hover:bg-slate-900/50 text-slate-600 hover:text-slate-400 transition-colors cursor-pointer" title="Collapse sidebar">
+                        <svg id="collapseIcon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7"/></svg>
+                    </button>
+                </div>
+            </div>
+
+            <nav class="sidebar-nav flex flex-col gap-0.5 text-[13px] flex-1 min-h-0 overflow-y-auto">
+                <a href="/" class="flex items-center gap-3 px-3 py-2 rounded-lg {% if request.url.path == '/' %}bg-amber-500/10 text-amber-400 border border-amber-500/20{% else %}text-slate-400 hover:text-slate-200 hover:bg-slate-900/50{% endif %} transition-all">
+                    <svg class="w-[18px] h-[18px] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
+                    <span class="sidebar-label">Dashboard</span>
+                </a>
+                <a href="/logs" class="flex items-center gap-3 px-3 py-2 rounded-lg {% if request.url.path == '/logs' %}bg-amber-500/10 text-amber-400 border border-amber-500/20{% else %}text-slate-400 hover:text-slate-200 hover:bg-slate-900/50{% endif %} transition-all">
+                    <svg class="w-[18px] h-[18px] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                    <span class="sidebar-label">Execution Logs</span>
+                </a>
+                <a href="/responses" class="flex items-center gap-3 px-3 py-2 rounded-lg {% if request.url.path == '/responses' %}bg-amber-500/10 text-amber-400 border border-amber-500/20{% else %}text-slate-400 hover:text-slate-200 hover:bg-slate-900/50{% endif %} transition-all">
+                    <svg class="w-[18px] h-[18px] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
+                    <span class="sidebar-label">AI Responses</span>
+                </a>
+                <a href="/analytics" class="flex items-center gap-3 px-3 py-2 rounded-lg {% if request.url.path == '/analytics' %}bg-amber-500/10 text-amber-400 border border-amber-500/20{% else %}text-slate-400 hover:text-slate-200 hover:bg-slate-900/50{% endif %} transition-all">
+                    <svg class="w-[18px] h-[18px] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+                    <span class="sidebar-label">Analytics</span>
+                </a>
+                <div class="h-px bg-slate-900/60 my-2"></div>
+                <div class="sidebar-label text-[9px] text-slate-600 uppercase tracking-widest font-semibold px-3 mb-1">Intelligence</div>
+
+                <a href="/serp" class="flex items-center gap-3 px-3 py-2 rounded-lg {% if request.url.path == '/serp' %}bg-amber-500/10 text-amber-400 border border-amber-500/20{% else %}text-slate-400 hover:text-slate-200 hover:bg-slate-900/50{% endif %} transition-all">
+                    <svg class="w-[18px] h-[18px] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                    <span class="sidebar-label">SEO Rankings</span>
+                </a>
+                <a href="/diagnosis" class="flex items-center gap-3 px-3 py-2 rounded-lg {% if request.url.path == '/diagnosis' %}bg-amber-500/10 text-amber-400 border border-amber-500/20{% else %}text-slate-400 hover:text-slate-200 hover:bg-slate-900/50{% endif %} transition-all">
+                    <svg class="w-[18px] h-[18px] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+                    <span class="sidebar-label">Diagnosis</span>
+                </a>
+                <a href="/verification" class="flex items-center gap-3 px-3 py-2 rounded-lg {% if request.url.path == '/verification' %}bg-amber-500/10 text-amber-400 border border-amber-500/20{% else %}text-slate-400 hover:text-slate-200 hover:bg-slate-900/50{% endif %} transition-all">
+                    <svg class="w-[18px] h-[18px] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <span class="sidebar-label">Verification</span>
+                </a>
+
+                <div class="h-px bg-slate-900/60 my-2"></div>
+
+                <a href="/keywords" class="flex items-center gap-3 px-3 py-2 rounded-lg {% if request.url.path == '/keywords' %}bg-amber-500/10 text-amber-400 border border-amber-500/20{% else %}text-slate-400 hover:text-slate-200 hover:bg-slate-900/50{% endif %} transition-all">
+                    <svg class="w-[18px] h-[18px] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/></svg>
+                    <span class="sidebar-label">Keywords</span>
+                </a>
+                <a href="/red-flags" class="flex items-center gap-3 px-3 py-2 rounded-lg {% if request.url.path == '/red-flags' %}bg-amber-500/10 text-amber-400 border border-amber-500/20{% else %}text-slate-400 hover:text-slate-200 hover:bg-slate-900/50{% endif %} transition-all">
+                    <svg class="w-[18px] h-[18px] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg>
+                    <span class="sidebar-label">Coupon Auditor</span>
+                </a>
+                <a href="/system-docs" class="flex items-center gap-3 px-3 py-2 rounded-lg {% if request.url.path == '/system-docs' %}bg-amber-500/10 text-amber-400 border border-amber-500/20{% else %}text-slate-400 hover:text-slate-200 hover:bg-slate-900/50{% endif %} transition-all">
+                    <svg class="w-[18px] h-[18px] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
+                    <span class="sidebar-label">System Docs</span>
+                </a>
+
+                <div class="h-px bg-slate-900/60 my-2"></div>
+                <div class="sidebar-label text-[9px] text-slate-600 uppercase tracking-widest font-semibold px-3 mb-1">Authentication</div>
+
+                <a href="/google-login" class="flex items-center gap-3 px-3 py-2 rounded-lg {% if request.url.path == '/google-login' %}bg-amber-500/10 text-amber-400 border border-amber-500/20{% else %}text-slate-400 hover:text-slate-200 hover:bg-slate-900/50{% endif %} transition-all">
+                    <img loading="lazy" src="/static/logos/google.svg" alt="Google" class="w-[18px] h-[18px] shrink-0">
+                    <span class="sidebar-label">Google</span>
+                </a>
+                <a href="/chatgpt-login" class="flex items-center gap-3 px-3 py-2 rounded-lg {% if request.url.path == '/chatgpt-login' %}bg-amber-500/10 text-amber-400 border border-amber-500/20{% else %}text-slate-400 hover:text-slate-200 hover:bg-slate-900/50{% endif %} transition-all">
+                    <img loading="lazy" src="/static/logos/chatgpt.svg" alt="ChatGPT" class="w-[18px] h-[18px] shrink-0">
+                    <span class="sidebar-label">ChatGPT</span>
+                </a>
+                <a href="/perplexity-login" class="flex items-center gap-3 px-3 py-2 rounded-lg {% if request.url.path == '/perplexity-login' %}bg-amber-500/10 text-amber-400 border border-amber-500/20{% else %}text-slate-400 hover:text-slate-200 hover:bg-slate-900/50{% endif %} transition-all">
+                    <img loading="lazy" src="/static/logos/perplexity.svg" alt="Perplexity" class="w-[18px] h-[18px] shrink-0">
+                    <span class="sidebar-label">Perplexity</span>
+                </a>
+                <a href="/gemini-login" class="flex items-center gap-3 px-3 py-2 rounded-lg {% if request.url.path == '/gemini-login' %}bg-amber-500/10 text-amber-400 border border-amber-500/20{% else %}text-slate-400 hover:text-slate-200 hover:bg-slate-900/50{% endif %} transition-all">
+                    <img loading="lazy" src="/static/logos/gemini.svg" alt="Gemini" class="w-[18px] h-[18px] shrink-0">
+                    <span class="sidebar-label">Gemini</span>
+                </a>
+                <a href="/claude-login" class="flex items-center gap-3 px-3 py-2 rounded-lg {% if request.url.path == '/claude-login' %}bg-amber-500/10 text-amber-400 border border-amber-500/20{% else %}text-slate-400 hover:text-slate-200 hover:bg-slate-900/50{% endif %} transition-all">
+                    <img loading="lazy" src="/static/logos/claude.svg" alt="Claude" class="w-[18px] h-[18px] shrink-0">
+                    <span class="sidebar-label">Claude</span>
+                </a>
+
+            </nav>
+
+            <div class="shrink-0 pt-1 mt-1 border-t border-slate-900/60">
+                <button onclick="toggleTheme()" id="themeToggleBtn" class="theme-toggle flex items-center gap-3 px-3 py-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-900/50 transition-all w-full cursor-pointer text-[13px]" title="Switch to light mode">
+                    <svg id="themeIcon" class="w-[18px] h-[18px] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
+                    </svg>
+                    <span class="sidebar-label">Light Mode</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="flex-1 px-6 py-5 overflow-y-auto">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+
+    <script>
+    function toggleSidebar() {
+        const sb = document.getElementById('sidebar');
+        sb.classList.toggle('collapsed');
+        const isCollapsed = sb.classList.contains('collapsed');
+        document.documentElement.classList.toggle('sidebar-is-collapsed', isCollapsed);
+        localStorage.setItem('sidebar_collapsed', isCollapsed ? '1' : '0');
+    }
+    (function() {
+        if (localStorage.getItem('sidebar_collapsed') === '1') {
+            document.getElementById('sidebar').classList.add('collapsed');
+        }
+    })();
+
+    function toggleTheme() {
+        var isLight = document.documentElement.classList.toggle('light');
+        document.documentElement.classList.toggle('dark', !isLight);
+        localStorage.setItem('geo_theme', isLight ? 'light' : 'dark');
+        updateThemeUI();
+        window.dispatchEvent(new CustomEvent('themechange', {detail: {theme: isLight ? 'light' : 'dark'}}));
+    }
+
+    function updateThemeUI() {
+        var isLight = document.documentElement.classList.contains('light');
+        var icon = document.getElementById('themeIcon');
+        var btn = document.getElementById('themeToggleBtn');
+        var label = btn ? btn.querySelector('.sidebar-label') : null;
+        if (btn) btn.title = isLight ? 'Switch to dark mode' : 'Switch to light mode';
+        if (label) label.textContent = isLight ? 'Dark Mode' : 'Light Mode';
+        if (icon) {
+            icon.innerHTML = isLight
+                ? '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>'
+                : '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>';
+        }
+    }
+    updateThemeUI();
+
+    function getChartTheme() {
+        var isLight = document.documentElement.classList.contains('light');
+        return {
+            text: isLight ? '#475569' : '#94a3b8',
+            grid: isLight ? 'rgba(203,213,225,0.3)' : 'rgba(30,41,59,0.5)',
+            tooltipBg: isLight ? 'rgba(255,255,255,0.97)' : 'rgba(15,23,42,0.95)',
+            tooltipBorder: isLight ? 'rgba(203,213,225,0.6)' : 'rgba(51,65,85,0.5)',
+            tooltipTitle: isLight ? '#1e293b' : '#e2e8f0',
+            tooltipBody: isLight ? '#475569' : '#94a3b8',
+            pointBorder: isLight ? '#ffffff' : '#0a0f1d',
+        };
+    }
+    </script>
+    <!-- Floating tooltip system - escapes overflow:hidden/auto clipping -->
+    <div id="floatingTip" style="display:none;position:fixed;z-index:99999;pointer-events:none;"></div>
+    <script>
+    (function() {
+        const tip = document.getElementById('floatingTip');
+        let activeEl = null;
+
+        function positionTip(rect) {
+            tip.style.display = 'block';
+            const tw = tip.offsetWidth, th = tip.offsetHeight;
+            let top = rect.bottom + 6;
+            let left = rect.left + rect.width / 2 - tw / 2;
+            if (left < 8) left = 8;
+            if (left + tw > window.innerWidth - 8) left = window.innerWidth - 8 - tw;
+            if (top + th > window.innerHeight - 8) top = rect.top - th - 6;
+            tip.style.top = top + 'px';
+            tip.style.left = left + 'px';
+        }
+
+        function show(el, contentEl, cls) {
+            if (activeEl === el) return;
+            activeEl = el;
+            tip.className = cls;
+            tip.innerHTML = contentEl.innerHTML;
+            tip.style.display = 'block';
+            positionTip(el.getBoundingClientRect());
+        }
+
+        function hide() {
+            tip.style.display = 'none';
+            tip.className = '';
+            activeEl = null;
+        }
+
+        document.addEventListener('mouseover', function(e) {
+            var infoBtn = e.target.closest('.info-btn');
+            if (infoBtn) {
+                var t = infoBtn.querySelector('.info-tip');
+                if (t) show(infoBtn, t, 'ft-info');
+                return;
+            }
+            var rankCell = e.target.closest('.rank-cell');
+            if (rankCell) {
+                var ladder = rankCell.querySelector('.brand-ladder');
+                if (ladder) { show(rankCell, ladder, 'ft-brand'); } else if (activeEl) { hide(); }
+                return;
+            }
+            if (activeEl) hide();
+        });
+        window.addEventListener('scroll', hide, true);
+    })();
+    </script>
+    <style>
+        #floatingTip.ft-info {
+            width: 260px; padding: 10px 12px;
+            background: rgba(15, 23, 42, 0.97); border: 1px solid rgba(51, 65, 85, 0.6);
+            border-radius: 8px; font-size: 11px; line-height: 1.5; color: #94a3b8;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            text-transform: none; letter-spacing: normal; font-weight: 400;
+            text-align: left; white-space: normal;
+        }
+        #floatingTip.ft-brand {
+            min-width: 180px; padding: 8px;
+            background: rgba(15, 23, 42, 0.97); border: 1px solid rgba(51, 65, 85, 0.6);
+            border-radius: 8px; font-size: 10px; color: #94a3b8;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+        }
+        html.light #floatingTip.ft-info {
+            background: rgba(255,255,255,0.97); border-color: rgba(203,213,225,0.6);
+            color: #475569; box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+        }
+        html.light #floatingTip.ft-brand {
+            background: rgba(255,255,255,0.97); border-color: rgba(203,213,225,0.6);
+            color: #475569; box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+        }
+    </style>
+    {% block scripts %}{% endblock %}
+
+    <!-- Notification Panel (slide-out) -->
+    <div id="notifOverlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.4); z-index:9998;" onclick="toggleNotifPanel()"></div>
+    <div id="notifPanel" style="position:fixed; top:0; right:0; height:100%; width:320px; background:#020617; border-left:1px solid #1e293b; z-index:9999; transform:translateX(100%); transition:transform 0.2s ease; display:flex; flex-direction:column;">
+        <div style="padding:16px; border-bottom:1px solid #1e293b;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+                <h2 style="font-size:14px; font-weight:700; color:#f1f5f9; margin:0;">Notifications</h2>
+                <button onclick="toggleNotifPanel()" style="padding:4px; border-radius:4px; color:#64748b; cursor:pointer; background:none; border:none;" onmouseover="this.style.color='#cbd5e1'" onmouseout="this.style.color='#64748b'">
+                    <svg style="width:16px;height:16px;" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+            <button onclick="markAllRead()" style="font-size:10px; color:#f59e0b; cursor:pointer; background:none; border:none; padding:0;" onmouseover="this.style.color='#fbbf24'" onmouseout="this.style.color='#f59e0b'">Mark all read</button>
+        </div>
+        <div id="notifList" style="flex:1; overflow-y:auto; padding:8px;">
+            <p style="font-size:12px; color:#475569; text-align:center; padding:32px 0;">No notifications</p>
+        </div>
+    </div>
+
+    <!-- Toast container -->
+    <div id="toastContainer" style="position:fixed; top:16px; right:16px; z-index:10000; max-width:340px; pointer-events:none;"></div>
+
+    <script>
+    (function() {
+        const badge = document.getElementById('notifBadge');
+        const panel = document.getElementById('notifPanel');
+        const overlay = document.getElementById('notifOverlay');
+        const list = document.getElementById('notifList');
+        let panelOpen = false;
+        let unreadCount = 0;
+
+        window.toggleNotifPanel = function() {
+            panelOpen = !panelOpen;
+            panel.style.transform = panelOpen ? 'translateX(0)' : 'translateX(100%)';
+            overlay.style.display = panelOpen ? 'block' : 'none';
+            if (panelOpen) loadNotifications();
+        };
+
+        window.markAllRead = async function() {
+            await fetch('/api/notifications/read-all', {method: 'POST'});
+            unreadCount = 0;
+            updateBadge();
+            list.querySelectorAll('.notif-item.unread').forEach(el => el.classList.remove('unread', 'bg-slate-900/60'));
+        };
+
+        function updateBadge() {
+            if (unreadCount > 0) {
+                badge.textContent = unreadCount > 99 ? '99+' : unreadCount;
+                badge.classList.remove('hidden');
+                badge.classList.add('flex');
+            } else {
+                badge.classList.add('hidden');
+                badge.classList.remove('flex');
+            }
+        }
+
+        async function loadUnreadCount() {
+            try {
+                const r = await fetch('/api/notifications/unread-count');
+                const d = await r.json();
+                unreadCount = d.count || 0;
+                updateBadge();
+            } catch(e) {}
+        }
+
+        async function loadNotifications() {
+            try {
+                const r = await fetch('/api/notifications?limit=50');
+                const items = await r.json();
+                if (!items.length) {
+                    list.innerHTML = '<p class="text-xs text-slate-600 text-center py-8">No notifications</p>';
+                    return;
+                }
+                list.innerHTML = items.map(n => {
+                    const sev = {critical:'text-rose-400',warning:'text-amber-400',info:'text-sky-400'}[n.severity]||'text-slate-400';
+                    const sevIcon = {critical:'!!',warning:'!',info:'i'}[n.severity]||'i';
+                    const unread = !n.is_read;
+                    const ago = timeAgo(n.created_at);
+                    return `<div class="notif-item ${unread?'unread bg-slate-900/60':''} rounded-lg p-2.5 hover:bg-slate-900/40 cursor-pointer transition-colors" data-id="${n.id}" onclick="readNotif(this,'${n.id}')">
+                        <div class="flex items-start gap-2">
+                            <span class="shrink-0 w-5 h-5 rounded-full ${sev} bg-slate-800 flex items-center justify-center text-[9px] font-bold mt-0.5">${sevIcon}</span>
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-center justify-between gap-2">
+                                    <span class="text-xs font-semibold text-slate-200 truncate">${esc(n.title)}</span>
+                                    ${unread?'<span class="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>':''}
+                                </div>
+                                <p class="text-xs text-slate-500 mt-0.5 line-clamp-2">${esc(n.message)}</p>
+                                <span class="text-[9px] text-slate-600 mt-1 block">${ago}</span>
+                            </div>
+                        </div>
+                    </div>`;
+                }).join('');
+            } catch(e) {
+                list.innerHTML = '<p class="text-xs text-rose-400 text-center py-4">Failed to load</p>';
+            }
+        }
+
+        window.readNotif = async function(el, id) {
+            if (el.classList.contains('unread')) {
+                el.classList.remove('unread', 'bg-slate-900/60');
+                el.querySelector('.bg-amber-500')?.remove();
+                await fetch(`/api/notifications/${id}/read`, {method:'POST'});
+                unreadCount = Math.max(0, unreadCount - 1);
+                updateBadge();
+            }
+        };
+
+        function showToast(title, message, severity) {
+            const container = document.getElementById('toastContainer');
+            const colors = {critical:'border-rose-500/60 bg-rose-950/90',warning:'border-amber-500/60 bg-amber-950/90',info:'border-sky-500/60 bg-sky-950/90'};
+            const toast = document.createElement('div');
+            toast.className = `pointer-events-auto border ${colors[severity]||colors.info} rounded-lg p-3 shadow-xl backdrop-blur-sm animate-slide-in`;
+            toast.innerHTML = `<div class="flex items-start gap-2"><div class="flex-1"><p class="text-xs font-semibold text-slate-100">${esc(title)}</p><p class="text-xs text-slate-400 mt-0.5">${esc(message).substring(0,120)}</p></div><button onclick="this.closest('div.pointer-events-auto').remove()" class="text-slate-500 hover:text-slate-300 text-xs cursor-pointer">✕</button></div>`;
+            container.appendChild(toast);
+            setTimeout(() => { toast.style.opacity='0'; toast.style.transition='opacity 0.3s'; setTimeout(()=>toast.remove(),300); }, 6000);
+
+            if ('Notification' in window && Notification.permission === 'granted') {
+                new Notification(title, {body: message.substring(0, 120), icon: '/static/logos/google_aio.svg'});
+            }
+        }
+
+        // SSE listener for real-time notifications
+        const existingES = window._geoNotifES;
+        if (!existingES) {
+            const es = new EventSource('/api/activity-stream');
+            window._geoNotifES = es;
+            es.addEventListener('notification', function(e) {
+                try {
+                    const d = JSON.parse(e.data);
+                    unreadCount++;
+                    updateBadge();
+                    showToast(d.title || 'Notification', d.message || '', d.severity || 'info');
+                    if (panelOpen) loadNotifications();
+                } catch(err) {}
+            });
+            window.addEventListener('beforeunload', function() {
+                es.close();
+                window._geoNotifES = null;
+            });
+        }
+
+        // Request browser notification permission
+        if ('Notification' in window && Notification.permission === 'default') {
+            Notification.requestPermission();
+        }
+
+        function esc(s) { const d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
+
+        function timeAgo(ts) {
+            const diff = (Date.now() - new Date(ts).getTime()) / 1000;
+            if (diff < 60) return 'just now';
+            if (diff < 3600) return Math.floor(diff/60) + 'm ago';
+            if (diff < 86400) return Math.floor(diff/3600) + 'h ago';
+            return Math.floor(diff/86400) + 'd ago';
+        }
+
+        loadUnreadCount();
+    })();
+    </script>
+    <style>
+        @keyframes slide-in { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        .animate-slide-in { animation: slide-in 0.2s ease-out; }
+        .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    </style>
+</body>
+</html>

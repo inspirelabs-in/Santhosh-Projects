@@ -1,0 +1,1356 @@
+{% extends "base.html" %}
+{% block title %}Analytics{% endblock %}
+
+{% block head_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block head %}
+<style>
+    .insight-card { transition: transform 0.15s; }
+    .insight-card:hover { transform: translateY(-2px); }
+    .heatmap-cell { min-width: 48px; min-height: 32px; transition: all 0.15s; }
+    .heatmap-cell:hover { transform: scale(1.1); z-index: 10; }
+    .chart-container { position: relative; height: 300px; }
+    .mtab { color: #64748b; border-bottom: 2px solid transparent; transition: all 0.15s; }
+    .mtab:hover { color: #94a3b8; }
+    .mtab.active { color: #f59e0b; border-bottom-color: #f59e0b; }
+    .stab-btn { background: rgba(15,23,42,0.4); color: #64748b; border: 1px solid transparent; }
+    .stab-btn.active { background: rgba(245,158,11,0.1); color: #f59e0b; border-color: rgba(245,158,11,0.3); }
+    .stab-btn:hover:not(.active) { background: rgba(30,41,59,0.6); color: #94a3b8; }
+    .tab-btn.active { border-bottom: 2px solid #f59e0b; color: #f59e0b; }
+    .pulse-ring { animation: pulseRing 2s ease-out infinite; }
+    @keyframes pulseRing { 0% { box-shadow: 0 0 0 0 rgba(16,185,129,0.4); } 70% { box-shadow: 0 0 0 6px rgba(16,185,129,0); } 100% { box-shadow: 0 0 0 0 rgba(16,185,129,0); } }
+    .main-panel { display: none; }
+    .main-panel.active { display: block; }
+
+    html.light .mtab { color: #94a3b8; }
+    html.light .mtab:hover { color: #475569; }
+    html.light .mtab.active { color: #d97706; border-bottom-color: #d97706; }
+    html.light .stab-btn { background: rgba(241,245,249,0.5); color: #94a3b8; }
+    html.light .stab-btn.active { background: rgba(245,158,11,0.08); color: #d97706; border-color: rgba(245,158,11,0.25); }
+    html.light .stab-btn:hover:not(.active) { background: rgba(226,232,240,0.6); color: #475569; }
+    html.light .tab-btn.active { border-bottom-color: #d97706; color: #d97706; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-5 max-w-[1440px] mx-auto">
+    <!-- Header -->
+    <div class="flex items-center justify-between pb-4 border-b border-slate-800/60">
+        <div>
+            <h2 class="text-2xl font-bold text-slate-100 tracking-tight">Analytics</h2>
+            <p class="text-xs text-slate-500 mt-0.5">Brand visibility intelligence - auto-refreshes in real time</p>
+        </div>
+        <div class="flex items-center gap-3">
+            <div class="flex items-center gap-1.5">
+                <span id="liveIndicator" class="w-2 h-2 rounded-full bg-emerald-500 pulse-ring"></span>
+                <span id="lastUpdated" class="text-[10px] text-slate-600">Loading...</span>
+            </div>
+            <div id="insightsCount" class="px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] font-bold"></div>
+        </div>
+    </div>
+
+    <!-- KPI Row -->
+    <div id="kpiRow" class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div class="glass-card rounded-xl p-3">
+            <div class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Ranked #1<span class="info-btn ml-1"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Ranked #1</strong><br>Keywords where GrabOn holds the #1 position across any AI engine. Higher = stronger brand dominance.</span></span></div>
+            <div id="kpiStrongest" class="text-xl font-bold text-emerald-400">-</div>
+            <p class="text-[9px] text-slate-600">Top position across engines</p>
+        </div>
+        <div class="glass-card rounded-xl p-3">
+            <div class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Opportunity<span class="info-btn ml-1"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Opportunity</strong><br>Keywords where GrabOn is mentioned but not in the #1 position. These are winnable — improve content to climb from #2/#3 to #1.</span></span></div>
+            <div id="kpiOpportunity" class="text-xl font-bold text-amber-400">-</div>
+            <p class="text-[9px] text-slate-600">Mentioned but not #1</p>
+        </div>
+        <div class="glass-card rounded-xl p-3">
+            <div class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Gaps<span class="info-btn ml-1"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Gaps</strong><br>Keywords where GrabOn is not mentioned at all by any AI engine. These need content creation or optimization to appear.</span></span></div>
+            <div id="kpiGaps" class="text-xl font-bold text-rose-400">-</div>
+            <p class="text-[9px] text-slate-600">Not mentioned at all</p>
+        </div>
+        <div class="glass-card rounded-xl p-3">
+            <div class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Citation Rate<span class="info-btn ml-1"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Citation Rate</strong><br>Percentage of GrabOn mentions that include a direct backlink to grabon.in. Higher citation rate = more referral traffic from AI.</span></span></div>
+            <div id="kpiCitation" class="text-xl font-bold text-cyan-400">-</div>
+            <p class="text-[9px] text-slate-600">With grabon.in link</p>
+        </div>
+    </div>
+
+    <!-- Main Navigation Tabs -->
+    <div class="border-b border-slate-800 flex items-center gap-1">
+        <button onclick="showMainTab('performance')" class="mtab active px-4 py-2.5 text-xs font-semibold cursor-pointer" data-mtab="performance">GEO Performance</button>
+        <button onclick="showMainTab('strategic')" class="mtab px-4 py-2.5 text-xs font-semibold cursor-pointer" data-mtab="strategic">Strategic</button>
+        <button onclick="showMainTab('deepdive')" class="mtab px-4 py-2.5 text-xs font-semibold cursor-pointer" data-mtab="deepdive">Deep Dive</button>
+        <button onclick="showMainTab('seo')" class="mtab px-4 py-2.5 text-xs font-semibold cursor-pointer" data-mtab="seo">SEO Rankings</button>
+    </div>
+
+    <!-- ═══════════ TAB 1: PERFORMANCE ═══════════ -->
+    <div id="panelPerformance" class="main-panel active space-y-4" data-panel="performance">
+
+        <!-- Auto Insights -->
+        <div id="insightsPanel" class="glass-panel border border-slate-800/60rounded-xl p-4">
+            <div class="flex items-center gap-2 mb-3">
+                <svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                <h3 class="text-xs font-bold text-slate-200">Auto Insights<span class="info-btn ml-1"><svg class="w-3.5 h-3.5 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Auto Insights</strong><br>AI-generated alerts based on 7-day changes in visibility, rank, and sentiment. Positive = improving, Negative = declining.</span></span></h3>
+                <span class="text-[9px] text-slate-600">7-day delta</span>
+            </div>
+            <div id="insightsList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                <div class="text-xs text-slate-600">Loading...</div>
+            </div>
+        </div>
+
+        <!-- SoV + Rank Distribution -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div class="glass-panel border border-slate-800/60rounded-xl p-4">
+                <h3 class="text-xs font-bold text-slate-200 mb-3">Share of Voice Trend<span class="info-btn ml-1"><svg class="w-3.5 h-3.5 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Share of Voice Trend</strong><br>How GrabOn's share of AI mentions changes over time. SoV = weighted brand mentions as % of total. Rising = gaining visibility.</span></span></h3>
+                <div class="chart-container"><canvas id="sovTrendChart"></canvas></div>
+            </div>
+            <div class="glass-panel border border-slate-800/60rounded-xl p-4">
+                <h3 class="text-xs font-bold text-slate-200 mb-3">Rank Distribution<span class="info-btn ml-1"><svg class="w-3.5 h-3.5 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Rank Distribution</strong><br>How GrabOn's rank positions are distributed across AI engines. Bars show count of keywords at each position (#1, #2, #3, etc).</span></span></h3>
+                <div class="chart-container"><canvas id="rankDistChart"></canvas></div>
+            </div>
+        </div>
+
+        <!-- Competitor + Sentiment -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div class="glass-panel border border-slate-800/60rounded-xl p-4">
+                <h3 class="text-xs font-bold text-slate-200 mb-3">Competitor Comparison<span class="info-btn ml-1"><svg class="w-3.5 h-3.5 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Competitor Comparison</strong><br>Side-by-side mention count for GrabOn vs competitors across all AI engines.</span></span></h3>
+                <div class="chart-container"><canvas id="competitorChart"></canvas></div>
+            </div>
+            <div class="glass-panel border border-slate-800/60rounded-xl p-4">
+                <h3 class="text-xs font-bold text-slate-200 mb-3">Sentiment Analysis<span class="info-btn ml-1"><svg class="w-3.5 h-3.5 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Sentiment Analysis</strong><br>How AI engines describe GrabOn — Positive (recommends), Neutral (mentions), or Negative (discourages). Broken down by engine and category.</span></span></h3>
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="chart-container" style="height:250px"><canvas id="sentimentEngineChart"></canvas></div>
+                    <div class="chart-container" style="height:250px"><canvas id="sentimentCategoryChart"></canvas></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Citation Tracking -->
+        <div class="glass-panel border border-slate-800/60rounded-xl p-4">
+            <h3 class="text-xs font-bold text-slate-200 mb-3">Citation Tracking<span class="info-btn ml-1"><svg class="w-3.5 h-3.5 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Citation Tracking</strong><br>Tracks when AI engines include a direct link (citation) to grabon.in. Citations drive referral traffic. Shows per-engine breakdown and top cited URLs.</span></span></h3>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div class="chart-container" style="height:250px"><canvas id="citationChart"></canvas></div>
+                <div id="citationUrls" class="overflow-y-auto max-h-60">
+                    <div class="text-xs text-slate-600">Loading...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════ TAB 2: STRATEGIC ═══════════ -->
+    <div id="panelStrategic" class="main-panel space-y-4" data-panel="strategic">
+
+        <!-- Strategic Views - Sub-tabs -->
+        <div class="glass-panel border border-slate-800/60rounded-xl overflow-hidden">
+            <div class="border-b border-slate-900/60 bg-slate-950/40 px-4 py-2.5 flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <h3 class="text-xs font-bold text-slate-200">Strategic Views</h3>
+                    <div class="flex gap-1">
+                        <button onclick="showStrategicTab('category')" class="stab-btn active px-3 py-1 text-[10px] font-semibold rounded-md cursor-pointer transition-colors" data-stab="category">Category Rollup<span class="info-btn ml-1"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Category Rollup</strong><br>Performance aggregated by merchant category (Fashion, Travel, etc). Shows keyword count, mentions, #1 positions, sentiment, and visibility score per category.</span></span></button>
+                        <button onclick="showStrategicTab('attention')" class="stab-btn px-3 py-1 text-[10px] font-semibold rounded-md cursor-pointer transition-colors" data-stab="attention">Needs Attention<span class="info-btn ml-1"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Needs Attention</strong><br>Keywords where competitors outrank GrabOn, sorted by impact. Focus on high-impact keywords first to maximize visibility gains.</span></span></button>
+                        <button onclick="showStrategicTab('engine')" class="stab-btn px-3 py-1 text-[10px] font-semibold rounded-md cursor-pointer transition-colors" data-stab="engine">Engine Matrix<span class="info-btn ml-1"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Engine Matrix</strong><br>Cross-tabulation of categories vs AI engines. Shows where GrabOn is strong (green) and where it needs work per engine.</span></span></button>
+                    </div>
+                </div>
+                <span id="strategicMeta" class="text-[10px] text-slate-600"></span>
+            </div>
+
+            <div id="stabCategory" class="stab-panel p-4">
+                <div id="categoryRollupContent" class="overflow-x-auto">
+                    <div class="text-xs text-slate-600">Loading category data...</div>
+                </div>
+            </div>
+
+            <div id="stabAttention" class="stab-panel hidden p-4">
+                <div class="flex items-center justify-between mb-3">
+                    <p class="text-[10px] text-slate-500">Keywords where competitors outrank GrabOn - sorted by impact</p>
+                    <div class="flex items-center gap-2">
+                        <button onclick="loadNeedsAttention(Math.max(1, needsAttentionPage-1))" class="px-2 py-1 rounded text-[9px] bg-slate-900 text-slate-500 border border-slate-800 cursor-pointer">← Prev</button>
+                        <span id="attentionPaging" class="text-[10px] text-slate-600"></span>
+                        <button onclick="loadNeedsAttention(needsAttentionPage+1)" class="px-2 py-1 rounded text-[9px] bg-slate-900 text-slate-500 border border-slate-800 cursor-pointer">Next →</button>
+                    </div>
+                </div>
+                <div id="needsAttentionContent" class="overflow-x-auto">
+                    <div class="text-xs text-slate-600">Loading...</div>
+                </div>
+            </div>
+
+            <div id="stabEngine" class="stab-panel hidden p-4">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <h4 class="text-[10px] text-slate-500 uppercase tracking-wider font-semibold mb-2">Engine Summary</h4>
+                        <div id="engineSummaryContent" class="space-y-2"></div>
+                    </div>
+                    <div class="chart-container" style="height:250px"><canvas id="engineRadarChart"></canvas></div>
+                </div>
+                <div id="engineMatrixContent" class="overflow-x-auto">
+                    <div class="text-xs text-slate-600">Loading engine data...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Keyword Gap Analysis -->
+        <div class="glass-panel border border-slate-800/60rounded-xl p-4">
+            <div class="flex items-center gap-4 mb-3">
+                <h3 class="text-xs font-bold text-slate-200">Keyword Gap Analysis<span class="info-btn ml-1"><svg class="w-3.5 h-3.5 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Keyword Gap Analysis</strong><br>Categorizes keywords into Strongest (#1 position), Opportunity (mentioned but not #1), and Gaps (not mentioned). Grouped by category.</span></span></h3>
+                <div class="flex gap-2">
+                    <button onclick="showGapTab('strongest')" class="tab-btn active px-3 py-1 text-[10px] font-semibold text-slate-400 border-b-2 border-transparent cursor-pointer" data-tab="strongest">Strongest</button>
+                    <button onclick="showGapTab('opportunity')" class="tab-btn px-3 py-1 text-[10px] font-semibold text-slate-400 border-b-2 border-transparent cursor-pointer" data-tab="opportunity">Opportunity</button>
+                    <button onclick="showGapTab('gaps')" class="tab-btn px-3 py-1 text-[10px] font-semibold text-slate-400 border-b-2 border-transparent cursor-pointer" data-tab="gaps">Gaps</button>
+                </div>
+            </div>
+            <div id="gapContent" class="max-h-80 overflow-y-auto"></div>
+        </div>
+
+        <!-- Competitive Weakness -->
+        <div class="glass-panel border border-slate-800/60rounded-xl p-4">
+            <div class="flex items-center gap-2 mb-3">
+                <svg class="w-4 h-4 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6"/></svg>
+                <h3 class="text-xs font-bold text-slate-200">Competitive Weakness<span class="info-btn ml-1"><svg class="w-3.5 h-3.5 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Competitive Weakness</strong><br>Where competitors outrank GrabOn. Shows which brands beat you most, which engines are weakest, and the most contested keywords.</span></span></h3>
+                <span class="text-[9px] text-slate-600 uppercase tracking-wider">Where competitors outrank GrabOn</span>
+            </div>
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-3 mb-3">
+                <div class="glass-card rounded-xl p-3">
+                    <h4 class="text-[10px] text-slate-500 uppercase tracking-wider font-semibold mb-2">Beaten By<span class="info-btn ml-1"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Beaten By</strong><br>Competitors that outrank GrabOn most frequently. Count = number of keyword x engine combinations where they rank higher.</span></span></h4>
+                    <div id="beatenByContent" class="space-y-2 text-xs text-slate-500">Loading...</div>
+                </div>
+                <div class="glass-card rounded-xl p-3">
+                    <h4 class="text-[10px] text-slate-500 uppercase tracking-wider font-semibold mb-2">Weakest Engines<span class="info-btn ml-1"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Weakest Engines</strong><br>AI engines where GrabOn loses most often to competitors. Focus optimization efforts on these engines.</span></span></h4>
+                    <div id="engineWeaknessContent" class="space-y-2 text-xs text-slate-500">Loading...</div>
+                </div>
+                <div class="glass-card rounded-xl p-3">
+                    <h4 class="text-[10px] text-slate-500 uppercase tracking-wider font-semibold mb-2">Most Contested<span class="info-btn ml-1"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Most Contested</strong><br>Keywords with the most competitive pressure — where multiple competitors outrank GrabOn across engines.</span></span></h4>
+                    <div id="worstKeywordsContent" class="space-y-2 text-xs text-slate-500">Loading...</div>
+                </div>
+            </div>
+            <div class="glass-card rounded-xl p-3">
+                <h4 class="text-[10px] text-slate-500 uppercase tracking-wider font-semibold mb-2">Breakdown</h4>
+                <div id="weaknessTable" class="max-h-72 overflow-y-auto"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════ TAB 3: DEEP DIVE ═══════════ -->
+    <div id="panelDeepdive" class="main-panel space-y-4" data-panel="deepdive">
+
+        <!-- Heatmap + Keyword History -->
+        <div class="glass-panel border border-slate-800/60rounded-xl p-4">
+            <div class="flex items-center justify-between mb-3">
+                <div>
+                    <h3 class="text-xs font-bold text-slate-200">Keyword × Engine Heatmap<span class="info-btn ml-1"><svg class="w-3.5 h-3.5 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Keyword × Engine Heatmap</strong><br>Matrix showing GrabOn's rank for every keyword across every AI engine. Green = top rank, amber = mid, red = low. Click any row to see historical trends.</span></span></h3>
+                    <p class="text-[9px] text-slate-600">Click any keyword row to see its historical performance across engines.</p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <input id="heatmapSearch" type="text" placeholder="Filter keywords..." class="text-[10px] px-2.5 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-slate-300 placeholder-slate-600 outline-none focus:border-amber-500/40 w-44" oninput="renderHeatmapFiltered()">
+                    <select id="heatmapRankFilter" onchange="renderHeatmapFiltered()" class="text-[10px] px-2 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-slate-400 outline-none cursor-pointer">
+                        <option value="ranked">Ranked only</option>
+                        <option value="all">All keywords</option>
+                        <option value="1">Rank #1</option>
+                        <option value="top3">Top 3</option>
+                        <option value="missing">Not ranked</option>
+                    </select>
+                    <select id="heatmapCatFilter" onchange="renderHeatmapFiltered()" class="text-[10px] px-2 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-slate-400 outline-none cursor-pointer">
+                        <option value="">All categories</option>
+                    </select>
+                </div>
+            </div>
+            <div id="heatmapStats" class="grid grid-cols-6 gap-2 mb-3"></div>
+            <div id="heatmapContainer" class="overflow-x-auto max-h-[500px] overflow-y-auto">
+                <div class="text-xs text-slate-600">Loading...</div>
+            </div>
+            <div id="heatmapPaging" class="flex items-center justify-between mt-2"></div>
+
+            <!-- Keyword History Panel (inline, shown when a row is clicked) -->
+            <div id="kwHistoryPanel" class="hidden mt-4 border-t border-slate-800 pt-4">
+                <div class="flex items-center justify-between mb-3">
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            <div id="kwDetailTitle" class="text-sm font-semibold text-slate-200"></div>
+                        </div>
+                        <div id="kwDetailMeta" class="text-[10px] text-slate-500 mt-0.5 ml-6"></div>
+                    </div>
+                    <button onclick="document.getElementById('kwHistoryPanel').classList.add('hidden');activeKwRow=null;" class="text-[10px] text-slate-500 hover:text-slate-300 cursor-pointer px-2 py-1 rounded bg-slate-900 border border-slate-800">Close</button>
+                </div>
+                <div class="chart-container mb-4" style="height:220px"><canvas id="kwHistoryChart"></canvas></div>
+                <div id="kwTimeline" class="overflow-x-auto max-h-[300px] overflow-y-auto"></div>
+            </div>
+        </div>
+
+        <!-- Daily Deep Dive -->
+        <div class="glass-panel border border-slate-800/60rounded-xl p-4">
+            <div class="flex items-center justify-between mb-3">
+                <div>
+                    <h3 class="text-xs font-bold text-slate-200">Daily Deep Dive<span class="info-btn ml-1"><svg class="w-3.5 h-3.5 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Daily Deep Dive</strong><br>Day-by-day performance metrics over the last 30 days. Track mentions, #1 positions, sentiment, and citations per day.</span></span></h3>
+                    <p class="text-[9px] text-slate-600">Day-by-day performance - last 30 days</p>
+                </div>
+                <div class="chart-container" style="height:100px;width:350px"><canvas id="dailyMiniChart"></canvas></div>
+            </div>
+            <div id="dailyTable" class="overflow-x-auto">
+                <div class="text-xs text-slate-600">Loading daily data...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════ TAB 4: SEO RANKINGS ═══════════ -->
+    <div id="panelSeo" class="main-panel space-y-4" data-panel="seo">
+        <!-- SEO KPI Row -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div class="glass-card rounded-xl p-3">
+                <div class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Keywords Tracked<span class="info-btn ml-1"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Keywords Tracked</strong><br>Number of keywords with at least one SERP crawl result. Coverage % shows how much of the total keyword set has been crawled.</span></span></div>
+                <div id="seoKpiTracked" class="text-xl font-bold text-slate-100">-</div>
+                <p id="seoKpiTrackedSub" class="text-[9px] text-slate-600">loading...</p>
+            </div>
+            <div class="glass-card rounded-xl p-3">
+                <div class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Top 10<span class="info-btn ml-1"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Top 10</strong><br>Keywords where grabon.in ranks in Google's first page (positions 1-10). Higher = more organic visibility.</span></span></div>
+                <div id="seoKpiTop10" class="text-xl font-bold text-emerald-400">-</div>
+                <p id="seoKpiTop10Sub" class="text-[9px] text-slate-600">of tracked keywords</p>
+            </div>
+            <div class="glass-card rounded-xl p-3">
+                <div class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Avg Rank<span class="info-btn ml-1"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Avg Rank</strong><br>Average Google organic position across all tracked keywords. Lower number = better rankings overall.</span></span></div>
+                <div id="seoKpiAvg" class="text-xl font-bold text-amber-400">-</div>
+                <p class="text-[9px] text-slate-600">lower is better</p>
+            </div>
+            <div class="glass-card rounded-xl p-3">
+                <div class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Top 3<span class="info-btn ml-1"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Top 3</strong><br>Keywords where grabon.in ranks in the top 3 Google results. These premium positions get the most clicks.</span></span></div>
+                <div id="seoKpiTop3" class="text-xl font-bold text-violet-400">-</div>
+                <p class="text-[9px] text-slate-600">premium positions</p>
+            </div>
+        </div>
+
+        <!-- SEO Daily Trend -->
+        <div class="glass-panel border border-slate-800/60rounded-xl p-4">
+            <div class="flex items-center justify-between mb-3">
+                <div>
+                    <h3 class="text-xs font-bold text-slate-200">SEO Daily Performance<span class="info-btn ml-1"><svg class="w-3.5 h-3.5 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">SEO Daily Performance</strong><br>Daily trend of average SERP rank, top-10 count, and crawl speed. Track how organic rankings change over time.</span></span></h3>
+                    <p class="text-[9px] text-slate-600">Avg rank, Top 10 count, and keywords crawled per day</p>
+                </div>
+                <select id="seoDailyDays" onchange="loadSeoDailyTrend()" class="text-[10px] px-2 py-1 bg-slate-950 border border-slate-800 rounded-lg text-slate-400 outline-none cursor-pointer">
+                    <option value="7">7 days</option>
+                    <option value="14">14 days</option>
+                    <option value="30" selected>30 days</option>
+                </select>
+            </div>
+            <div class="chart-container" style="height:250px"><canvas id="seoDailyChart"></canvas></div>
+        </div>
+
+        <!-- SEO Competitor Trend -->
+        <div class="glass-panel border border-slate-800/60rounded-xl p-4">
+            <div class="flex items-center justify-between mb-3">
+                <div>
+                    <h3 class="text-xs font-bold text-slate-200">Competitor Rank Trend<span class="info-btn ml-1"><svg class="w-3.5 h-3.5 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Competitor Rank Trend</strong><br>Average Google position for competing domains over time. Compare organic ranking trends across competitors.</span></span></h3>
+                    <p class="text-[9px] text-slate-600">Average SERP position by domain over time</p>
+                </div>
+            </div>
+            <div class="chart-container" style="height:250px"><canvas id="seoCompTrendChart"></canvas></div>
+        </div>
+
+        <!-- SEO vs GEO Comparison -->
+        <div class="glass-panel border border-slate-800/60rounded-xl p-4">
+            <div class="mb-3">
+                <h3 class="text-xs font-bold text-slate-200">SEO vs GEO Coverage<span class="info-btn ml-1"><svg class="w-3.5 h-3.5 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">SEO vs GEO Coverage</strong><br>Compares Google organic rankings vs AI engine visibility. Shows overlap and gaps — keywords strong in one channel but weak in the other.</span></span></h3>
+                <p class="text-[9px] text-slate-600">How Google organic rankings compare to AI engine visibility</p>
+            </div>
+            <div id="seoGeoComparison" class="grid grid-cols-2 gap-3">
+                <div class="border border-slate-800 rounded-xl p-3 text-center">
+                    <div class="text-[9px] text-slate-500 uppercase tracking-wider font-semibold mb-1">Google SERP</div>
+                    <div id="seoGeoSerp" class="text-lg font-bold text-amber-400">-</div>
+                    <div class="text-[9px] text-slate-600">keywords with organic ranking</div>
+                </div>
+                <div class="border border-slate-800 rounded-xl p-3 text-center">
+                    <div class="text-[9px] text-slate-500 uppercase tracking-wider font-semibold mb-1">AI Engines</div>
+                    <div id="seoGeoAi" class="text-lg font-bold text-cyan-400">-</div>
+                    <div class="text-[9px] text-slate-600">keywords with AI mention</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Live Activity (always visible, compact) -->
+    <div class="glass-panel border border-slate-800/60rounded-xl p-4">
+        <div class="flex items-center justify-between mb-2">
+            <div class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-emerald-500 pulse-dot"></span>
+                <h3 class="text-xs font-bold text-slate-200">Live Activity</h3>
+            </div>
+            <button onclick="document.getElementById('activityFeed').classList.toggle('max-h-48');document.getElementById('activityFeed').classList.toggle('max-h-0')" class="text-[9px] text-slate-500 cursor-pointer hover:text-slate-300">Toggle</button>
+        </div>
+        <div id="activityFeed" class="space-y-1.5 max-h-48 overflow-y-auto transition-all duration-300">
+            <div class="text-xs text-slate-600">Connecting...</div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const ENGINE_COLORS = {
+    google_aio: '#4285F4', google_ai_mode: '#34A853', perplexity: '#14b8a6',
+    gemini: '#a855f7', chatgpt: '#22c55e', claude: '#f97316',
+};
+const BRAND_COLORS = { GrabOn: '#f59e0b', CouponDunia: '#ef4444', CashKaro: '#3b82f6', DesiDime: '#8b5cf6' };
+const ENGINES = ['google_aio','google_ai_mode','perplexity','gemini','chatgpt','claude'];
+const ENGINE_LABELS = {
+    google_aio: 'AI Overview', google_ai_mode: 'AI Mode', perplexity: 'Perplexity',
+    gemini: 'Gemini', chatgpt: 'ChatGPT', claude: 'Claude',
+};
+
+function applyChartDefaults() {
+    var t = (typeof getChartTheme === 'function') ? getChartTheme() : { text: '#94a3b8', grid: 'rgba(30,41,59,0.5)' };
+    Chart.defaults.color = t.text;
+    Chart.defaults.borderColor = t.grid;
+    Chart.defaults.font.family = 'Inter, system-ui, sans-serif';
+    Chart.defaults.font.size = 11;
+}
+applyChartDefaults();
+window.addEventListener('themechange', function() { applyChartDefaults(); loadAll(); });
+
+// ─── Chart instance registry ────────────────────────────────────────
+const charts = {};
+function getOrCreateChart(key, canvasId, config) {
+    if (charts[key]) { charts[key].destroy(); charts[key] = null; }
+    const ctx = document.getElementById(canvasId);
+    if (!ctx) return null;
+    charts[key] = new Chart(ctx, config);
+    return charts[key];
+}
+
+// ─── UI state ───────────────────────────────────────────────────────
+let gapData = {};
+let needsAttentionPage = 1;
+let activeGapTab = 'strongest';
+let activeStrategicTab = 'category';
+let activeMainTab = 'performance';
+
+let _seoLoaded = false;
+function showMainTab(tab) {
+    activeMainTab = tab;
+    document.querySelectorAll('.mtab').forEach(b => b.classList.toggle('active', b.dataset.mtab === tab));
+    document.querySelectorAll('.main-panel').forEach(p => p.classList.remove('active'));
+    const map = { performance: 'panelPerformance', strategic: 'panelStrategic', deepdive: 'panelDeepdive', seo: 'panelSeo' };
+    document.getElementById(map[tab]).classList.add('active');
+    if (tab === 'seo' && !_seoLoaded) { _seoLoaded = true; loadSeoTab(); }
+}
+
+function showStrategicTab(tab) {
+    activeStrategicTab = tab;
+    document.querySelectorAll('.stab-btn').forEach(b => b.classList.toggle('active', b.dataset.stab === tab));
+    document.querySelectorAll('.stab-panel').forEach(p => p.classList.add('hidden'));
+    const map = { category: 'stabCategory', attention: 'stabAttention', engine: 'stabEngine' };
+    document.getElementById(map[tab]).classList.remove('hidden');
+}
+
+function showGapTab(tab) {
+    activeGapTab = tab;
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+    renderGapContent(tab);
+}
+
+function renderGapContent(tab) {
+    const content = document.getElementById('gapContent');
+    const d = gapData[tab] || {};
+    const colors = { strongest: 'emerald', opportunity: 'amber', gaps: 'rose' };
+    const c = colors[tab];
+    const cats = Object.keys(d).sort();
+    if (!cats.length) { content.innerHTML = '<div class="text-xs text-slate-600">No data for this category.</div>'; return; }
+    content.innerHTML = cats.map(cat => `
+        <div class="mb-3">
+            <div class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">${cat} (${d[cat].length})</div>
+            <div class="flex flex-wrap gap-1">
+                ${d[cat].map(kw => `<span class="px-2 py-0.5 rounded text-[10px] bg-${c}-500/10 text-${c}-400 border border-${c}-500/20">${kw}</span>`).join('')}
+            </div>
+        </div>
+    `).join('');
+}
+
+// ─── Data Renderers ─────────────────────────────────────────────────
+
+function renderInsights(items) {
+    const el = document.getElementById('insightsList');
+    const countEl = document.getElementById('insightsCount');
+    if (!items || !items.length) {
+        el.innerHTML = '<div class="text-xs text-slate-600">No significant changes in the last 7 days.</div>';
+        countEl.textContent = 'No changes';
+        return;
+    }
+    countEl.textContent = `${items.length} insight${items.length>1?'s':''}`;
+    el.innerHTML = items.map(i => {
+        const colors = { positive: 'border-emerald-500/30 bg-emerald-500/5', negative: 'border-rose-500/30 bg-rose-500/5', neutral: 'border-slate-700 bg-slate-900/30' };
+        const icons = { positive: '<span class="text-emerald-400">&#9650;</span>', negative: '<span class="text-rose-400">&#9660;</span>', neutral: '<span class="text-slate-500">&#8212;</span>' };
+        return `<div class="insight-card p-2.5 rounded-xl border ${colors[i.type] || colors.neutral}">
+            <div class="flex items-start gap-2">
+                <div class="text-sm mt-0.5">${icons[i.type] || icons.neutral}</div>
+                <div>
+                    <p class="text-xs text-slate-300">${i.detail}</p>
+                    <span class="text-[9px] text-slate-600 uppercase">${i.metric} &bull; ${ENGINE_LABELS[i.engine] || i.engine}</span>
+                </div>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function renderKPIs(gaps, cite) {
+    document.getElementById('kpiStrongest').textContent = gaps.counts.strongest;
+    document.getElementById('kpiOpportunity').textContent = gaps.counts.opportunity;
+    document.getElementById('kpiGaps').textContent = gaps.counts.gaps;
+    const total = cite.per_engine.reduce((s,r) => s + r.total_mentions, 0);
+    const cited = cite.per_engine.reduce((s,r) => s + r.grabon_citations, 0);
+    document.getElementById('kpiCitation').textContent = total > 0 ? Math.round(cited/total*100) + '%' : '0%';
+}
+
+function renderSovTrend(data) {
+    const days = [...new Set(data.map(d => d.day))].sort();
+    const brands = ['GrabOn','CouponDunia','CashKaro','DesiDime'];
+
+    if (days.length <= 1) {
+        const dayData = {};
+        brands.forEach(b => {
+            const items = data.filter(x => x.day === days[0] && x.brand === b);
+            dayData[b] = items.length ? Math.round(items.reduce((s,x) => s + x.sov_percent, 0) / items.length * 10) / 10 : 0;
+        });
+        getOrCreateChart('sovTrend', 'sovTrendChart', {
+            type: 'bar', data: {
+                labels: brands,
+                datasets: [{ data: brands.map(b => dayData[b]), backgroundColor: brands.map(b => BRAND_COLORS[b] + 'cc'), borderColor: brands.map(b => BRAND_COLORS[b]), borderWidth: 1, borderRadius: 6, barPercentage: 0.6 }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+                plugins: { legend: { display: false }, title: { display: true, text: days[0] || 'No data', font: { size: 11 }, color: '#64748b' }, tooltip: { callbacks: { label: ctx => ctx.raw + '%' } } },
+                scales: { x: { title: { display: true, text: 'SoV %' }, beginAtZero: true, max: 100, ticks: { callback: v => v + '%' } }, y: { grid: { display: false } } }
+            }
+        });
+        return;
+    }
+
+    const datasets = brands.map(b => {
+        const vals = days.map(d => {
+            const items = data.filter(x => x.day === d && x.brand === b);
+            return items.length ? Math.round(items.reduce((s,x) => s + x.sov_percent, 0) / items.length * 10) / 10 : 0;
+        });
+        return {
+            label: b, data: vals, borderColor: BRAND_COLORS[b],
+            backgroundColor: BRAND_COLORS[b] + '20', fill: b === 'GrabOn',
+            tension: 0.3, borderWidth: b === 'GrabOn' ? 3 : 1.5,
+            pointRadius: b === 'GrabOn' ? 3 : 0, pointHoverRadius: 7,
+        };
+    });
+    getOrCreateChart('sovTrend', 'sovTrendChart', {
+        type: 'line', data: { labels: days, datasets },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'top', align: 'end', labels: { boxWidth: 12, padding: 12 } },
+                tooltip: { callbacks: { label: ctx => ctx.dataset.label + ': ' + ctx.raw + '%' } },
+            },
+            scales: { y: { title: { display: true, text: 'SoV %' }, beginAtZero: true, ticks: { callback: v => v + '%' } }, x: { grid: { display: false } } }
+        }
+    });
+}
+
+function renderRankDist(data) {
+    const buckets = ['1','2','3','4','5+'];
+    const engineData = {};
+    data.per_engine.forEach(r => { if (!engineData[r.engine]) engineData[r.engine] = {}; engineData[r.engine][r.rank] = r.count; });
+    const datasets = ENGINES.filter(e => engineData[e]).map(e => ({
+        label: ENGINE_LABELS[e], data: buckets.map(b => (engineData[e] || {})[b] || 0),
+        backgroundColor: ENGINE_COLORS[e] + 'cc', borderRadius: 4,
+    }));
+    getOrCreateChart('rankDist', 'rankDistChart', {
+        type: 'bar', data: { labels: buckets.map(b => '#'+b), datasets },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 12 } } }, scales: { x: { title: { display: true, text: 'Rank Position' } }, y: { title: { display: true, text: 'Count' }, beginAtZero: true } } }
+    });
+}
+
+function renderCompetitors(data) {
+    const brands = ['GrabOn','CouponDunia','CashKaro','DesiDime'];
+    const engines = [...new Set(data.map(d => d.engine))];
+    const datasets = brands.map(b => ({
+        label: b, data: engines.map(e => { const r = data.find(x => x.engine === e && x.brand === b); return r ? r.mention_count : 0; }),
+        backgroundColor: BRAND_COLORS[b] + 'cc', borderRadius: 4,
+    }));
+    getOrCreateChart('competitor', 'competitorChart', {
+        type: 'bar', data: { labels: engines.map(e => ENGINE_LABELS[e] || e), datasets },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 12 } } }, scales: { y: { title: { display: true, text: 'Mentions' }, beginAtZero: true } } }
+    });
+}
+
+function renderSentiment(data) {
+    const engines = [...new Set(data.by_engine.map(r => r.engine_name))];
+    const sentColors = { Positive: '#22c55e', Neutral: '#94a3b8', Negative: '#ef4444' };
+    const sentDS = ['Positive','Neutral','Negative'].map(s => ({
+        label: s, data: engines.map(e => { const r = data.by_engine.find(x => x.engine_name === e && x.sentiment === s); return r ? r.cnt : 0; }),
+        backgroundColor: sentColors[s] + 'cc', borderRadius: 3,
+    }));
+    getOrCreateChart('sentEngine', 'sentimentEngineChart', {
+        type: 'bar', data: { labels: engines.map(e => ENGINE_LABELS[e] || e), datasets: sentDS },
+        options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y', plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, padding: 8, font: { size: 9 } } }, title: { display: true, text: 'By Engine', font: { size: 10 } } }, scales: { x: { stacked: true, beginAtZero: true }, y: { stacked: true } } }
+    });
+    const cats = [...new Set(data.by_category.map(r => r.merchant_category))];
+    const catDS = ['Positive','Neutral','Negative'].map(s => ({
+        label: s, data: cats.map(c => { const r = data.by_category.find(x => x.merchant_category === c && x.sentiment === s); return r ? r.cnt : 0; }),
+        backgroundColor: sentColors[s] + 'cc', borderRadius: 3,
+    }));
+    getOrCreateChart('sentCategory', 'sentimentCategoryChart', {
+        type: 'bar', data: { labels: cats, datasets: catDS },
+        options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y', plugins: { legend: { display: false }, title: { display: true, text: 'By Category', font: { size: 10 } } }, scales: { x: { stacked: true, beginAtZero: true }, y: { stacked: true } } }
+    });
+}
+
+function renderCitations(data) {
+    const engines = data.per_engine.map(r => r.engine_name);
+    getOrCreateChart('citation', 'citationChart', {
+        type: 'bar', data: {
+            labels: engines.map(e => ENGINE_LABELS[e] || e),
+            datasets: [
+                { label: 'With GrabOn URL', data: data.per_engine.map(r => r.grabon_citations), backgroundColor: '#22c55ecc', borderRadius: 4 },
+                { label: 'Without', data: data.per_engine.map(r => r.non_grabon_citations), backgroundColor: '#64748bcc', borderRadius: 4 },
+            ]
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 12 } } }, scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } } }
+    });
+    const urlEl = document.getElementById('citationUrls');
+    if (!data.cited_urls.length) { urlEl.innerHTML = '<div class="text-xs text-slate-600">No citations found.</div>'; return; }
+    urlEl.innerHTML = '<div class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2">Top Cited URLs</div>' +
+        data.cited_urls.slice(0,20).map(u => `<div class="flex items-center justify-between py-1 border-b border-slate-900/20">
+            <a href="${u.cited_url}" target="_blank" class="text-[10px] text-cyan-500 hover:underline truncate max-w-[300px]">${u.cited_url}</a>
+            <div class="flex items-center gap-2 shrink-0">
+                <span class="text-[9px] text-slate-600">${ENGINE_LABELS[u.engine_name] || u.engine_name}</span>
+                <span class="text-[9px] text-slate-500 font-bold">${u.times_cited}x</span>
+            </div>
+        </div>`).join('');
+}
+
+let heatmapRawData = [];
+let heatmapIndex = {};
+let heatmapPromptIds = {};
+let heatmapKeywords = [];
+let heatmapPage = 1;
+let activeKwRow = null;
+const HEATMAP_PAGE_SIZE = 75;
+
+function renderHeatmap(data) {
+    heatmapRawData = data;
+    heatmapIndex = {};
+    heatmapPromptIds = {};
+    data.forEach(d => {
+        heatmapIndex[d.keyword + '|' + d.engine] = d.rank;
+        if (d.prompt_id) heatmapPromptIds[d.keyword] = d.prompt_id;
+    });
+    heatmapKeywords = [...new Set(data.map(d => d.keyword))];
+
+    const catSelect = document.getElementById('heatmapCatFilter');
+    if (catSelect.options.length <= 1) {
+        const cats = [...new Set(data.filter(d => d.category).map(d => d.category))].sort();
+        cats.forEach(c => { const o = document.createElement('option'); o.value = c; o.textContent = c; catSelect.appendChild(o); });
+    }
+
+    const statsEl = document.getElementById('heatmapStats');
+    const totalKw = heatmapKeywords.length;
+    statsEl.innerHTML = ENGINES.map(eng => {
+        const ranked = heatmapKeywords.filter(kw => heatmapIndex[kw + '|' + eng]).length;
+        const pct = totalKw > 0 ? Math.round(ranked / totalKw * 100) : 0;
+        const color = ENGINE_COLORS[eng] || '#64748b';
+        return `<div class="glass-card rounded-lg p-2 text-center">
+            <div class="text-[9px] text-slate-500 font-semibold">${ENGINE_LABELS[eng]}</div>
+            <div class="text-sm font-bold" style="color:${color}">${ranked}</div>
+            <div class="text-[8px] text-slate-600">${pct}% of ${totalKw}</div>
+        </div>`;
+    }).join('');
+
+    heatmapPage = 1;
+    renderHeatmapFiltered();
+}
+
+function renderHeatmapFiltered() {
+    const el = document.getElementById('heatmapContainer');
+    const search = (document.getElementById('heatmapSearch').value || '').toLowerCase().trim();
+    const rankFilter = document.getElementById('heatmapRankFilter').value;
+    const catFilter = document.getElementById('heatmapCatFilter').value;
+
+    let filtered = heatmapKeywords.filter(kw => {
+        if (search && !kw.toLowerCase().includes(search)) return false;
+
+        // Category filter
+        if (catFilter) {
+            const hasCategory = heatmapRawData.some(d => d.keyword === kw && d.category === catFilter);
+            if (!hasCategory) return false;
+        }
+
+        const ranks = ENGINES.map(e => heatmapIndex[kw + '|' + e] || null);
+        const hasAnyRank = ranks.some(r => r !== null);
+
+        if (rankFilter === 'ranked') return hasAnyRank;
+        if (rankFilter === '1') return ranks.some(r => r === 1);
+        if (rankFilter === 'top3') return ranks.some(r => r && r <= 3);
+        if (rankFilter === 'missing') return !hasAnyRank;
+        return true;
+    });
+
+    // Sort: keywords with more ranks first, then alphabetical
+    filtered.sort((a, b) => {
+        const aCount = ENGINES.filter(e => heatmapIndex[a + '|' + e]).length;
+        const bCount = ENGINES.filter(e => heatmapIndex[b + '|' + e]).length;
+        if (bCount !== aCount) return bCount - aCount;
+        return a.localeCompare(b);
+    });
+
+    const total = filtered.length;
+    const totalPages = Math.ceil(total / HEATMAP_PAGE_SIZE) || 1;
+    if (heatmapPage > totalPages) heatmapPage = totalPages;
+    const start = (heatmapPage - 1) * HEATMAP_PAGE_SIZE;
+    const pageItems = filtered.slice(start, start + HEATMAP_PAGE_SIZE);
+
+    if (!total) { el.innerHTML = '<div class="text-xs text-slate-600 py-4 text-center">No keywords match filters.</div>'; document.getElementById('heatmapPaging').innerHTML = ''; return; }
+
+    const rankColor = (r) => {
+        if (!r) return 'bg-slate-900/30 text-slate-700';
+        if (r === 1) return 'bg-emerald-500/20 text-emerald-400 font-bold';
+        if (r === 2) return 'bg-emerald-500/10 text-emerald-300';
+        if (r === 3) return 'bg-amber-500/10 text-amber-400';
+        if (r <= 5) return 'bg-orange-500/10 text-orange-400';
+        return 'bg-rose-500/10 text-rose-400';
+    };
+
+    let html = '<table class="w-full text-[10px]"><thead class="sticky top-0 bg-slate-950 z-20"><tr><th class="text-left px-2 py-2 text-slate-500 font-semibold sticky left-0 bg-slate-950 z-30 min-w-[200px]">Keyword</th>';
+    ENGINES.forEach(e => { html += `<th class="text-center px-2 py-2 text-slate-500 font-semibold">${ENGINE_LABELS[e]}</th>`; });
+    html += '</tr></thead><tbody>';
+    pageItems.forEach(kw => {
+        const pid = heatmapPromptIds[kw];
+        const clickAttr = pid ? ` onclick="openKwHistory('${pid}')" style="cursor:pointer"` : '';
+        const activeCls = activeKwRow === pid ? ' bg-amber-500/5 border-l-2 border-l-amber-500' : '';
+        html += `<tr class="border-t border-slate-900/20 hover:bg-slate-900/20${activeCls}" data-pid="${pid || ''}"${clickAttr}><td class="px-2 py-1 text-slate-400 sticky left-0 bg-slate-950/80 z-10 truncate max-w-[220px]" title="${kw}"><span class="inline-flex items-center gap-1">${pid ? '<svg class="w-3 h-3 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>' : ''}${kw}</span></td>`;
+        ENGINES.forEach(e => {
+            const rank = heatmapIndex[kw + '|' + e] || null;
+            html += `<td class="text-center px-2 py-1"><span class="heatmap-cell inline-flex items-center justify-center rounded px-2 py-0.5 ${rankColor(rank)}">${rank ? '#' + rank : '-'}</span></td>`;
+        });
+        html += '</tr>';
+    });
+    html += '</tbody></table>';
+    el.innerHTML = html;
+
+    document.getElementById('heatmapPaging').innerHTML = `
+        <span class="text-[10px] text-slate-500">${total} keywords matched · showing ${start + 1}–${Math.min(start + HEATMAP_PAGE_SIZE, total)}</span>
+        <div class="flex items-center gap-2">
+            <button onclick="heatmapPage=Math.max(1,heatmapPage-1);renderHeatmapFiltered()" class="px-2 py-1 rounded text-[9px] bg-slate-900 text-slate-500 border border-slate-800 cursor-pointer ${heatmapPage <= 1 ? 'opacity-30' : ''}">← Prev</button>
+            <span class="text-[10px] text-slate-600">${heatmapPage}/${totalPages}</span>
+            <button onclick="heatmapPage=Math.min(${totalPages},heatmapPage+1);renderHeatmapFiltered()" class="px-2 py-1 rounded text-[9px] bg-slate-900 text-slate-500 border border-slate-800 cursor-pointer ${heatmapPage >= totalPages ? 'opacity-30' : ''}">Next →</button>
+        </div>`;
+}
+
+function renderCategoryRollup(data) {
+    const el = document.getElementById('categoryRollupContent');
+    if (!data.length) { el.innerHTML = '<div class="text-xs text-slate-600">No category data yet.</div>'; return; }
+    const totalKw = data.reduce((s, r) => s + r.total_keywords, 0);
+    document.getElementById('strategicMeta').textContent = `${data.length} categories · ${totalKw} keywords`;
+    let html = `<table class="w-full text-[10px]">
+        <thead><tr class="text-slate-500 border-b border-slate-800 uppercase tracking-wider">
+            <th class="text-left px-3 py-2 sticky left-0 bg-slate-950/80 z-10 min-w-[160px]">Category</th>
+            <th class="text-center px-2 py-2">Keywords</th><th class="text-center px-2 py-2">Mentions</th>
+            <th class="text-center px-2 py-2">#1</th><th class="text-center px-2 py-2">Top 3</th>
+            <th class="text-center px-2 py-2">Avg Rank</th><th class="text-center px-2 py-2">Sentiment</th>
+            <th class="text-center px-2 py-2">Citations</th><th class="px-2 py-2 min-w-[120px]">Visibility</th>
+        </tr></thead><tbody>`;
+    data.forEach(r => {
+        const posRate = r.sentiment_total > 0 ? Math.round(r.positive / r.sentiment_total * 100) : 0;
+        const citeRate = r.total_mentions > 0 ? Math.round(r.citations / r.total_mentions * 100) : 0;
+        const rankCls = !r.avg_rank ? 'text-slate-700' : r.avg_rank <= 2 ? 'text-emerald-400 font-bold' : r.avg_rank <= 3 ? 'text-amber-400' : 'text-rose-400';
+        const visScore = Math.min(100, Math.round((r.rank_1 * 3 + r.top_3 * 2 + r.total_mentions) / Math.max(1, r.total_keywords) * 10));
+        html += `<tr class="border-b border-slate-900/30 hover:bg-slate-900/20">
+            <td class="px-3 py-2 text-slate-300 font-medium sticky left-0 bg-slate-950/80 z-10">${r.category}</td>
+            <td class="text-center px-2 py-2 text-slate-400">${r.total_keywords}</td>
+            <td class="text-center px-2 py-2 text-amber-400 font-semibold">${r.total_mentions}</td>
+            <td class="text-center px-2 py-2"><span class="${r.rank_1 > 0 ? 'text-emerald-400 font-bold' : 'text-slate-700'}">${r.rank_1}</span></td>
+            <td class="text-center px-2 py-2 text-cyan-400">${r.top_3}</td>
+            <td class="text-center px-2 py-2 ${rankCls}">${r.avg_rank || '-'}</td>
+            <td class="px-2 py-2 text-center"><span class="text-emerald-400">${posRate}%</span></td>
+            <td class="text-center px-2 py-2 text-cyan-400">${r.citations}<span class="text-slate-600 text-[8px] ml-0.5">(${citeRate}%)</span></td>
+            <td class="px-2 py-2"><div class="flex items-center gap-2"><div class="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden"><div class="h-full rounded-full ${visScore >= 60 ? 'bg-emerald-500' : visScore >= 30 ? 'bg-amber-500' : 'bg-rose-500'}" style="width:${visScore}%"></div></div><span class="text-[9px] text-slate-500 w-6 text-right">${visScore}</span></div></td>
+        </tr>`;
+    });
+    html += '</tbody></table>';
+    el.innerHTML = html;
+}
+
+function renderNeedsAttention(data) {
+    const el = document.getElementById('needsAttentionContent');
+    const items = data.items || [];
+    needsAttentionPage = data.page;
+    document.getElementById('attentionPaging').textContent = `Page ${data.page}/${data.total_pages} · ${data.total} keywords`;
+    if (!items.length) { el.innerHTML = '<div class="text-emerald-400 text-xs py-4 text-center">No attention needed - GrabOn leads everywhere!</div>'; return; }
+    let html = `<table class="w-full text-[10px]">
+        <thead><tr class="text-slate-500 border-b border-slate-800 uppercase tracking-wider">
+            <th class="text-left px-3 py-2 sticky left-0 bg-slate-950/80 z-10 min-w-[200px]">Keyword</th>
+            <th class="text-center px-2 py-2">Tier</th><th class="text-left px-2 py-2">Category</th>
+            <th class="text-center px-2 py-2">Impact</th><th class="text-left px-2 py-2 min-w-[300px]">Engine Issues</th>
+        </tr></thead><tbody>`;
+    items.forEach(item => {
+        const tierCls = item.tier === 1 ? 'bg-amber-500/10 text-amber-400' : item.tier === 2 ? 'bg-cyan-500/10 text-cyan-400' : 'bg-violet-500/10 text-violet-400';
+        const impactCls = item.max_impact >= 20 ? 'text-rose-400 font-bold' : item.max_impact >= 10 ? 'text-amber-400' : 'text-slate-400';
+        const engIssues = item.engines.map(e => {
+            const engLabel = ENGINE_LABELS[e.engine] || e.engine;
+            const engColor = ENGINE_COLORS[e.engine] || '#64748b';
+            const grabRank = e.grabon_rank ? '#' + e.grabon_rank : '<span class="text-rose-400">absent</span>';
+            const comp = e.competitor ? e.competitor.substring(0, 18) : '?';
+            return `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-900/60 border border-slate-800/50 mr-1 mb-1">
+                <span class="w-1.5 h-1.5 rounded-full" style="background:${engColor}"></span>
+                <span class="text-slate-400">${engLabel}</span>
+                <span class="text-slate-600">GrabOn:${grabRank}</span>
+                <span class="text-slate-600">vs</span>
+                <span class="text-emerald-400">${comp} #${e.competitor_rank || '?'}</span>
+            </span>`;
+        }).join('');
+        html += `<tr class="border-b border-slate-900/30 hover:bg-slate-900/20">
+            <td class="px-3 py-2 text-slate-300 sticky left-0 bg-slate-950/80 z-10 truncate max-w-[250px]" title="${item.keyword}">${item.keyword}</td>
+            <td class="text-center px-2 py-2"><span class="px-1.5 py-0.5 rounded text-[9px] font-bold ${tierCls}">T${item.tier}</span></td>
+            <td class="px-2 py-2 text-slate-500">${item.category}</td>
+            <td class="text-center px-2 py-2 ${impactCls}">${item.max_impact}</td>
+            <td class="px-2 py-2">${engIssues}</td>
+        </tr>`;
+    });
+    html += '</tbody></table>';
+    el.innerHTML = html;
+}
+
+async function loadNeedsAttention(page) {
+    if (page < 1) return;
+    const data = await fetch(`/api/analytics/needs-attention?page=${page}&page_size=50`).then(r => r.json());
+    if (page > data.total_pages) return;
+    renderNeedsAttention(data);
+}
+
+function renderEngineMatrix(data) {
+    const matrix = data.matrix || [];
+    const totals = data.engine_totals || {};
+    const categories = [...new Set(matrix.map(r => r.category))].sort();
+    const engines = ENGINES.filter(e => totals[e]);
+
+    const summaryEl = document.getElementById('engineSummaryContent');
+    summaryEl.innerHTML = engines.map(eng => {
+        const d = totals[eng] || {};
+        const color = ENGINE_COLORS[eng] || '#64748b';
+        return `<div class="flex items-center justify-between py-1.5 border-b border-slate-800/50">
+            <div class="flex items-center gap-2"><span class="w-2 h-2 rounded-full" style="background:${color}"></span><span class="text-slate-300 font-medium text-xs">${ENGINE_LABELS[eng]}</span></div>
+            <div class="flex items-center gap-3 text-[10px]">
+                <span class="text-amber-400">${d.mentions} mentions</span><span class="text-emerald-400">${d.rank_1} #1</span>
+                <span class="text-slate-500">avg #${d.avg_rank || '-'}</span><span class="text-cyan-400">${d.citations} cited</span>
+            </div>
+        </div>`;
+    }).join('');
+
+    const maxMentions = Math.max(...engines.map(e => (totals[e] || {}).mentions || 0), 1);
+    const maxR1 = Math.max(...engines.map(e => (totals[e] || {}).rank_1 || 0), 1);
+    getOrCreateChart('engineRadar', 'engineRadarChart', {
+        type: 'radar',
+        data: {
+            labels: engines.map(e => ENGINE_LABELS[e]),
+            datasets: [
+                { label: 'Mentions (norm)', data: engines.map(e => Math.round(((totals[e] || {}).mentions || 0) / maxMentions * 100)), borderColor: '#f59e0b', backgroundColor: '#f59e0b22', borderWidth: 2, pointRadius: 3 },
+                { label: '#1 Positions (norm)', data: engines.map(e => Math.round(((totals[e] || {}).rank_1 || 0) / maxR1 * 100)), borderColor: '#10b981', backgroundColor: '#10b98122', borderWidth: 2, pointRadius: 3 },
+            ]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, padding: 8, font: { size: 9 } } } },
+            scales: { r: { beginAtZero: true, max: 100, ticks: { display: false }, grid: { color: getChartTheme().grid }, pointLabels: { font: { size: 10 }, color: getChartTheme().text } } }
+        }
+    });
+
+    const matrixEl = document.getElementById('engineMatrixContent');
+    const matrixIndex = {};
+    matrix.forEach(r => { matrixIndex[r.category + '|' + r.engine_name] = r; });
+    const cellColor = (mentions, rank1) => {
+        if (!mentions) return 'bg-slate-900/30 text-slate-700';
+        if (rank1 > 0) return 'bg-emerald-500/20 text-emerald-400';
+        return 'bg-amber-500/10 text-amber-400';
+    };
+    let html = `<table class="w-full text-[10px]"><thead><tr class="text-slate-500 border-b border-slate-800 uppercase tracking-wider">
+        <th class="text-left px-3 py-2 sticky left-0 bg-slate-950/80 z-10 min-w-[160px]">Category</th>`;
+    engines.forEach(e => { html += `<th class="text-center px-2 py-2 min-w-[100px]">${ENGINE_LABELS[e]}</th>`; });
+    html += `<th class="text-center px-2 py-2">Total</th></tr></thead><tbody>`;
+    categories.forEach(cat => {
+        let catTotal = { mentions: 0, rank_1: 0 };
+        html += `<tr class="border-b border-slate-900/30 hover:bg-slate-900/20"><td class="px-3 py-2 text-slate-300 font-medium sticky left-0 bg-slate-950/80 z-10">${cat}</td>`;
+        engines.forEach(eng => {
+            const r = matrixIndex[cat + '|' + eng] || {};
+            const m = r.mentions || 0; const r1 = r.rank_1 || 0;
+            catTotal.mentions += m; catTotal.rank_1 += r1;
+            const avg = r.avg_rank ? '#' + r.avg_rank : '';
+            html += `<td class="text-center px-2 py-2"><div class="inline-flex flex-col items-center rounded px-2 py-1 ${cellColor(m, r1)}">
+                <span class="font-bold">${m || '-'}</span>${r1 ? '<span class="text-[8px] text-emerald-400">' + r1 + ' #1</span>' : ''}${avg ? '<span class="text-[8px] text-slate-500">' + avg + '</span>' : ''}
+            </div></td>`;
+        });
+        html += `<td class="text-center px-2 py-2 text-slate-400 font-semibold">${catTotal.mentions}</td></tr>`;
+    });
+    html += `<tr class="border-t-2 border-slate-700 bg-slate-950/60 font-bold"><td class="px-3 py-2 text-slate-200 sticky left-0 bg-slate-950/80 z-10">TOTAL</td>`;
+    let grandTotal = 0;
+    engines.forEach(eng => { const d = totals[eng] || {}; grandTotal += d.mentions || 0; html += `<td class="text-center px-2 py-2 text-amber-400">${d.mentions || 0}</td>`; });
+    html += `<td class="text-center px-2 py-2 text-amber-400">${grandTotal}</td></tr></tbody></table>`;
+    matrixEl.innerHTML = html;
+}
+
+function renderWeaknesses(data) {
+    const bb = data.beaten_by || {};
+    const ew = data.engine_weakness || {};
+    const wk = data.worst_keywords || [];
+
+    const beatenEl = document.getElementById('beatenByContent');
+    const competitors = Object.entries(bb).sort((a,b) => b[1].count - a[1].count);
+    if (!competitors.length) { beatenEl.innerHTML = '<div class="text-emerald-400 text-xs">No competitor outranks GrabOn!</div>'; }
+    else {
+        beatenEl.innerHTML = competitors.map(([name, d]) => {
+            const color = BRAND_COLORS[name] || '#64748b';
+            return `<div class="flex items-center justify-between py-1.5 border-b border-slate-800/50">
+                <div class="flex items-center gap-2"><span class="w-2 h-2 rounded-full" style="background:${color}"></span><span class="text-slate-300 font-medium">${name}</span></div>
+                <div class="flex items-center gap-3"><span class="text-rose-400 font-bold">${d.count}×</span><span class="text-slate-500 text-[10px]">avg #${d.avg_rank}</span></div>
+            </div>`;
+        }).join('');
+    }
+
+    const engEl = document.getElementById('engineWeaknessContent');
+    const engEntries = Object.entries(ew).sort((a,b) => b[1].total_losses - a[1].total_losses);
+    if (!engEntries.length) { engEl.innerHTML = '<div class="text-emerald-400 text-xs">Strong across all engines!</div>'; }
+    else {
+        engEl.innerHTML = engEntries.map(([eng, d]) => {
+            const color = ENGINE_COLORS[eng] || '#64748b';
+            return `<div class="flex items-center justify-between py-1.5 border-b border-slate-800/50">
+                <div class="flex items-center gap-2"><span class="w-2 h-2 rounded-full" style="background:${color}"></span><span class="text-slate-300 font-medium">${ENGINE_LABELS[eng] || eng}</span></div>
+                <div class="flex items-center gap-3"><span class="text-rose-400 font-bold">${d.total_losses} losses</span><span class="text-slate-500 text-[10px]">#1: ${d.dominant_competitor || 'N/A'}</span></div>
+            </div>`;
+        }).join('');
+    }
+
+    const kwEl = document.getElementById('worstKeywordsContent');
+    if (!wk.length) { kwEl.innerHTML = '<div class="text-emerald-400 text-xs">No contested keywords!</div>'; }
+    else {
+        kwEl.innerHTML = wk.slice(0, 8).map(k => {
+            const comps = [...new Set(k.losses.map(l => l.competitor))].join(', ');
+            return `<div class="py-1.5 border-b border-slate-800/50">
+                <div class="flex items-center justify-between">
+                    <span class="text-slate-300 truncate max-w-[200px]" title="${k.keyword}">${k.keyword.substring(0, 40)}${k.keyword.length > 40 ? '…' : ''}</span>
+                    <span class="text-rose-400 font-bold text-[10px]">${k.loss_count} losses</span>
+                </div>
+                <div class="text-[10px] text-slate-600 mt-0.5">${k.category} · beaten by: ${comps}</div>
+            </div>`;
+        }).join('');
+    }
+
+    const tableEl = document.getElementById('weaknessTable');
+    if (!wk.length) { tableEl.innerHTML = '<div class="text-emerald-400 text-xs p-2">GrabOn dominates across all keywords!</div>'; return; }
+    let rows = '';
+    wk.forEach(k => {
+        k.losses.forEach(l => {
+            const engColor = ENGINE_COLORS[l.engine] || '#64748b';
+            const compColor = BRAND_COLORS[l.competitor] || '#64748b';
+            const grabRank = l.grabon_rank ? '#' + l.grabon_rank : '<span class="text-rose-400">absent</span>';
+            rows += `<tr class="border-b border-slate-900/30 hover:bg-slate-900/20">
+                <td class="px-3 py-1.5 text-slate-300 max-w-[200px] truncate" title="${k.keyword}">${k.keyword.substring(0, 35)}${k.keyword.length > 35 ? '…' : ''}</td>
+                <td class="px-3 py-1.5 text-[10px] text-slate-500">${k.category}</td>
+                <td class="px-3 py-1.5"><span class="inline-flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full" style="background:${engColor}"></span>${ENGINE_LABELS[l.engine] || l.engine}</span></td>
+                <td class="px-3 py-1.5"><span class="inline-flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full" style="background:${compColor}"></span>${l.competitor}</span></td>
+                <td class="px-3 py-1.5 text-center text-emerald-400 font-bold">#${l.competitor_rank}</td>
+                <td class="px-3 py-1.5 text-center">${grabRank}</td>
+            </tr>`;
+        });
+    });
+    tableEl.innerHTML = `<table class="w-full text-xs"><thead><tr class="text-[10px] text-slate-500 uppercase tracking-wider border-b border-slate-800">
+        <th class="text-left px-3 py-2">Keyword</th><th class="text-left px-3 py-2">Category</th>
+        <th class="text-left px-3 py-2">Engine</th><th class="text-left px-3 py-2">Competitor</th>
+        <th class="text-center px-3 py-2">Their Rank</th><th class="text-center px-3 py-2">GrabOn Rank</th>
+    </tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function renderDailySummary(rows) {
+    if (!rows || !rows.length) {
+        document.getElementById('dailyTable').innerHTML = '<div class="text-xs text-slate-600">No daily data yet.</div>';
+        return;
+    }
+    const sorted = [...rows].sort((a,b) => a.day.localeCompare(b.day));
+    getOrCreateChart('dailyMini', 'dailyMiniChart', {
+        type: 'line',
+        data: {
+            labels: sorted.map(r => r.day.slice(5)),
+            datasets: [
+                { label: '#1', data: sorted.map(r => r.rank_1_count), borderColor: '#10b981', borderWidth: 2, pointRadius: 0, tension: 0.3, fill: false },
+                { label: 'Mentions', data: sorted.map(r => r.grabon_mentions), borderColor: '#f59e0b', borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: false },
+            ]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { position: 'top', align: 'end', labels: { boxWidth: 8, padding: 8, font: { size: 9 } } } },
+            scales: { x: { display: false }, y: { display: false, beginAtZero: true } }
+        }
+    });
+
+    let html = `<table class="w-full text-[10px]"><thead><tr class="text-slate-500 border-b border-slate-800 uppercase tracking-wider">
+        <th class="text-left px-3 py-2">Date</th><th class="text-center px-2 py-2">Keywords</th>
+        <th class="text-center px-2 py-2">Scrapes</th><th class="text-center px-2 py-2">Mentions</th>
+        <th class="text-center px-2 py-2">#1</th><th class="text-center px-2 py-2">Avg Rank</th>
+        <th class="text-center px-2 py-2">Sentiment</th><th class="text-center px-2 py-2">Citations</th>
+        <th class="text-center px-2 py-2">Brands</th>
+    </tr></thead><tbody>`;
+    rows.forEach(r => {
+        const sentTotal = (r.positive || 0) + (r.neutral || 0) + (r.negative || 0);
+        const posBar = sentTotal > 0 ? Math.round(r.positive / sentTotal * 100) : 0;
+        const neuBar = sentTotal > 0 ? Math.round(r.neutral / sentTotal * 100) : 0;
+        const negBar = sentTotal > 0 ? Math.round(r.negative / sentTotal * 100) : 0;
+        html += `<tr class="border-b border-slate-900/30 hover:bg-slate-900/20">
+            <td class="px-3 py-2 text-slate-300 font-medium">${r.day}</td>
+            <td class="text-center px-2 py-2 text-slate-400">${r.keywords_scraped}</td>
+            <td class="text-center px-2 py-2 text-slate-500">${r.total_scrapes}</td>
+            <td class="text-center px-2 py-2 text-amber-400 font-semibold">${r.grabon_mentions}</td>
+            <td class="text-center px-2 py-2"><span class="${r.rank_1_count > 0 ? 'text-emerald-400 font-bold' : 'text-slate-600'}">${r.rank_1_count}</span></td>
+            <td class="text-center px-2 py-2"><span class="${r.avg_rank <= 2 ? 'text-emerald-400' : r.avg_rank <= 4 ? 'text-amber-400' : 'text-slate-500'}">${r.avg_rank || '-'}</span></td>
+            <td class="px-2 py-2"><div class="flex h-1.5 rounded-full overflow-hidden bg-slate-800 w-20 mx-auto" title="${r.positive}+ / ${r.neutral}= / ${r.negative}-">
+                <div class="h-full bg-emerald-500" style="width:${posBar}%"></div><div class="h-full bg-slate-500" style="width:${neuBar}%"></div><div class="h-full bg-rose-500" style="width:${negBar}%"></div>
+            </div></td>
+            <td class="text-center px-2 py-2 text-cyan-400">${r.citations}</td>
+            <td class="text-center px-2 py-2 text-slate-500">${r.unique_brands}</td>
+        </tr>`;
+    });
+    html += '</tbody></table>';
+    document.getElementById('dailyTable').innerHTML = html;
+}
+
+// ─── Master data loader ─────────────────────────────────────────────
+async function loadAll() {
+    const savedGapTab = activeGapTab;
+    const savedAttentionPage = needsAttentionPage;
+
+    try {
+        const [vis, rank, comp, sent, cite, gaps, insights, heatmap, weaknesses, catRollup, attention, engineMatrix, daily] = await Promise.all([
+            fetch('/api/analytics/visibility').then(r => r.json()),
+            fetch('/api/analytics/rank-distribution').then(r => r.json()),
+            fetch('/api/analytics/competitors').then(r => r.json()),
+            fetch('/api/analytics/sentiment').then(r => r.json()),
+            fetch('/api/analytics/citations').then(r => r.json()),
+            fetch('/api/analytics/keyword-gaps').then(r => r.json()),
+            fetch('/api/analytics/insights').then(r => r.json()),
+            fetch('/api/analytics/heatmap').then(r => r.json()),
+            fetch('/api/analytics/weaknesses').then(r => r.json()),
+            fetch('/api/analytics/category-rollup').then(r => r.json()),
+            fetch(`/api/analytics/needs-attention?page=${savedAttentionPage}&page_size=50`).then(r => r.json()),
+            fetch('/api/analytics/engine-matrix').then(r => r.json()),
+            fetch('/api/analytics/daily-summary?days=30').then(r => r.json()),
+        ]);
+
+        renderInsights(insights.insights);
+        renderKPIs(gaps, cite);
+        renderSovTrend(vis.data);
+        renderRankDist(rank);
+        renderCompetitors(comp.data);
+        renderSentiment(sent);
+        renderCitations(cite);
+        renderHeatmap(heatmap.data);
+        gapData = gaps;
+        renderGapContent(savedGapTab);
+        renderWeaknesses(weaknesses);
+        renderDailySummary(daily.data);
+
+        try { if (catRollup.data) renderCategoryRollup(catRollup.data); } catch(e) { console.error('category-rollup:', e); }
+        try { if (attention.items) renderNeedsAttention(attention); } catch(e) { console.error('needs-attention:', e); }
+        try { if (engineMatrix.matrix) renderEngineMatrix(engineMatrix); } catch(e) { console.error('engine-matrix:', e); }
+
+        document.getElementById('lastUpdated').textContent = 'Updated ' + new Date().toLocaleTimeString();
+    } catch(e) {
+        console.error('loadAll failed:', e);
+    }
+}
+
+// ─── Live Activity Feed via SSE ─────────────────────────────────────
+function initActivityFeed() {
+    const feed = document.getElementById('activityFeed');
+    const es = new EventSource('/api/activity-stream');
+    window._geoPageES = es;
+    const maxItems = 50;
+
+    es.addEventListener('scrape_start', e => addEvent(feed, JSON.parse(e.data), 'blue', maxItems));
+    es.addEventListener('scrape_done', e => addEvent(feed, JSON.parse(e.data), 'emerald', maxItems));
+    es.addEventListener('scrape_fail', e => addEvent(feed, JSON.parse(e.data), 'rose', maxItems));
+    es.addEventListener('parse_done', e => addEvent(feed, JSON.parse(e.data), 'amber', maxItems));
+    es.addEventListener('batch_start', e => addEvent(feed, JSON.parse(e.data), 'cyan', maxItems));
+    es.addEventListener('batch_done', e => {
+        addEvent(feed, JSON.parse(e.data), 'emerald', maxItems);
+        debouncedRefresh();
+    });
+    es.addEventListener('reparse_start', e => addEvent(feed, JSON.parse(e.data), 'purple', maxItems));
+    es.addEventListener('reparse_done', e => addEvent(feed, JSON.parse(e.data), 'emerald', maxItems));
+    window.addEventListener('beforeunload', function() { es.close(); });
+
+    fetch('/api/activity-recent').then(r => r.json()).then(events => {
+        feed.innerHTML = '';
+        events.reverse().forEach(evt => addEvent(feed, evt, getEventColor(evt.type), maxItems));
+        if (!events.length) feed.innerHTML = '<div class="text-xs text-slate-600">No recent activity.</div>';
+    });
+}
+
+function getEventColor(type) {
+    const map = { scrape_start: 'blue', scrape_done: 'emerald', scrape_fail: 'rose', parse_done: 'amber', batch_start: 'cyan', batch_done: 'emerald', reparse_start: 'purple', reparse_done: 'emerald' };
+    return map[type] || 'slate';
+}
+
+function addEvent(feed, data, color, max) {
+    const div = document.createElement('div');
+    div.className = 'flex items-start gap-2 text-[10px] py-1 border-b border-slate-900/20 animate-pulse';
+    setTimeout(() => div.classList.remove('animate-pulse'), 2000);
+    const time = new Date().toLocaleTimeString();
+    let detail = '';
+    if (data.engine) detail += `<span class="font-semibold text-slate-300">${data.engine}</span> `;
+    if (data.prompt) detail += `<span class="text-slate-500">${data.prompt}</span> `;
+    if (data.chars) detail += `<span class="text-slate-600">${data.chars} chars</span> `;
+    if (data.brands) detail += `<span class="text-amber-400">${data.brands} brands</span> `;
+    if (data.error) detail += `<span class="text-rose-400">${data.error}</span> `;
+    if (data.total_prompts) detail += `<span class="text-slate-400">${data.total_prompts} prompts</span> `;
+    if (data.processed) detail += `<span class="text-emerald-400">${data.processed} done</span> `;
+    if (data.total) detail += `<span class="text-slate-400">${data.total} logs</span> `;
+    div.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-${color}-400 mt-1 shrink-0"></span>
+        <span class="text-slate-600">${time}</span>
+        <span class="px-1.5 py-0.5 rounded bg-${color}-500/10 text-${color}-400 text-[9px] font-bold uppercase">${data.type || 'event'}</span>
+        <span>${detail}</span>`;
+    feed.prepend(div);
+    while (feed.children.length > max) feed.lastChild.remove();
+}
+
+// ─── Refresh logic ──────────────────────────────────────────────────
+let _refreshTimer = null;
+function debouncedRefresh() {
+    if (_refreshTimer) clearTimeout(_refreshTimer);
+    _refreshTimer = setTimeout(() => loadAll(), 5000);
+}
+
+// ─── Keyword History (inline in heatmap) ────────────────────────────
+async function openKwHistory(promptId) {
+    activeKwRow = promptId;
+    renderHeatmapFiltered();
+
+    const panel = document.getElementById('kwHistoryPanel');
+    panel.classList.remove('hidden');
+    document.getElementById('kwDetailTitle').textContent = 'Loading...';
+    document.getElementById('kwDetailMeta').textContent = '';
+    document.getElementById('kwTimeline').innerHTML = '<div class="text-xs text-slate-600">Loading history...</div>';
+
+    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+    const data = await fetch('/api/analytics/keyword-detail?prompt_id=' + promptId).then(r => r.json());
+    if (data.error) { document.getElementById('kwDetailTitle').textContent = 'Error: ' + data.error; return; }
+
+    const p = data.prompt;
+    document.getElementById('kwDetailTitle').textContent = p.text;
+    document.getElementById('kwDetailMeta').textContent = `Tier ${p.tier} · ${p.merchant_category} · ${p.intent_type}`;
+
+    const timeline = data.timeline || [];
+    const engines = data.engines || ENGINES;
+    const sortedTL = [...timeline].reverse();
+    const ENGINE_CHART_COLORS = {
+        google_aio: '#f59e0b', google_ai_mode: '#d97706', perplexity: '#06b6d4',
+        gemini: '#8b5cf6', chatgpt: '#10b981', claude: '#f97316'
+    };
+
+    const datasets = engines.map(eng => ({
+        label: ENGINE_LABELS[eng] || eng,
+        data: sortedTL.map(t => (t.engines[eng] || {}).grabon_rank),
+        borderColor: ENGINE_CHART_COLORS[eng] || '#64748b',
+        backgroundColor: 'transparent', tension: 0.3, borderWidth: 2,
+        pointRadius: sortedTL.length <= 7 ? 5 : 2,
+        pointBackgroundColor: ENGINE_CHART_COLORS[eng] || '#64748b', spanGaps: true,
+    }));
+
+    getOrCreateChart('kwHistory', 'kwHistoryChart', {
+        type: 'line', data: { labels: sortedTL.map(t => t.day.slice(5)), datasets },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { position: 'top', labels: { boxWidth: 10, padding: 12, font: { size: 10 }, usePointStyle: true } },
+                tooltip: { callbacks: { label: c => c.parsed.y === null ? c.dataset.label + ': Not ranked' : c.dataset.label + ': #' + c.parsed.y } }
+            },
+            scales: {
+                x: { ticks: { font: { size: 9 } }, grid: { color: getChartTheme().grid } },
+                y: { reverse: true, min: 1, ticks: { stepSize: 1, callback: v => '#' + v, font: { size: 10 } }, grid: { color: getChartTheme().grid }, title: { display: true, text: 'Rank (lower = better)', font: { size: 10 }, color: getChartTheme().text } }
+            }
+        }
+    });
+
+    let html = `<table class="w-full text-[10px]"><thead><tr class="text-slate-500 border-b border-slate-800 uppercase tracking-wider">
+        <th class="text-left px-3 py-2 sticky left-0 bg-slate-950/80 z-10">Date</th>`;
+    engines.forEach(e => { html += `<th class="text-center px-2 py-2 min-w-[110px]">${ENGINE_LABELS[e] || e}</th>`; });
+    html += '</tr></thead><tbody>';
+    timeline.forEach(t => {
+        html += `<tr class="border-b border-slate-900/30 hover:bg-slate-900/20"><td class="px-3 py-1.5 text-slate-300 font-medium sticky left-0 bg-slate-950/80 z-10">${t.day}</td>`;
+        engines.forEach(eng => {
+            const e = t.engines[eng] || {};
+            const rank = e.grabon_rank;
+            const leader = e.leader;
+            const totalBrands = e.total_brands || 0;
+            const sentiment = e.grabon_sentiment;
+            const sentCls = sentiment === 'Positive' ? 'text-emerald-500' : sentiment === 'Negative' ? 'text-rose-500' : 'text-slate-600';
+            if (rank === null && totalBrands === 0) {
+                html += '<td class="text-center px-2 py-1.5 text-slate-700">-</td>';
+            } else if (rank === null && totalBrands > 0) {
+                html += `<td class="text-center px-2 py-1.5"><span class="text-red-500/80 text-[9px]">Out</span><div class="text-[8px] text-slate-600">#1: ${(leader || '').substring(0, 15)}</div></td>`;
+            } else if (rank === 1) {
+                html += `<td class="text-center px-2 py-1.5"><span class="text-emerald-400 font-bold">#1</span><span class="text-[8px] ${sentCls} ml-0.5">${(sentiment || '').substring(0, 3)}</span></td>`;
+            } else {
+                const rankCls = rank <= 3 ? 'text-amber-400 font-bold' : 'text-slate-400';
+                const leaderIsGrabon = leader && leader.toLowerCase().includes('grabon');
+                html += `<td class="text-center px-2 py-1.5"><span class="${rankCls}">#${rank}</span><span class="text-[8px] ${sentCls} ml-0.5">${(sentiment || '').substring(0, 3)}</span>${!leaderIsGrabon && leader ? '<div class="text-[8px] text-slate-600">#1: ' + leader.substring(0, 15) + '</div>' : ''}</td>`;
+            }
+        });
+        html += '</tr>';
+    });
+    html += '</tbody></table>';
+    document.getElementById('kwTimeline').innerHTML = html;
+}
+
+// ─── SEO Tab ────────────────────────────────────────────────────────
+const SEO_COMP_COLORS = {
+    'grabon.in': '#f59e0b', 'coupondunia.in': '#ef4444', 'cashkaro.com': '#3b82f6',
+    'desidime.com': '#8b5cf6', 'gopaisa.com': '#14b8a6', 'zoutons.com': '#f97316',
+};
+
+async function loadSeoTab() {
+    await Promise.all([loadSeoKPIs(), loadSeoDailyTrend(), loadSeoCompTrend(), loadSeoGeoComparison()]);
+}
+
+async function loadSeoKPIs() {
+    try {
+        const d = await fetch('/api/serp/stats').then(r => r.json());
+        const crawled = d.keywords_crawled || 0;
+        const total = d.queue_total || 1;
+        document.getElementById('seoKpiTracked').textContent = crawled;
+        document.getElementById('seoKpiTrackedSub').textContent = Math.round(crawled / total * 100) + '% of ' + total;
+        if (d.target_top10 !== undefined) {
+            document.getElementById('seoKpiTop10').textContent = d.target_top10;
+            const pct = crawled > 0 ? ((d.target_top10 / crawled) * 100).toFixed(1) : 0;
+            document.getElementById('seoKpiTop10Sub').textContent = pct + '% of tracked';
+        }
+        if (d.avg_rank !== null && d.avg_rank !== undefined) {
+            document.getElementById('seoKpiAvg').textContent = d.avg_rank;
+        }
+    } catch(e) { console.error('seo kpis:', e); }
+}
+
+async function loadSeoDailyTrend() {
+    try {
+        const days = document.getElementById('seoDailyDays')?.value || 30;
+        const d = await fetch('/api/analytics/seo-daily?days=' + days).then(r => r.json());
+        const rows = d.data || [];
+        if (!rows.length) return;
+
+        const latest = rows[rows.length - 1];
+        if (latest?.top3_count !== undefined) {
+            document.getElementById('seoKpiTop3').textContent = latest.top3_count;
+        }
+
+        getOrCreateChart('seoDailyChart', 'seoDailyChart', {
+            type: 'line',
+            data: {
+                labels: rows.map(r => r.day?.slice(5) || ''),
+                datasets: [
+                    {
+                        label: 'Avg Rank',
+                        data: rows.map(r => r.avg_rank),
+                        borderColor: '#f59e0b',
+                        backgroundColor: 'rgba(245,158,11,0.1)',
+                        fill: true,
+                        tension: 0.3,
+                        borderWidth: 2,
+                        pointRadius: 2,
+                        yAxisID: 'y',
+                    },
+                    {
+                        label: 'Top 10',
+                        data: rows.map(r => r.top10_count),
+                        borderColor: '#10b981',
+                        borderWidth: 2,
+                        pointRadius: 2,
+                        tension: 0.3,
+                        yAxisID: 'y1',
+                    },
+                    {
+                        label: 'Keywords Crawled',
+                        data: rows.map(r => r.keywords_crawled),
+                        borderColor: '#6366f1',
+                        borderWidth: 1.5,
+                        borderDash: [4, 2],
+                        pointRadius: 0,
+                        tension: 0.3,
+                        yAxisID: 'y1',
+                    },
+                ],
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: { legend: { labels: { font: { size: 10 }, usePointStyle: true, pointStyleWidth: 8, padding: 10 } } },
+                scales: {
+                    x: { ticks: { font: { size: 9 } }, grid: { color: 'rgba(51,65,85,0.2)' } },
+                    y: { position: 'left', reverse: true, min: 1, title: { display: true, text: 'Avg Rank', font: { size: 9 } }, ticks: { font: { size: 9 } }, grid: { color: 'rgba(51,65,85,0.2)' } },
+                    y1: { position: 'right', title: { display: true, text: 'Count', font: { size: 9 } }, ticks: { font: { size: 9 } }, grid: { display: false } },
+                },
+            },
+        });
+    } catch(e) { console.error('seo daily:', e); }
+}
+
+async function loadSeoCompTrend() {
+    try {
+        const d = await fetch('/api/analytics/seo-competitor-trend?days=14').then(r => r.json());
+        const rows = d.data || [];
+        if (!rows.length) return;
+
+        const domains = [...new Set(rows.map(r => r.domain))];
+        const days = [...new Set(rows.map(r => r.day))].sort();
+        const byDomain = {};
+        rows.forEach(r => {
+            if (!byDomain[r.domain]) byDomain[r.domain] = {};
+            byDomain[r.domain][r.day] = r.avg_rank;
+        });
+
+        const datasets = domains.map(dom => {
+            const shortDom = dom.replace('www.', '');
+            const matched = Object.keys(SEO_COMP_COLORS).find(k => dom.includes(k));
+            return {
+                label: shortDom,
+                data: days.map(day => byDomain[dom]?.[day] || null),
+                borderColor: matched ? SEO_COMP_COLORS[matched] : '#64748b',
+                borderWidth: dom.includes('grabon') ? 3 : 1.5,
+                pointRadius: dom.includes('grabon') ? 3 : 1,
+                tension: 0.3,
+                spanGaps: true,
+            };
+        });
+
+        getOrCreateChart('seoCompTrendChart', 'seoCompTrendChart', {
+            type: 'line',
+            data: { labels: days.map(d => d.slice(5)), datasets },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: { legend: { labels: { font: { size: 9 }, usePointStyle: true, pointStyleWidth: 8, padding: 8 } } },
+                scales: {
+                    x: { ticks: { font: { size: 9 } }, grid: { color: 'rgba(51,65,85,0.2)' } },
+                    y: { reverse: true, min: 1, title: { display: true, text: 'Avg Rank', font: { size: 9 } }, ticks: { font: { size: 9 } }, grid: { color: 'rgba(51,65,85,0.2)' } },
+                },
+            },
+        });
+    } catch(e) { console.error('seo comp trend:', e); }
+}
+
+async function loadSeoGeoComparison() {
+    try {
+        const [seoStats, geoVis] = await Promise.all([
+            fetch('/api/serp/stats').then(r => r.json()),
+            fetch('/api/analytics/visibility').then(r => r.json()),
+        ]);
+        document.getElementById('seoGeoSerp').textContent = seoStats.keywords_crawled || 0;
+        const geoData = geoVis.data || [];
+        const latestGeo = geoData.length > 0 ? geoData[geoData.length - 1] : {};
+        document.getElementById('seoGeoAi').textContent = latestGeo.keywords_tracked || '-';
+    } catch(e) { console.error('seo-geo comparison:', e); }
+}
+
+// ─── Boot ───────────────────────────────────────────────────────────
+loadAll();
+initActivityFeed();
+setInterval(() => loadAll(), 60000);
+</script>
+{% endblock %}

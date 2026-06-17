@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+
+# Environment
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Debug artifacts
+*.png
+*.jpg
+*.jpeg
+
+# Graphify (auto-generated knowledge graph)
+.graphify_*
+graphify-out/
+
+# Caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
