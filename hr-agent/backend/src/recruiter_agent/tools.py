@@ -389,6 +389,7 @@ async def create_role_with_assignment(
     remote_policy: str | None = None,
     max_notice_days: int | None = None,
     screening_modality: str = "voice",
+    pipeline_template: list[str] | None = None,
     time_budget_hours: int = 6,
     deadline_days: int = 7,
     _prerendered_brief: dict | None = None,
@@ -409,6 +410,7 @@ async def create_role_with_assignment(
         remote_policy=remote_policy,
         max_notice_days=max_notice_days,
         screening_modality=screening_modality,
+        pipeline_template=pipeline_template,
     )
     if "error" in role_resp:
         return role_resp
@@ -888,6 +890,100 @@ def _jd_skeleton(title: str, seniority: str) -> str:
     )
 
 
+async def search_talent_pool(
+    *,
+    query: str,
+    role_id: str | None = None,
+    limit: int = 20,
+) -> dict[str, Any]:
+    """Semantic search across the talent pool using pgvector embeddings.
+
+    When ``role_id`` is given, matches candidates against the role's JD
+    embedding instead of the free-text query.
+    """
+    import litellm
+    from src.config import get_settings
+    from src.db.base import CandidateProfileRow, Candidate, Application
+
+    _s = get_settings()
+    limit = max(1, min(int(limit), 50))
+
+    if role_id:
+        rid = UUID(role_id)
+        async with session_scope() as session:
+            role = await session.get(Role, rid)
+            if role is None:
+                return {"error": "role_not_found"}
+            query = role.jd_text or role.title or ""
+
+    if not (query or "").strip():
+        return {"matches": [], "total": 0}
+
+    try:
+        embed_resp = await litellm.aembedding(
+            model=_s.embedding_model or "text-embedding-3-large",
+            input=[query[:8000]],
+        )
+        query_embedding = embed_resp.data[0]["embedding"]
+    except Exception as e:
+        return {"error": f"embedding_failed: {e}"}
+
+    async with session_scope() as session:
+        distance_expr = CandidateProfileRow.embedding.cosine_distance(query_embedding)
+        similarity_expr = (1 - distance_expr).label("similarity")
+
+        q = (
+            select(CandidateProfileRow, Candidate, similarity_expr)
+            .join(Candidate, Candidate.id == CandidateProfileRow.candidate_id)
+            .where(CandidateProfileRow.embedding.isnot(None))
+            .order_by(distance_expr.asc())
+            .limit(limit)
+        )
+        rows = (await session.execute(q)).all()
+
+        candidate_ids = [r[1].id for r in rows]
+        app_map: dict[UUID, str] = {}
+        if candidate_ids:
+            app_rows = (
+                await session.execute(
+                    select(Application)
+                    .where(Application.candidate_id.in_(candidate_ids))
+                    .order_by(Application.created_at.desc())
+                )
+            ).scalars().all()
+            for a in app_rows:
+                if a.candidate_id not in app_map:
+                    app_map[a.candidate_id] = a.current_stage
+
+    matches = []
+    for profile, cand, sim in rows:
+        pd = profile.parsed_data or {}
+        skills = pd.get("skills") or pd.get("top_skills") or []
+        if isinstance(skills, str):
+            skills = [s.strip() for s in skills.split(",")]
+        work = pd.get("work_history") or pd.get("experience") or []
+        cur_title = cur_company = None
+        if isinstance(work, list) and work and isinstance(work[0], dict):
+            cur_title = work[0].get("title") or work[0].get("designation")
+            cur_company = work[0].get("company") or work[0].get("organization")
+        exp = pd.get("total_experience_years") or pd.get("experience_years")
+
+        matches.append({
+            "candidate_id": str(cand.id),
+            "candidate_name": cand.name,
+            "candidate_email": cand.email,
+            "current_title": cur_title,
+            "current_company": cur_company,
+            "top_skills": (skills[:8] if isinstance(skills, list) else []),
+            "location": pd.get("location") or pd.get("city"),
+            "experience_years": float(exp) if exp else None,
+            "similarity": round(float(sim), 3),
+            "last_application_stage": app_map.get(cand.id),
+        })
+
+    return {"matches": matches, "total": len(matches)}
+
+
 async def search_candidates(
     *,
     query: str,
@@ -940,16 +1036,30 @@ async def create_role(
     remote_policy: str | None = None,
     max_notice_days: int | None = None,
     screening_modality: str = "voice",
+    pipeline_template: list[str] | None = None,
+    **_extra: Any,
 ) -> dict[str, Any]:
     """Persist a new role. Returns the created row's id + URL."""
-    if screening_modality not in ("chat", "voice"):
-        return {"error": "screening_modality must be chat or voice"}
+    screening_modality = "voice"
     title = (title or "").strip()
     jd_text = (jd_text or "").strip()
     if len(title) < 3:
         return {"error": "title_too_short"}
     if len(jd_text) < 30:
         return {"error": "jd_text_too_short (>=30 chars)"}
+    resolved_template = None
+    if pipeline_template:
+        if isinstance(pipeline_template, list) and len(pipeline_template) == 1:
+            from src.services.pipeline_templates import PRESETS
+            preset = PRESETS.get(pipeline_template[0])
+            if preset:
+                resolved_template = preset["steps"]
+        if not resolved_template:
+            from src.services.pipeline_templates import validate_template
+            errors = validate_template(pipeline_template)
+            if errors:
+                return {"error": f"invalid pipeline_template: {', '.join(errors)}"}
+            resolved_template = pipeline_template
     async with session_scope() as session:
         role = Role(
             title=title,
@@ -963,6 +1073,7 @@ async def create_role(
             remote_policy=remote_policy,
             max_notice_days=max_notice_days,
             screening_modality=screening_modality,
+            pipeline_template=resolved_template,
             status="open",
         )
         session.add(role)
@@ -1316,6 +1427,62 @@ async def set_panel_member(
     return {"ok": True, "message": f"Panel member set for {round}."}
 
 
+async def add_panel_member(
+    *,
+    name: str,
+    email: str,
+    role_type: str,
+    job_title: str | None = None,
+    expertise_tags: list[str] | None = None,
+    department: str | None = None,
+    seniority_level: str | None = None,
+) -> dict[str, Any]:
+    """Create a new panel member in the workspace directory.
+
+    The agent calls this when HR mentions a new interviewer who isn't
+    in the system yet. Requires confirmation.
+    """
+    from src.db.base import PanelMember
+
+    if role_type not in ("technical", "hr", "ceo"):
+        return {"error": "role_type must be technical, hr, or ceo"}
+
+    if seniority_level and seniority_level not in ("junior", "mid", "senior", "lead", "executive"):
+        return {"error": "seniority_level must be junior, mid, senior, lead, or executive"}
+
+    async with session_scope() as session:
+        # Check for duplicate email
+        existing = (
+            await session.execute(
+                select(PanelMember).where(PanelMember.email == email)
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            return {"error": f"panel member with email {email} already exists", "existing_id": str(existing.id)}
+
+        row = PanelMember(
+            name=name,
+            email=email,
+            role_type=role_type,
+            job_title=job_title,
+            expertise_tags=expertise_tags,
+            department=department,
+            seniority_level=seniority_level,
+        )
+        session.add(row)
+        await session.flush()
+        member_id = row.id
+
+    return {
+        "ok": True,
+        "id": str(member_id),
+        "name": name,
+        "email": email,
+        "role_type": role_type,
+        "message": f"Panel member '{name}' ({email}) added as {role_type} interviewer.",
+    }
+
+
 async def update_setting(*, key: str, value: Any) -> dict[str, Any]:
     """Write to ``config_settings`` table. Admin-only (enforced by RBAC)."""
     from src.db.base import ConfigSetting
@@ -1408,6 +1575,7 @@ TOOLS: dict[str, Any] = {
     "stuck_applications": stuck_applications,
     "audit_tail": audit_tail,
     "search_candidates": search_candidates,
+    "search_talent_pool": search_talent_pool,
     "get_journey_report": get_journey_report,
     "metrics_period": metrics_period,
     "list_meetings": list_meetings,
@@ -1430,6 +1598,7 @@ TOOLS: dict[str, Any] = {
     "schedule_interview": schedule_interview,
     "propose_slots": propose_slots,
     "set_panel_member": set_panel_member,
+    "add_panel_member": add_panel_member,
     "parse_attachment": parse_attachment,
     "remember": remember,
     "publish_linkedin_post": publish_linkedin_post,

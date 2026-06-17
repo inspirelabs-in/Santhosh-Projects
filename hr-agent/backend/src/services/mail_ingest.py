@@ -15,8 +15,9 @@ from uuid import UUID
 from sqlalchemy import select
 
 from src.activities.intake import run_intake
+from src.classifiers.candidate_intent import classify_candidate_intent
 from src.config import get_settings
-from src.db.base import ProcessedMessage, Role
+from src.db.base import Application, Candidate, ProcessedMessage, Role
 from src.db.connection import session_scope
 from src.db.repositories.role import list_open_roles
 from src.models.candidate import IntakePayload, SourceChannel
@@ -28,6 +29,8 @@ from src.services.imap_inbox import (
     fetch_new,
     load_inboxes_from_env,
 )
+from src.services.typed_event_bus import EventType
+from src.services.typed_event_bus import publish_event as publish_supervisor_event
 
 # Only mails whose subject starts with this prefix (case-insensitive) are
 # treated as job applications. Everything else is left read but ignored.
@@ -56,45 +59,51 @@ async def _mark_processed(message_id: str, application_id: UUID | None, source: 
 async def _match_role(subject: str | None, body: str | None) -> UUID | None:
     """Match an open role to an inbound mail by title.
 
-    Strategy:
-      1. Lowercase + tokenize subject and body (alpha-numeric runs).
-      2. For each open role, check whether ALL non-trivial title tokens
-         appear in the haystack as whole words (word-boundary match).
-      3. When multiple roles match, return the role with the LONGEST title
-         (most specific). This means "Senior Data Engineer" wins over a
-         bare "Engineer" role on a mail subject containing the full phrase.
+    Strategy (two-pass):
+      1. Try matching against the **subject line only** first.  The subject
+         is the strongest signal — "Application for Product Owner" should
+         match "Product Owner" regardless of what's in the body/resume.
+      2. Only if the subject yields no match, widen to subject + body.
+      3. Within each pass: require ALL significant (non-stop) title tokens
+         to appear.  Longest title wins ties.
     """
     if not subject and not body:
         return None
     import re as _re
 
-    haystack = f"{subject or ''} {body or ''}".lower()
-    haystack_tokens = set(_re.findall(r"[a-z0-9]+", haystack))
-    # Stop-tokens that match almost any mail and produce false positives.
     _STOP = {"engineer", "developer", "manager", "lead", "junior", "senior",
              "analyst", "the", "for", "role", "position", "job", "a", "an"}
 
     async with session_scope() as session:
         roles = await list_open_roles(session)
-        candidates: list[tuple[int, UUID]] = []
-        for role in roles:
-            title = (role.title or "").strip().lower()
-            if not title:
-                continue
-            title_tokens = [t for t in _re.findall(r"[a-z0-9]+", title)]
-            if not title_tokens:
-                continue
-            significant = [t for t in title_tokens if t not in _STOP]
-            # If the title is entirely stop-tokens (rare), fall back to all
-            # title tokens but require ALL to be present.
-            required = significant or title_tokens
-            if all(t in haystack_tokens for t in required):
-                # Score = number of title tokens that matched (longer titles win).
-                candidates.append((len(title_tokens), role.id))
-        if not candidates:
-            return None
-        candidates.sort(key=lambda x: x[0], reverse=True)
-        return candidates[0][1]
+
+        def _find_match(haystack_text: str) -> UUID | None:
+            haystack_tokens = set(_re.findall(r"[a-z0-9]+", haystack_text.lower()))
+            candidates: list[tuple[int, UUID]] = []
+            for role in roles:
+                title = (role.title or "").strip().lower()
+                if not title:
+                    continue
+                title_tokens = [t for t in _re.findall(r"[a-z0-9]+", title)]
+                if not title_tokens:
+                    continue
+                significant = [t for t in title_tokens if t not in _STOP]
+                required = significant or title_tokens
+                if all(t in haystack_tokens for t in required):
+                    candidates.append((len(title_tokens), role.id))
+            if not candidates:
+                return None
+            candidates.sort(key=lambda x: x[0], reverse=True)
+            return candidates[0][1]
+
+        if subject:
+            match = _find_match(subject)
+            if match:
+                return match
+
+        if body:
+            return _find_match(f"{subject or ''} {body}")
+        return None
 
 
 def _is_resume_attachment(filename: str | None, content_type: str | None) -> bool:
@@ -139,15 +148,13 @@ async def _ingest_one_resume(
             }
         )
 
-    # Pass the forwarder email/name to intake. The resume parser ultimately
-    # overwrites identity from the resume (resume wins), but giving intake a
-    # non-null email lets ``find_duplicate_candidate`` actually deduplicate
-    # repeat forwards from the same address before parse runs. Without this
-    # every forward creates a fresh candidate row.
+    # Pass the forwarder email for dedup but leave name blank — the resume
+    # parser overwrites identity from the resume. Setting sender_name here
+    # causes a visible flash in the UI (forwarder name → real name).
     payload = IntakePayload(
         source_channel=SourceChannel.EMAIL,
         sender_email=msg.from_email,
-        sender_name=msg.from_name,
+        sender_name=None,
         sender_phone=None,
         subject=msg.subject,
         body_text=msg.body_text,
@@ -201,6 +208,78 @@ async def _ingest_one_resume(
     pipeline_task.add_done_callback(_on_pipeline_done)
 
 
+async def _try_emit_candidate_email_event(msg: InboundMessage) -> None:
+    """If the sender matches a known candidate, emit CANDIDATE_EMAIL_RECEIVED."""
+    if not msg.from_email:
+        return
+    from sqlalchemy import select as sa_select
+    try:
+        async with session_scope() as session:
+            # Find candidate by email
+            candidate = (
+                await session.execute(
+                    sa_select(Candidate).where(
+                        Candidate.email == msg.from_email.lower()
+                    ).limit(1)
+                )
+            ).scalar_one_or_none()
+            if candidate is None:
+                logger.debug(
+                    "mail %s from unknown sender %s — no supervisor event",
+                    msg.message_id, msg.from_email,
+                )
+                return
+            # Find their most recent active application
+            app = (
+                await session.execute(
+                    sa_select(Application)
+                    .where(Application.candidate_id == candidate.id)
+                    .order_by(Application.updated_at.desc())
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if app is None:
+                return
+            has_attachment = any(
+                a.content and _is_resume_attachment(a.filename, a.content_type)
+                for a in msg.attachments
+            )
+            # Classify intent from subject + body
+            classify_text = f"{msg.subject or ''}\n{msg.body_text or ''}".strip()
+            intent_result = await classify_candidate_intent(
+                classify_text, has_attachments=has_attachment,
+            )
+            event_type = EventType.CANDIDATE_EMAIL_RECEIVED
+            if intent_result.intent.value == "withdrawal":
+                event_type = EventType.CANDIDATE_WITHDRAWAL
+
+            await publish_supervisor_event(
+                session,
+                event_type,
+                application_id=app.id,
+                candidate_id=candidate.id,
+                payload={
+                    "from_email": msg.from_email,
+                    "subject": (msg.subject or "")[:200],
+                    "body_preview": (msg.body_text or "")[:500],
+                    "has_attachment": has_attachment,
+                    "message_id": msg.message_id,
+                    "channel": "email",
+                    "intent": intent_result.intent.value,
+                    "intent_confidence": intent_result.confidence,
+                    "urgency": intent_result.urgency,
+                    "extracted_details": intent_result.extracted_details,
+                },
+                dedup_extra=msg.message_id or "",
+            )
+            logger.info(
+                "supervisor event CANDIDATE_EMAIL_RECEIVED for app=%s from=%s",
+                app.id, msg.from_email,
+            )
+    except Exception:
+        logger.exception("failed to emit candidate email event for %s", msg.message_id)
+
+
 async def _process_one(msg: InboundMessage) -> None:
     if not msg.message_id:
         return
@@ -212,12 +291,12 @@ async def _process_one(msg: InboundMessage) -> None:
         return
     subject = (msg.subject or "").strip().lower()
     if not subject.startswith(SUBJECT_REQUIRED_PREFIX):
-        logger.info(
-            "skip mail %s: subject does not start with %r (got %r)",
-            msg.message_id, SUBJECT_REQUIRED_PREFIX, msg.subject,
-        )
+        # Not a new application — but could be an inbound reply from a known
+        # candidate (reschedule, withdrawal, question, document). Emit a
+        # supervisor event so the supervisor can classify and act.
+        await _try_emit_candidate_email_event(msg)
         await _mark_processed(
-            msg.message_id, None, f"{msg.source}:skipped_subject_mismatch"
+            msg.message_id, None, f"{msg.source}:candidate_email_event"
         )
         return
 

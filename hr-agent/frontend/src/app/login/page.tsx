@@ -109,6 +109,7 @@ export default function LoginPage() {
                 <Input
                   id="key"
                   type="password"
+                  autoComplete="current-password"
                   placeholder="admin_… / rec_… / view_…"
                   value={key}
                   onChange={(e) => setKey(e.target.value)}

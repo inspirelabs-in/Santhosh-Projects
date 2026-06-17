@@ -19,6 +19,7 @@ from src.db.connection import session_scope
 from src.db.repositories.audit import log_audit
 from src.db.repositories.v1_application import save_screening_questions
 from src.llm.client import get_llm_client
+from src.llm.prompt_manager import compile_prompt
 from src.llm.prompts import SCREENING_GEN_V1, SCREENING_GEN_VERSION
 from src.models.candidate import CandidateProfile
 from src.models.v1 import GeneratedScreeningSet
@@ -43,7 +44,9 @@ async def generate_screening_questions(
         if role is None:
             raise ValueError(f"role {role_id} not found")
 
-        prompt = SCREENING_GEN_V1.format(
+        prompt = compile_prompt(
+            "screening_gen",
+            fallback=SCREENING_GEN_V1,
             role_title=role.title,
             jd_text=role.jd_text[:4000],
             ctc_min_lpa=role.ctc_min_lpa if role.ctc_min_lpa is not None else "n/a",

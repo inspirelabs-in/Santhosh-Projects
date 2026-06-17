@@ -203,6 +203,7 @@ class Settings(BaseSettings):
     elevenlabs_agent_id: str | None = None
     elevenlabs_phone_number_id: str | None = None
     elevenlabs_webhook_secret: str | None = None
+    twilio_auth_token: str | None = None
 
     # Voice agent behavior
     voice_agent_company_name: str = "GrabOn"
@@ -278,14 +279,47 @@ class Settings(BaseSettings):
     emotion_model_endpoint: str | None = None  # base URL of emotion-service (e.g. http://emotion:8090)
     emotion_api_key: str | None = None  # bearer token for the emotion service
 
+    # Submission enrichment (GitHub + Loom analysis for assignments)
+    github_token: str | None = None
+    loom_api_key: str | None = None
+
     # Feature flags
     auto_approve_green_tier: bool = False
     enable_whatsapp: bool = True
     enable_sms_reminders: bool = True
     enable_voice_screening: bool = False
+    enable_voice_calls: bool = False
+    inbound_call_mode: Literal["live_agent", "sms_callback"] = "sms_callback"
+    voice_campaign_max_concurrent: int = 10
+    voice_campaign_dispatch_rate_per_minute: int = 5
     enable_assessment_round: bool = False
     enable_meeting_analysis: bool = False
     enable_ceo_dashboard: bool = False
+
+    # Evidence & provenance layer (Phase 1). When enabled, pipeline activities
+    # write EvidenceRecord + DecisionRecord rows alongside audit_log entries.
+    enable_evidence_collection: bool = False
+
+    # Cross-stage fact verification (Phase 2). When enabled, new evidence is
+    # compared against prior records for the same fact_key. Contradictions
+    # create PipelineAlert rows and Teams notifications.
+    enable_fact_verification: bool = False
+
+    # Supervisor engine (Phase 3). Event-driven reasoning loop that handles
+    # arbitrary pipeline scenarios. Shadow mode writes proposals only;
+    # execute mode acts through the tool registry.
+    enable_supervisor: bool = False
+    supervisor_mode: Literal["shadow", "execute"] = "shadow"
+    supervisor_max_actions_per_event: int = 5
+
+    # Phase 5: LLM-based classifiers (voicemail, candidate intent).
+    # When off, falls back to regex/heuristic detection.
+    enable_llm_classifiers: bool = False
+
+    # Phase 6: Confidence-driven gate removal. When enabled, non-finals
+    # human gates can be auto-advanced if pipeline confidence >= threshold
+    # AND the stage's autonomy level is full_auto.
+    enable_confidence_gates: bool = False
 
     # Arq worker (replaces FastAPI BackgroundTasks for durable jobs).
     # Falls back to BackgroundTasks when ARQ_ENABLED is false so the API

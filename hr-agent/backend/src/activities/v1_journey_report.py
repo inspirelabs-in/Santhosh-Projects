@@ -20,6 +20,7 @@ from src.db.connection import session_scope
 from src.db.repositories.audit import log_audit
 from src.db.repositories.v1_application import save_journey_report
 from src.llm.client import get_llm_client
+from src.llm.prompt_manager import compile_prompt
 from src.llm.prompts import JOURNEY_REPORT_V1, JOURNEY_REPORT_VERSION
 
 logger = logging.getLogger(__name__)
@@ -90,7 +91,9 @@ async def generate_journey_report(*, application_id: UUID) -> str:
         submission = sq.get("submission") if isinstance(sq, dict) else None
         answers = (submission or {}).get("answers", []) if submission else []
 
-        prompt = JOURNEY_REPORT_V1.format(
+        prompt = compile_prompt(
+            "journey_report",
+            fallback=JOURNEY_REPORT_V1,
             role_title=role.title if role else "n/a",
             candidate_name=(candidate.name if candidate else "") or "n/a",
             candidate_email=(candidate.email if candidate else "") or "n/a",

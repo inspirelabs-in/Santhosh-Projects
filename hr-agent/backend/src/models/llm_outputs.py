@@ -40,9 +40,14 @@ class ClassificationResult(BaseModel):
 class DimensionScore(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    score: int = Field(ge=0, le=100)
-    rationale: str
+    score: int | None = Field(default=None, ge=0, le=100)
+    rationale: str = ""
     evidence: list[str] = Field(default_factory=list)
+    data_status: Literal["verified", "pending_verification"] = "verified"
+
+    @property
+    def is_scored(self) -> bool:
+        return self.score is not None
 
 
 class FitDimensions(BaseModel):
@@ -50,8 +55,9 @@ class FitDimensions(BaseModel):
 
     skills_match: DimensionScore
     experience_level: DimensionScore
-    ctc_fit: DimensionScore
-    location_notice_fit: DimensionScore
+    ctc_fit: DimensionScore = Field(default_factory=DimensionScore)
+    location_notice_fit: DimensionScore = Field(default_factory=DimensionScore)
+    cultural_fit: DimensionScore = Field(default_factory=DimensionScore)
 
 
 class FitAssessment(BaseModel):
@@ -61,13 +67,18 @@ class FitAssessment(BaseModel):
     dimensions: FitDimensions
     red_flags: list[str] = Field(default_factory=list)
     green_flags: list[str] = Field(default_factory=list)
+    pending_verification: list[str] = Field(default_factory=list)
     recommended_tier: FitTier
     summary: str
 
     @field_validator("recommended_tier", mode="before")
     @classmethod
     def _lower(cls, v: object) -> object:
-        return v.lower() if isinstance(v, str) else v
+        if isinstance(v, str):
+            v = v.lower()
+            if v == "amber":
+                v = "green"
+        return v
 
 
 # ---------------------------------------------------------------------------

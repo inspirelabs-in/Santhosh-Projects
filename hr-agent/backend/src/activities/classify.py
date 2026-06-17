@@ -26,17 +26,16 @@ from src.db.base import Application, Candidate
 from src.db.connection import session_scope
 from src.db.repositories.audit import log_audit
 from src.db.repositories.candidate import update_application_status
+from src.db.repositories.policy import resolve_policy
 from src.db.repositories.role import list_open_roles, match_role_by_title
 from src.llm.client import get_llm_client
+from src.llm.prompt_manager import compile_prompt
 from src.llm.prompts import CLASSIFY_EMAIL_V1, CLASSIFY_EMAIL_VERSION
 from src.models.candidate import ApplicationStatus
 from src.models.llm_outputs import ClassificationResult
 
 logger = logging.getLogger(__name__)
 _settings = get_settings()
-
-_HR_REVIEW_CONFIDENCE_THRESHOLD = 0.7
-
 
 @dataclass
 class ClassifyInput:
@@ -81,7 +80,9 @@ async def run_classify(payload: ClassifyInput) -> ClassifyOutput:
                 "(one resume uploaded)" if candidate.status != "intake" else "(pending upload)"
             )
 
-    prompt = CLASSIFY_EMAIL_V1.format(
+    prompt = compile_prompt(
+        "classify_email",
+        fallback=CLASSIFY_EMAIL_V1,
         open_roles_list=open_roles_list,
         subject=subject,
         sender_email=sender_email,
@@ -107,12 +108,16 @@ async def run_classify(payload: ClassifyInput) -> ClassifyOutput:
     needs_hr_review = False
 
     async with session_scope() as session:
+        hr_review_threshold, _ = await resolve_policy(
+            session, "classification_hr_review_confidence", fallback=0.7
+        )
+
         if not classification.is_application:
             await update_application_status(
                 session, payload.application_id, ApplicationStatus.NOT_APPLICATION
             )
             status_after = ApplicationStatus.NOT_APPLICATION.value
-        elif classification.confidence < _HR_REVIEW_CONFIDENCE_THRESHOLD:
+        elif classification.confidence < hr_review_threshold:
             await update_application_status(
                 session, payload.application_id, ApplicationStatus.NEEDS_HR_REVIEW
             )

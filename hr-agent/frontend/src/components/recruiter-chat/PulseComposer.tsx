@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 import { getDashboardKey } from "@/lib/auth";
 import { SLASH_COMMANDS, SlashMenu, type SlashCommand } from "./SlashMenu";
 
-const BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+const BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
 interface UploadedFile {
   file_ref: string;

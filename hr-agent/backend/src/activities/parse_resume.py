@@ -23,12 +23,14 @@ from temporalio import activity
 from src.config import get_settings
 from src.db.connection import session_scope
 from src.db.repositories.audit import log_audit
+from src.db.repositories.evidence import record_evidence_batch_verified
 from sqlalchemy import select, update
 
 from src.db.base import Application, Candidate, CandidateProfileRow, ScreeningResponseRow
 from src.db.repositories.candidate import get_candidate
 from src.db.repositories.candidate_profile import upsert_candidate_profile
 from src.llm.client import get_llm_client
+from src.llm.prompt_manager import compile_prompt
 from src.llm.prompts import PARSE_RESUME_V1, PARSE_RESUME_VERSION
 from src.models.candidate import CandidateProfile, CandidateStatus
 from src.services.dedup import normalise_linkedin, normalise_phone
@@ -123,7 +125,7 @@ async def run_parse_resume(payload: ParseResumeInput) -> ParseResumeResult:
 
     # 3. LLM structured extraction
     client = get_llm_client()
-    prompt = PARSE_RESUME_V1.format(resume_text=text)
+    prompt = compile_prompt("parse_resume", fallback=PARSE_RESUME_V1, resume_text=text)
     result = await client.complete(
         prompt=prompt,
         response_model=CandidateProfile,
@@ -266,11 +268,26 @@ async def run_parse_resume(payload: ParseResumeInput) -> ParseResumeResult:
 
         candidate.status = CandidateStatus.PARSED.value
 
+        # Generate embedding for talent search (vector similarity).
+        embedding: list[float] | None = None
+        try:
+            import litellm
+            embed_text = f"{profile.name or ''}. {profile.headline or ''}. Skills: {', '.join(profile.skills or [])}. {profile.summary or ''}"
+            if len(embed_text.strip()) > 20:
+                embed_resp = await litellm.aembedding(
+                    model=_settings.embedding_model or "text-embedding-3-large",
+                    input=[embed_text[:8000]],
+                )
+                embedding = embed_resp.data[0]["embedding"]
+        except Exception:
+            logger.warning("embedding generation failed for candidate %s", target_candidate_id, exc_info=True)
+
         row = await upsert_candidate_profile(
             session,
             candidate_id=target_candidate_id,
             profile=profile,
             raw_resume_r2_key=payload.r2_key,
+            embedding=embedding,
         )
 
         await log_audit(
@@ -292,6 +309,56 @@ async def run_parse_resume(payload: ParseResumeInput) -> ParseResumeResult:
             prompt_version=result.prompt_version,
             langfuse_trace_id=result.trace_id,
         )
+
+        if _settings.enable_evidence_collection and payload.application_id:
+            evidence_rows = []
+            _common = {
+                "application_id": payload.application_id,
+                "candidate_id": target_candidate_id,
+                "source_stage": "parse_resume",
+                "source_type": "resume",
+                "extraction_method": "llm",
+                "source_ref": payload.r2_key,
+                "langfuse_trace_id": result.trace_id,
+                "model_version": result.model,
+            }
+            fact_fields = [
+                ("total_experience_years", profile.total_years_experience),
+                ("current_ctc_lpa", profile.current_ctc_lpa),
+                ("expected_ctc_lpa", profile.expected_ctc_lpa),
+                ("notice_period_days", profile.notice_period_days),
+                ("current_location", profile.current_location),
+                ("willing_to_relocate", profile.willing_to_relocate),
+                ("current_employer", profile.current_employer),
+                ("current_title", profile.current_title),
+                ("highest_qualification", profile.highest_qualification),
+                ("primary_skills", profile.primary_skills),
+            ]
+            fc = profile.field_confidence
+            confidence_map = {
+                "total_experience_years": fc.total_years_experience,
+                "current_ctc_lpa": fc.current_ctc_lpa,
+                "expected_ctc_lpa": fc.current_ctc_lpa,
+                "notice_period_days": fc.notice_period_days,
+                "current_location": fc.current_location,
+                "current_employer": fc.current_employer,
+                "current_title": fc.current_title,
+                "highest_qualification": fc.highest_qualification,
+                "primary_skills": fc.skills,
+            }
+            for fact_key, fact_value in fact_fields:
+                if fact_value is None or fact_value == "" or fact_value == []:
+                    continue
+                evidence_rows.append({
+                    **_common,
+                    "fact_key": fact_key,
+                    "fact_value": fact_value if not isinstance(fact_value, list) else fact_value,
+                    "confidence": confidence_map.get(fact_key),
+                })
+            if evidence_rows:
+                await record_evidence_batch_verified(
+                    session, records=evidence_rows, application_id=payload.application_id
+                )
 
         return ParseResumeResult(
             candidate_id=target_candidate_id,

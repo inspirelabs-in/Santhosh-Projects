@@ -1,6 +1,6 @@
 // Mirrors the backend Pydantic models (src/api/dashboard.py + src/api/roles.py).
 
-export type FitTier = "green" | "amber" | "red";
+export type FitTier = "green" | "amber" | "red"; // amber kept for backward compat with existing data
 
 export type MailSource = "gmail" | "outlook" | "imap_gmail" | "imap_outlook" | "generic" | string;
 
@@ -158,7 +158,8 @@ export interface Role {
   assignment_deadline_days: number;
   assignment_problem_doc_filename?: string | null;
   has_problem_doc?: boolean;
-  pi_cognitive_url: string | null;
+  pipeline_template: string[] | null;
+  screening_modality: string;
   created_at: string;
 }
 

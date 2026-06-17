@@ -266,6 +266,54 @@ async def start_voice_screen(
     return {"ok": True, "application_id": str(body.application_id)}
 
 
+class DispatchVoiceCallBody(BaseModel):
+    application_id: UUID
+    call_kind: str = "status_update"
+
+
+@router.post("/voice-call/dispatch", status_code=status.HTTP_202_ACCEPTED)
+async def dispatch_generic_voice_call(
+    body: DispatchVoiceCallBody,
+    background: BackgroundTasks,
+    _: Annotated[str, Depends(require_recruiter)],
+) -> dict[str, Any]:
+    """Dispatch a non-screening voice call (confirmation, status update, etc.)."""
+    from src.db.base import Application, Candidate
+    from src.db.connection import session_scope
+    from src.models.v1 import CallKind
+
+    settings = get_settings()
+    if not (settings.enable_voice_screening or settings.enable_voice_calls):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "voice calls disabled")
+
+    try:
+        kind = CallKind(body.call_kind)
+    except ValueError:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"invalid call_kind: {body.call_kind}")
+
+    async with session_scope() as session:
+        app = await session.get(Application, body.application_id)
+        if app is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "application not found")
+        candidate = await session.get(Candidate, app.candidate_id)
+        if candidate is None or not candidate.phone:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "candidate phone missing")
+
+    queued = await enqueue(
+        "dispatch_voice_call",
+        str(body.application_id),
+        call_kind=kind.value,
+    )
+    if not queued:
+        from src.activities.v1_dispatch_voice_call import dispatch_voice_call as _dvc
+        background.add_task(
+            _dvc,
+            application_id=body.application_id,
+            call_kind=kind,
+        )
+    return {"ok": True, "voice_call_id": str(body.application_id)}
+
+
 class StartAssessmentBody(BaseModel):
     application_id: UUID
 
@@ -614,6 +662,7 @@ class VoiceCallListItem(BaseModel):
     role_title: str | None
     candidate_phone: str | None
     status: str
+    call_kind: str = "screening"
     overall_score: int | None
     verdict: str | None
     duration_sec: float | None
@@ -634,6 +683,7 @@ class VoiceCallListItem(BaseModel):
 async def list_voice_calls(
     _: Annotated[str, Depends(require_viewer)],
     status_filter: str | None = Query(default=None, alias="status"),
+    call_kind: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> list[VoiceCallListItem]:
@@ -649,6 +699,8 @@ async def list_voice_calls(
         )
         if status_filter:
             stmt = stmt.where(VoiceCall.status == status_filter)
+        if call_kind:
+            stmt = stmt.where(VoiceCall.call_kind == call_kind)
         rows = (await session.execute(stmt)).all()
 
         from src.api.ceo_dashboard import _compute_next_action
@@ -673,6 +725,7 @@ async def list_voice_calls(
                     role_title=role.title if role is not None else None,
                     candidate_phone=v.candidate_phone,
                     status=v.status,
+                    call_kind=getattr(v, "call_kind", "screening"),
                     overall_score=v.overall_score,
                     verdict=v.verdict,
                     duration_sec=v.duration_sec,

@@ -2,7 +2,7 @@
 
 import { getDashboardKey, clearDashboardKey } from "./auth";
 
-const BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+const BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
 export class ApiError extends Error {
   status: number;
@@ -71,7 +71,17 @@ export const api = {
 };
 
 // SWR-compatible fetcher -- uses the same auth + error handling.
-export const swrFetcher = <T>(path: string) => api.get<T>(path);
+// Silently returns undefined for 5xx so refreshInterval polling doesn't spam console.
+export const swrFetcher = async <T>(path: string): Promise<T> => {
+  try {
+    return await api.get<T>(path);
+  } catch (err) {
+    if (err instanceof ApiError && err.status >= 500) {
+      return undefined as T;
+    }
+    throw err;
+  }
+};
 
 export async function verifyKey(key: string): Promise<{ role: string } | null> {
   try {

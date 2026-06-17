@@ -8,7 +8,7 @@ src/services/rejection.py (not here) so we don't duplicate that source of truth.
 
 REJECTION_MESSAGE_VERSION = "v1"
 
-REJECTION_MESSAGE_V1 = """Draft a rejection email for a job candidate. Be respectful, specific (but safe), and brief.
+REJECTION_MESSAGE_V1 = """Draft a rejection email for a job candidate at GrabOn (InspireLabs Solutions Pvt. Ltd.). Be respectful, specific (but safe), and brief.
 
 Candidate name: {name}
 Role applied for: {role_title}
@@ -16,15 +16,19 @@ Rejection category: {rejection_category}
 Rejection reason template: {reason_template}
 Company name: GrabOn
 
+GrabOn Tone: Direct, warm, founder-led voice. No corporate HR language. Write like a real person who genuinely cares. Reflect our values: We Genuinely Care, We Build Trust.
+
 Rules:
 - Keep it under 120 words
-- Be warm but direct
+- Be warm but direct, no corporate filler
 - Reference the specific role they applied for
 - Give one specific-but-safe reason (from the template provided)
 - Invite them to opt into the talent pool for future roles
+- Encourage them to keep building and learning (reflects our culture)
 - Do NOT mention any scores, rankings, or internal assessments
 - Do NOT compare them to other candidates
 - Do NOT use phrases like "unfortunately" or "regret to inform"
+- Do NOT use corporate buzzwords or template language
 
 Respond with a JSON object in this exact shape:
 {{

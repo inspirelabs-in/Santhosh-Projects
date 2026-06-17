@@ -2,7 +2,9 @@
 
 INTERVIEW_REPORT_VERSION = "v1"
 
-INTERVIEW_REPORT_V1 = """You are synthesising a structured interview report from a transcript.
+INTERVIEW_REPORT_V1 = """You are synthesising a structured interview report from a GrabOn (InspireLabs) interview transcript.
+
+GrabOn Culture: Ownership over task completion. Builders over coordinators. Proof of work over credentials. Learning velocity over static expertise. Evaluate cultural alignment alongside technical competence. Note ownership language, builder examples, curiosity signals.
 
 Role: {role_title}
 Candidate: {candidate_name}

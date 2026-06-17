@@ -30,6 +30,7 @@ import logging
 from datetime import UTC, datetime
 from hashlib import sha256
 from typing import Any
+from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request, status
 from pydantic import BaseModel
@@ -54,6 +55,42 @@ from src.services.queue import enqueue
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/webhooks/meeting", tags=["meeting-webhooks"])
+
+
+async def _emit_meeting_supervisor_event(
+    application_id: UUID | None,
+    meeting_session_id: UUID,
+    round_value: str | None,
+    duration_sec: float | None,
+    transcript: list[dict[str, Any]],
+) -> None:
+    """Emit typed supervisor event for meeting completion or no-show."""
+    from src.services.typed_event_bus import EventType
+    from src.services.typed_event_bus import publish_event as publish_typed_event
+
+    is_no_show = (
+        (not transcript and (duration_sec is None or duration_sec < 60))
+        or (
+            len(transcript or []) == 1
+            and transcript[0].get("speaker") == "Read.ai Summary"
+            and not transcript[0].get("text")
+        )
+    )
+    async with session_scope() as session:
+        event_type = EventType.MEETING_NO_SHOW if is_no_show else EventType.MEETING_COMPLETED
+        await publish_typed_event(
+            session,
+            event_type,
+            application_id=application_id,
+            payload={
+                "meeting_session_id": str(meeting_session_id),
+                "round": round_value,
+                "duration_sec": duration_sec,
+                "transcript_turns": len(transcript),
+                "is_no_show": is_no_show,
+            },
+            dedup_extra=str(meeting_session_id),
+        )
 
 
 class RecallPayload(BaseModel):
@@ -220,6 +257,7 @@ async def recall_webhook(
             "duration_sec": duration_sec,
         },
     )
+    await _emit_meeting_supervisor_event(application_id, meeting_session_id, round_value, duration_sec, transcript)
     return {"ok": True, "meeting_session_id": str(meeting_session_id)}
 
 
@@ -504,4 +542,5 @@ async def readai_webhook(
             "duration_sec": duration_sec,
         },
     )
+    await _emit_meeting_supervisor_event(application_id, meeting_session_id, round_value, duration_sec, transcript)
     return {"ok": True, "meeting_session_id": str(meeting_session_id)}

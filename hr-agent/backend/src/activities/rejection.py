@@ -20,6 +20,7 @@ from src.db.repositories.audit import log_audit
 from src.db.repositories.candidate import get_application, get_candidate
 from src.db.repositories.role import get_role
 from src.llm.client import get_llm_client
+from src.llm.prompt_manager import compile_prompt
 from src.llm.prompts import REJECTION_MESSAGE_V1, REJECTION_MESSAGE_VERSION
 from src.models.candidate import ApplicationStatus, CandidateStatus
 from src.models.llm_outputs import RejectionDraft
@@ -80,7 +81,9 @@ async def run_rejection(payload: RejectionInput) -> RejectionResult:
 
     # LLM draft.
     client = get_llm_client()
-    prompt = REJECTION_MESSAGE_V1.format(
+    prompt = compile_prompt(
+        "rejection_message",
+        fallback=REJECTION_MESSAGE_V1,
         name=snapshot["candidate_name"] or "there",
         role_title=snapshot["role_title"],
         rejection_category=category,

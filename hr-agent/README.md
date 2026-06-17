@@ -1,150 +1,116 @@
-# Hiring Agent — V1
+# HR Agent
 
-AI-powered recruitment automation for GrabOn (Inspirelabs Solutions Pvt. Ltd.).
-**V1 scope**: HR creates a Role with an assignment brief; the agent generates
-screening questions tailored to each applicant's resume, emails them,
-evaluates responses, auto-advances clear-pass candidates to the assignment
-stage, parses the submitted assignment, and produces a journey report for HR.
+AI-powered recruitment automation platform. Handles the full hiring pipeline from
+application intake through screening, voice interviews, technical assessments,
+panel scheduling, and offer management.
 
-**HR-in-the-loop**: the agent drafts and routes; humans decide. Only
-`clear_pass` responses auto-advance. Everything else lands in
-`needs_hr_review`. No auto-reject.
-
-**DPDP Act 2023** compliant: explicit consent, audit log, right-to-erasure.
+**HR-in-the-loop**: the agent drafts and routes; humans decide. Only clear-pass
+candidates auto-advance. Everything else lands in `needs_hr_review`.
 
 ---
 
-## V1 pipeline (state machine)
+## Pipeline
 
 ```
-applied
-  └─ parse resume -> generate screening questions -> email
-screening_sent
-  └─ candidate submits via /apply/[token]
-screening_submitted
-  └─ LLM evaluate (gpt-4o)
-screening_evaluated
-  ├─ clear_pass        -> assignment_sent (agent emails brief)
-  └─ everything else   -> needs_hr_review (HR decides)
-assignment_sent
-  └─ candidate uploads files + links + notes
-assignment_submitted
-  └─ LLM parse + generate journey report (gpt-4o)
-report_ready
-  └─ HR hires or rejects
+applied → parse_resume → fit_score → screening → voice_screen → assignment
+  → tech_interview → ceo_interview → offer → hired / rejected
 ```
+
+Each stage is a Temporal activity. Candidates progress automatically on
+clear-pass; otherwise queued for HR review. Circuit breaker + fallback manager
+handle transient failures.
 
 ---
 
-## Stack
+## Tech Stack
 
 | Layer | Tech |
 |-------|------|
-| Backend | Python 3.12, FastAPI, Pydantic v2, SQLAlchemy async |
-| Orchestration | FastAPI `BackgroundTasks` + DB state machine (no Temporal) |
-| LLM | LiteLLM → OpenAI (`gpt-4o-mini` fast, `gpt-4o` smart) |
-| Tracing | Langfuse (optional, recommended) |
-| DB | Postgres 16 + pgvector |
-| Cache/RL | Redis 7 |
-| Storage | Cloudflare R2 (prod) / MinIO (dev) |
-| Email | Resend (prod) / SMTP MailHog (dev) |
-| Frontend | Next.js 14 App Router, Tailwind, Radix UI, Fraunces + Inter + JetBrains Mono |
+| Backend | Python 3.12+, FastAPI, SQLAlchemy async, Pydantic v2 |
+| Orchestration | Temporal (workflows) + Arq (background jobs) |
+| LLM | LiteLLM (Claude via Anthropic), Langfuse tracing |
+| Voice | ElevenLabs ConvAI |
+| Meetings | Google Meet (Calendar API), Recall.ai / Read.ai bots |
+| DB | PostgreSQL 16 + pgvector |
+| Cache | Redis 7 |
+| Storage | Cloudflare R2 |
+| Email | Microsoft Graph / Resend / SMTP (fallback chain) |
+| Frontend | Next.js 14 (App Router), TypeScript, Tailwind, SWR |
+| Infra | Docker Compose, Alembic migrations, Caddy reverse proxy |
 
 ---
 
-## Repo layout
+## Project Structure
 
 ```
-HR Agent/
-├── backend/
-│   ├── src/
-│   │   ├── api/                # webhooks.py, apply.py, roles.py, v1_dashboard.py, dashboard.py
-│   │   ├── activities/         # intake, parse_resume, v1_generate_screening, v1_evaluate_screening,
-│   │   │                       #   v1_send_assignment, v1_parse_assignment, v1_journey_report
-│   │   ├── pipeline/v1.py      # orchestrator (runs under BackgroundTasks)
-│   │   ├── channels/           # email + templates
-│   │   ├── llm/                # LiteLLM client + versioned prompts
-│   │   ├── models/             # pydantic shapes (candidate.py, v1.py)
-│   │   ├── db/                 # SQLAlchemy ORM + alembic migrations + repositories
-│   │   ├── services/           # consent, dedup, file_storage, rate_limit, screening_url
-│   │   └── config.py
-│   ├── .env.example
-│   └── alembic.ini
-├── frontend/                    # Next.js 14 dashboard + /apply/[token]
-│   └── src/app/
-│       ├── (app)/dashboard       # funnel + needs_hr_review queue
-│       ├── (app)/candidates      # list + filters
-│       ├── (app)/candidates/[id] # journey timeline + report + HR actions
-│       ├── (app)/roles           # CRUD with assignment fields
-│       └── apply/[token]         # candidate-facing screening / assignment form
-├── docker-compose.yml
-└── README.md
+backend/
+  src/
+    activities/       Temporal activity functions (one per pipeline stage)
+    agent/            V2 LangGraph candidate chat agent
+    api/              FastAPI routes (dashboard, webhooks, chat, recruiter)
+    channels/         Email, SMS, Teams, WhatsApp + Jinja2 templates
+    db/               SQLAlchemy models, repositories, Alembic migrations
+    llm/              LLM client + versioned prompt templates
+    models/           Pydantic schemas
+    pipeline/         V1 orchestrator + chat invite
+    recruiter_agent/  Pulse recruiter agent (runner, tools, RBAC)
+    services/         Business logic (scheduling, voice, config, etc.)
+    workers/          Arq background job definitions
+frontend/
+  src/
+    app/              Next.js pages (dashboard, candidates, settings, etc.)
+    components/       React components (chat, config, layout)
+    lib/              API client, hooks, types
+emotion-service/      Paralinguistic emotion analysis microservice
 ```
 
 ---
 
-## Quickstart (dev)
+## Quickstart
 
 ```bash
-# 1. env
+# 1. Environment
 cp backend/.env.example backend/.env
-# fill: OPENAI_API_KEY, JWT_SIGNING_SECRET, DASHBOARD_KEYS
+# Fill required keys: ANTHROPIC_API_KEY, JWT_SIGNING_SECRET, DASHBOARD_KEYS
 
-# 2. stack
+# 2. Start services
 docker compose up -d
-docker compose --profile dev up -d mailhog    # optional, catches outbound email
 
-# 3. alembic runs automatically in backend container (RUN_MIGRATIONS=1)
+# 3. Migrations run automatically (RUN_MIGRATIONS=1)
 
-# open
-# Dashboard: http://localhost:3100
-# API docs:  http://localhost:8000/docs
-# MinIO:     http://localhost:9001 (minioadmin / minioadmin)
-# MailHog:   http://localhost:8025
+# Access points:
+#   Dashboard:  http://localhost:3100
+#   API docs:   http://localhost:8000/docs
 ```
 
 ---
 
-## End-to-end demo
+## Key Features
 
-1. POST /webhooks/careers-form with name/email/role_id/consent=true + resume file.
-2. Agent parses resume, generates 5-7 screening questions, emails candidate a signed `/apply/[token]` link.
-3. Candidate submits → agent evaluates (gpt-4o verdict: clear_pass / needs_hr_review / clear_reject).
-4. `clear_pass` → agent emails assignment brief + fresh signed link. Else → queued in `needs_hr_review`.
-5. Candidate uploads assignment → agent parses (gpt-4o-mini), generates journey report (gpt-4o).
-6. HR reviews in dashboard, marks `hired` or `rejected`.
-
----
-
-## Observability
-
-- Langfuse: LLM cost + trace per stage (`screening_gen`, `screening_eval`,
-  `assignment_parse`, `journey_report`).
-- `audit_log` table: append-only, one row per stage transition + LLM call.
-- Rate limits via Redis: per-minute, per-day, per-candidate, daily USD cap.
+- **Resume parsing** — PDF extraction + LLM-powered profile structuring
+- **Fit scoring** — Candidate-vs-JD scoring with configurable thresholds
+- **Screening** — Auto-generated questions tailored to each resume
+- **Voice screening** — ElevenLabs ConvAI phone interviews with emotion analysis
+- **Assignments** — Timed technical assessments with auto-parsing
+- **Interview scheduling** — Panel availability → candidate slot selection → Google Meet booking
+- **Dual chat** — Candidate chat (LangGraph agent) + Recruiter chat (Pulse agent)
+- **Observability** — Langfuse tracing, audit log, rate limits
 
 ---
 
-## Inbound mail (V1)
+## Interview Scheduling Flow
 
-Applications arriving by email are polled via IMAP (stdlib `imaplib` wrapped
-in `asyncio.to_thread`), so no pub/sub infra is needed.
+1. Recruiter triggers a round (technical / CEO / HR / custom)
+2. Panel member for that role_type receives email with scheduling link
+3. Panel member picks 3 time slots within next 15 days
+4. Candidate receives email with the 3 options
+5. Candidate picks one (or proposes custom time)
+6. Google Meet link created, calendar invites sent to both parties
 
-- **Dev**: personal Gmail with a 16-char app password (see `MAIL_INBOXES` in `.env`)
-- **Prod**: `careers@grabon.in` on Outlook (`outlook.office365.com:993`)
-- Poller runs inside the `backend` container (FastAPI lifespan task) — no
-  separate worker process. Polls each mailbox every
-  `MAIL_POLL_INTERVAL_SECONDS`, marks messages `\Seen`, dedupes via
-  `processed_messages` table.
-- Each new mail → intake (upload attachments to R2) → V1 pipeline.
-- Role is matched by fuzzy title-in-subject/body; if no match, application
-  lands in `needs_hr_review`.
+Round-to-panel mapping is generic — add/remove rounds without code changes.
 
-## What's NOT in V1 (intentionally)
+---
 
-- Interview scheduling (Google Calendar)
-- Cold-pool re-engagement
-- WhatsApp / SMS notifications
-- Temporal workflows (replaced with BackgroundTasks)
-- Gmail pub/sub API (IMAP polling used instead)
-- Slack / Teams integrations
+## License
+
+Proprietary — Inspirelabs Solutions Pvt. Ltd.

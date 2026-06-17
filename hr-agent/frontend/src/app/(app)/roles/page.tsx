@@ -31,7 +31,9 @@ const STATUS_VARIANT: Record<string, "success" | "warning" | "muted" | "destruct
 };
 
 export default function RolesListPage() {
-  const { data, isLoading, isValidating, mutate } = useSWR<Role[]>("/dashboard/roles", swrFetcher);
+  const { data, isLoading, isValidating, mutate } = useSWR<Role[]>("/dashboard/roles", swrFetcher, {
+    refreshInterval: 30_000,
+  });
   const [refreshing, setRefreshing] = useState(false);
   const refreshingNow = refreshing || isValidating;
   async function handleRefresh() {
@@ -42,7 +44,7 @@ export default function RolesListPage() {
   return (
     <>
       <Topbar title="Roles" subtitle="Job descriptions, scoring rubrics, and interviewer panels" />
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 overflow-auto px-8 py-6 pb-24">
         <PageHeader
           title="Open roles"
           description="Pause or close roles to stop new applications flowing into them. Scoring rubrics live on each role."
@@ -67,8 +69,8 @@ export default function RolesListPage() {
               <TableRow>
                 <TableHead>Title</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>Pipeline</TableHead>
                 <TableHead>CTC band</TableHead>
-                <TableHead>Notice cap</TableHead>
                 <TableHead>Location</TableHead>
                 <TableHead>Created</TableHead>
                 <TableHead />
@@ -81,18 +83,41 @@ export default function RolesListPage() {
                 <TableEmpty message="No roles yet. Create one to start accepting applications." />
               ) : (
                 data.map((r) => (
-                  <TableRow key={r.id}>
-                    <TableCell className="font-medium">{r.title}</TableCell>
+                  <TableRow key={r.id} className="group">
+                    <TableCell>
+                      <Link href={`/roles/${r.id}`} className="font-medium text-foreground hover:text-primary transition-colors">
+                        {r.title}
+                      </Link>
+                      <div className="mt-0.5 flex items-center gap-2">
+                        {r.screening_modality && (
+                          <span className="text-[10px] font-mono font-medium uppercase tracking-wider text-muted-foreground">
+                            {r.screening_modality}
+                          </span>
+                        )}
+                        {r.max_notice_days != null && (
+                          <span className="text-[10px] font-mono text-muted-foreground">
+                            {r.max_notice_days}d notice
+                          </span>
+                        )}
+                      </div>
+                    </TableCell>
                     <TableCell>
                       <Badge variant={STATUS_VARIANT[r.status] ?? "muted"}>{r.status}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      {r.pipeline_template ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className="text-sm font-medium tabular-nums">{r.pipeline_template.length}</span>
+                          <span className="text-xs text-muted-foreground">steps</span>
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Legacy</span>
+                      )}
                     </TableCell>
                     <TableCell>
                       {r.ctc_min_lpa != null && r.ctc_max_lpa != null
                         ? `${r.ctc_min_lpa}–${r.ctc_max_lpa} LPA`
                         : "—"}
-                    </TableCell>
-                    <TableCell className="tabular-nums text-sm">
-                      {r.max_notice_days != null ? `${r.max_notice_days} days` : "—"}
                     </TableCell>
                     <TableCell>
                       {r.location ?? "—"}
@@ -102,7 +127,10 @@ export default function RolesListPage() {
                     </TableCell>
                     <TableCell className="text-muted-foreground">{fmtDate(r.created_at)}</TableCell>
                     <TableCell>
-                      <Link href={`/roles/${r.id}`} className="text-sm font-medium text-primary hover:underline">
+                      <Link
+                        href={`/roles/${r.id}`}
+                        className="text-sm font-medium text-primary opacity-0 group-hover:opacity-100 transition-opacity hover:underline"
+                      >
                         Edit →
                       </Link>
                     </TableCell>

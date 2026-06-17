@@ -48,8 +48,11 @@ from src.db.repositories import (
 from src.db.repositories.audit import log_audit
 from src.db.repositories.v1_application import set_stage
 from src.models.v1 import PipelineStage
+from src.classifiers.candidate_intent import classify_candidate_intent
 from src.services.events import publish_event
 from src.services.request_rate_limit import enforce_rate_limit
+from src.services.typed_event_bus import EventType
+from src.services.typed_event_bus import publish_event as publish_supervisor_event
 from src.services.screening_url import (
     InvalidScreeningToken,
     verify_apply_token,
@@ -201,6 +204,34 @@ async def send_message(
     )
     # Cap inbox at 50 to prevent abuse.
     await redis.ltrim(f"chat:{conversation_id}:inbox", -50, -1)
+
+    # Classify intent + notify supervisor
+    intent_result = await classify_candidate_intent(body.content)
+    async with session_scope() as sess:
+        app = await sess.get(Application, claims.application_id)
+        candidate_id = app.candidate_id if app else None
+
+        # Map high-signal intents to specific event types
+        event_type = EventType.CANDIDATE_MESSAGE_RECEIVED
+        if intent_result.intent.value == "withdrawal":
+            event_type = EventType.CANDIDATE_WITHDRAWAL
+
+        await publish_supervisor_event(
+            sess,
+            event_type,
+            application_id=claims.application_id,
+            candidate_id=candidate_id,
+            payload={
+                "message_preview": body.content[:200],
+                "channel": "chat",
+                "conversation_id": str(conversation_id),
+                "intent": intent_result.intent.value,
+                "intent_confidence": intent_result.confidence,
+                "urgency": intent_result.urgency,
+                "extracted_details": intent_result.extracted_details,
+            },
+            dedup_extra=f"chat-{conversation_id}-{datetime.now(UTC).strftime('%Y%m%d%H%M')}",
+        )
 
     return {"queued": True, "conversation_id": str(conversation_id)}
 
@@ -393,4 +424,15 @@ async def submit_assignment(
         event="assignment_submitted",
         data={"has_url": bool(body.submission_url), "has_text": bool(body.submission_text)},
     )
+    # Supervisor event
+    async with session_scope() as sess:
+        app_row = await sess.get(Application, claims.application_id)
+        await publish_supervisor_event(
+            sess,
+            EventType.ASSIGNMENT_SUBMITTED,
+            application_id=claims.application_id,
+            candidate_id=app_row.candidate_id if app_row else None,
+            payload={"has_url": bool(body.submission_url), "has_text": bool(body.submission_text)},
+            dedup_extra=f"assign-submit-{claims.application_id}",
+        )
     return {"ok": True}

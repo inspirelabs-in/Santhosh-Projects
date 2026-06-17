@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import Link from "next/link";
 import { STAGE_LABELS, STAGE_ORDER, type Stage } from "@/components/status-tag";
 import { Avatar } from "@/components/ui/avatar";
+import { LazyConfidenceBadge } from "@/components/lazy-confidence-badge";
 import { cn } from "@/lib/utils";
 
 interface Candidate {
@@ -89,8 +90,11 @@ export function KanbanView({
                 <div className="flex items-center gap-2">
                   <Avatar name={c.name} size="sm" />
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-semibold">
-                      {c.name ?? c.email ?? "Unnamed"}
+                    <div className="flex items-center gap-1.5">
+                      <span className="truncate text-sm font-semibold">
+                        {c.name ?? c.email ?? "Unnamed"}
+                      </span>
+                      <LazyConfidenceBadge applicationId={c.application_id} />
                     </div>
                     <div className="truncate text-[11px] text-muted-foreground">
                       {c.role_title ?? "No role"}

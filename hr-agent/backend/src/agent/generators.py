@@ -27,6 +27,7 @@ from src.agent.schemas import (
 )
 from src.config import get_settings
 from src.llm.client import get_llm_client
+from src.llm.prompt_manager import compile_prompt
 
 logger = logging.getLogger(__name__)
 _settings = get_settings()
@@ -44,7 +45,9 @@ async def gen_tailored_questions(
     application_id: UUID,
     candidate_id: UUID,
 ) -> TailoredQuestionsOut:
-    prompt = TAILORED_QS_V1.format(
+    prompt = compile_prompt(
+        "tailored_qs",
+        fallback=TAILORED_QS_V1,
         role_title=role_title,
         jd_text=_truncate(jd_text, 4000),
         candidate_profile_json=json.dumps(candidate_profile, ensure_ascii=False)[:4000],
@@ -74,7 +77,9 @@ async def gen_assignment(
     application_id: UUID,
     candidate_id: UUID,
 ) -> AssignmentBriefOut:
-    prompt = ASSIGNMENT_GEN_V1.format(
+    prompt = compile_prompt(
+        "assignment_gen",
+        fallback=ASSIGNMENT_GEN_V1,
         role_title=role_title,
         jd_text=_truncate(jd_text, 4000),
         candidate_profile_json=json.dumps(candidate_profile, ensure_ascii=False)[:4000],
@@ -114,7 +119,9 @@ async def extract_turn(
         f"{m['role']}: {_truncate(m.get('content') or '', 400)}"
         for m in recent_history[-4:]
     )
-    prompt = EXTRACT_TURN_V1.format(
+    prompt = compile_prompt(
+        "extract_turn",
+        fallback=EXTRACT_TURN_V1,
         candidate_message=_truncate(candidate_message, 2000),
         already_captured_json=json.dumps(already_captured, ensure_ascii=False),
         pending_questions_json=json.dumps(pending_questions, ensure_ascii=False),

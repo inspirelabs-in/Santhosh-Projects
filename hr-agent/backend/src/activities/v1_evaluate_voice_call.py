@@ -16,10 +16,13 @@ from src.config import get_settings
 from src.db.base import Application, Role
 from src.db.connection import session_scope
 from src.db.repositories.audit import log_audit
+from src.db.repositories.evidence import record_decision, record_evidence_batch_verified
+from src.db.repositories.policy import resolve_policy
 from src.db.repositories.v1_application import set_stage
 from src.db.repositories.voice_call import get_voice_call, save_evaluation
-from src.services.auto_progress import auto_progress, auto_reject_if_configured
+from src.services.auto_progress import auto_progress
 from src.llm.client import get_llm_client
+from src.llm.prompt_manager import compile_prompt
 from src.llm.prompts.voice_screening import (
     VOICE_SCREEN_EVAL_V1,
     VOICE_SCREEN_EVAL_VERSION,
@@ -33,36 +36,7 @@ from src.models.v1 import (
 logger = logging.getLogger(__name__)
 
 
-_VOICEMAIL_PATTERNS = (
-    "leave a message",
-    "leave your message",
-    "after the beep",
-    "after the tone",
-    "voicemail",
-    "voice mail",
-    "currently unavailable",
-    "not available right now",
-    "please record",
-    "you have reached",
-)
-
-
-def _detect_voicemail(answers: list[dict] | None, transcript_turns: int = 0) -> bool:
-    """Heuristic voicemail detection from candidate answers.
-
-    Scans the candidate-side text for telecom voicemail phrases. If matched,
-    treat the call as a no-answer rather than a poor performance score.
-    """
-    if not answers:
-        return False
-    blob = " ".join(
-        str(a.get("answer", "")).lower()
-        for a in answers
-        if isinstance(a, dict)
-    )
-    if not blob.strip():
-        return False
-    return any(p in blob for p in _VOICEMAIL_PATTERNS)
+from src.classifiers.voicemail import classify_voicemail
 
 
 async def evaluate_voice_call(
@@ -85,6 +59,13 @@ async def evaluate_voice_call(
         # candidate is effectively rejected on the basis of a dropped call.
         # The early-disconnect path in webhooks_voice already covers most of
         # these; this is the last-line guard for anything that slips through.
+        blank_char_threshold, _ = await resolve_policy(
+            session, "voice_screen_blank_char_threshold", fallback=80
+        )
+        blank_ratio_threshold, _ = await resolve_policy(
+            session, "voice_screen_blank_ratio_threshold", fallback=0.5
+        )
+
         total_chars = sum(
             len(str(a.get("answer_transcript") or a.get("answer") or "").strip())
             for a in (voice.answers or [])
@@ -99,8 +80,8 @@ async def evaluate_voice_call(
         q_total = len(voice.answers or [])
         ratio = (answered / q_total) if q_total else 0.0
         too_blank = (
-            total_chars < 80
-            or (q_total >= 2 and ratio < 0.5)
+            total_chars < blank_char_threshold
+            or (q_total >= 2 and ratio < blank_ratio_threshold)
         )
         if too_blank:
             from src.db.repositories.voice_call import mark_failed
@@ -140,24 +121,39 @@ async def evaluate_voice_call(
                 f"({total_chars} chars, {answered}/{q_total} answered)"
             )
 
-        # Voicemail short-circuit: if transcript matches voicemail patterns,
-        # mark as no-answer and bail before LLM scoring. The retry path in
-        # webhooks_voice will redial.
-        if _detect_voicemail(voice.answers):
+        is_voicemail, vm_confidence, vm_reasoning = await classify_voicemail(
+            voice.answers,
+            application_id=voice.application_id,
+            voice_call_id=voice_call_id,
+        )
+        if is_voicemail:
             await log_audit(
                 session,
                 application_id=voice.application_id,
                 action="voice_call_voicemail_detected",
                 actor="agent",
-                details={"voice_call_id": str(voice_call_id)},
+                details={
+                    "voice_call_id": str(voice_call_id),
+                    "confidence": vm_confidence,
+                    "reasoning": vm_reasoning,
+                },
             )
             from src.models.v1 import VoiceCallStatus
             from src.db.repositories.voice_call import mark_failed
             await mark_failed(
                 session,
                 voice_call_id,
-                error="voicemail detected in transcript",
+                error=f"voicemail detected ({vm_confidence:.0%}): {vm_reasoning}",
                 status=VoiceCallStatus.NO_ANSWER,
+            )
+            from src.services.typed_event_bus import EventType, publish_event
+            app_for_event = await session.get(Application, voice.application_id)
+            await publish_event(
+                session, EventType.VOICEMAIL_DETECTED,
+                application_id=voice.application_id,
+                candidate_id=app_for_event.candidate_id if app_for_event else None,
+                payload={"voice_call_id": str(voice_call_id), "confidence": vm_confidence, "reasoning": vm_reasoning},
+                dedup_extra=str(voice_call_id),
             )
             raise ValueError("voicemail detected -- skipping LLM eval")
 
@@ -168,7 +164,9 @@ async def evaluate_voice_call(
         if role is None:
             raise ValueError("role missing for application")
 
-        prompt = VOICE_SCREEN_EVAL_V1.format(
+        prompt = compile_prompt(
+            "voice_screen_eval",
+            fallback=VOICE_SCREEN_EVAL_V1,
             role_title=role.title,
             jd_text=role.jd_text[:4000],
             ctc_min_lpa=role.ctc_min_lpa if role.ctc_min_lpa is not None else "n/a",
@@ -214,19 +212,28 @@ async def evaluate_voice_call(
         # values, which the recruiter already curated.
         await _apply_extracted_facts(session, application, score.extracted_facts)
 
-        # Stage routing: clear_pass auto-advances; everything else parks for
-        # HR. Auto-reject is intentionally disabled during dev/test -- even
-        # clear_reject verdicts route to NEEDS_HR_REVIEW so a human ratifies
-        # the rejection. The verdict + rationale are still saved on the row
-        # so HR sees the agent's recommendation.
-        if score.verdict == "clear_pass" and score.overall_score >= settings.voice_agent_pass_threshold:
+        if score.verdict == "clear_pass":
             await set_stage(session, application.id, PipelineStage.VOICE_SCREEN_EVALUATED)
             transition = "pass"
         else:
-            await set_stage(session, application.id, PipelineStage.NEEDS_HR_REVIEW, force=True)
-            transition = "hr_review"
+            await set_stage(session, application.id, PipelineStage.REJECTED, force=True)
+            application.status = "rejected"
+            transition = "rejected"
+            await log_audit(
+                session,
+                candidate_id=application.candidate_id,
+                application_id=application.id,
+                action="candidate_rejected",
+                actor="agent",
+                details={
+                    "reason": score.verdict_rationale,
+                    "source": "voice_screening",
+                    "overall_score": score.overall_score,
+                    "red_flags": score.red_flags[:5] if score.red_flags else [],
+                },
+            )
 
-        await log_audit(
+        audit_row = await log_audit(
             session,
             candidate_id=application.candidate_id,
             application_id=application.id,
@@ -243,8 +250,87 @@ async def evaluate_voice_call(
             langfuse_trace_id=result.trace_id,
         )
 
-    # Outside the DB session: hand off to the auto-progression engine on a
-    # clean pass. Auto-reject is disabled during dev; HR makes the call.
+        if settings.enable_evidence_collection and score.extracted_facts:
+            facts = score.extracted_facts
+            _common = {
+                "application_id": application.id,
+                "candidate_id": application.candidate_id,
+                "source_stage": "voice_screening",
+                "source_type": "voice_transcript",
+                "extraction_method": "llm",
+                "langfuse_trace_id": result.trace_id,
+                "model_version": result.model,
+            }
+            evidence_rows = []
+            for fk, fv in [
+                ("total_experience_years", facts.total_experience_years),
+                ("current_ctc_lpa", facts.current_ctc_lpa),
+                ("expected_ctc_lpa", facts.expected_ctc_lpa),
+                ("notice_period_days", facts.notice_period_days),
+                ("current_location", facts.current_location),
+                ("willing_to_relocate", facts.willing_to_relocate),
+                ("current_employer", facts.current_employer),
+                ("current_title", facts.current_title),
+                ("primary_skills", facts.primary_skills),
+            ]:
+                if fv is None or fv == "" or fv == []:
+                    continue
+                evidence_rows.append({**_common, "fact_key": fk, "fact_value": fv})
+            for flag in score.red_flags:
+                evidence_rows.append({
+                    **_common, "fact_key": "voice_screen.red_flag",
+                    "fact_value": flag, "evidence_text": flag[:500],
+                })
+            saved_evidence, _ = (
+                await record_evidence_batch_verified(
+                    session, records=evidence_rows, application_id=application.id
+                )
+                if evidence_rows else ([], [])
+            )
+            await record_decision(
+                session,
+                application_id=application.id,
+                candidate_id=application.candidate_id,
+                decision_type="voice_screening",
+                outcome=score.verdict,
+                outcome_value={
+                    "overall_score": score.overall_score,
+                    "verdict_rationale": score.verdict_rationale[:500],
+                },
+                evidence_ids=[e.id for e in saved_evidence],
+                audit_log_id=audit_row.id,
+                langfuse_trace_id=result.trace_id,
+                model_version=result.model,
+                prompt_version=VOICE_SCREEN_EVAL_VERSION,
+            )
+
+    # Re-score fit with enriched profile data (CTC, notice, location from voice).
+    # Runs outside the DB session so it reads the committed profile updates.
+    try:
+        from src.activities.fit_score import FitScoreInput, run_fit_score
+        rescore_result = await run_fit_score(FitScoreInput(
+            candidate_id=application.candidate_id,
+            application_id=application.id,
+            suppress_notifications=True,
+        ))
+        logger.info(
+            "fit re-score after voice: app=%s score=%d tier=%s",
+            application.id, rescore_result.overall_score, rescore_result.tier.value,
+        )
+        if transition == "pass" and rescore_result.tier.value == "red":
+            logger.warning(
+                "fit re-score RED after voice pass — rejecting: app=%s knockouts=%s",
+                application.id, rescore_result.knock_outs,
+            )
+            async with session_scope() as sess:
+                await set_stage(sess, application.id, PipelineStage.REJECTED, force=True)
+                app_obj = await sess.get(Application, application.id)
+                if app_obj:
+                    app_obj.status = "rejected"
+            transition = "rejected"
+    except Exception:
+        logger.exception("fit re-score after voice failed for app=%s — non-fatal", application.id)
+
     if transition == "pass":
         await auto_progress(application_id=application.id)
     return score

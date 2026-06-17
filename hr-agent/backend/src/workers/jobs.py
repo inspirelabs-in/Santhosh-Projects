@@ -22,11 +22,12 @@ from src.activities.v1_dispatch_meeting_bot import dispatch_meeting_bot as _disp
 from src.activities.v1_evaluate_voice_call import evaluate_voice_call as _evaluate_voice_call
 from src.activities.v1_meeting_analysis import analyze_meeting as _analyze_meeting
 from src.activities.v1_schedule_meeting import schedule_meeting as _schedule_meeting
+from src.activities.v1_dispatch_voice_call import dispatch_voice_call as _dispatch_voice_call
 from src.activities.v1_voice_screening import dispatch_voice_screening as _dispatch_voice_screening
 from src.config import get_settings
 from src.db.base import VoiceCall
 from src.db.connection import session_scope
-from src.models.v1 import EmotionFeatures, VoiceCallStatus
+from src.models.v1 import CallKind, EmotionFeatures, VoiceCallStatus
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,28 @@ async def dispatch_voice_screening(
         application_id=UUID(application_id),
         attempt_no=attempt_no,
         scheduled_at=scheduled_at,
+    )
+    return str(voice_call_id)
+
+
+async def dispatch_voice_call(
+    ctx: dict[str, Any],
+    application_id: str,
+    *,
+    call_kind: str = "screening",
+    attempt_no: int | None = None,
+    scheduled_at_iso: str | None = None,
+    campaign_id: str | None = None,
+) -> str:
+    scheduled_at = (
+        datetime.fromisoformat(scheduled_at_iso) if scheduled_at_iso else None
+    )
+    voice_call_id = await _dispatch_voice_call(
+        application_id=UUID(application_id),
+        call_kind=CallKind(call_kind),
+        attempt_no=attempt_no,
+        scheduled_at=scheduled_at,
+        campaign_id=UUID(campaign_id) if campaign_id else None,
     )
     return str(voice_call_id)
 
@@ -141,17 +164,13 @@ async def schedule_meeting_reattempt(
     *,
     voice_call_id: str | None = None,
     requested_at_iso: str | None = None,
+    round: str = "technical",
 ) -> str | None:
     """Re-pick a slot after the candidate rejected the previous one."""
-    # We currently re-run the scheduler with no avoid_starts -- the slot
-    # finder filters out any time already booked in meeting_sessions, so the
-    # candidate will get a fresh proposal. The candidate's preferred time
-    # (requested_at) is logged for HR follow-up but not auto-used: we don't
-    # know panel availability there yet.
     try:
         meeting_id = await _schedule_meeting(
             application_id=UUID(application_id),
-            round="technical",  # safe default; HR can re-trigger explicitly otherwise
+            round=round,
         )
         return str(meeting_id)
     except Exception:  # noqa: BLE001
@@ -165,6 +184,25 @@ async def schedule_meeting_reattempt(
 
 async def generate_ceo_brief(ctx: dict[str, Any], application_id: str) -> str:
     return await _generate_ceo_brief(application_id=UUID(application_id))
+
+
+# ---------------------------------------------------------------------------
+# Smart meeting scheduling
+# ---------------------------------------------------------------------------
+
+
+async def smart_schedule_meeting(ctx: dict[str, Any], application_id: str, *, round: str) -> str:
+    from src.services.smart_scheduler import initiate_smart_schedule
+
+    ms_id = await initiate_smart_schedule(application_id=UUID(application_id), round=round)
+    return f"initiated:{ms_id}"
+
+
+async def panel_availability_request(ctx: dict[str, Any], application_id: str, *, round: str) -> str:
+    from src.services.panel_availability import initiate_panel_availability
+
+    ms_id = await initiate_panel_availability(application_id=UUID(application_id), round=round)
+    return f"initiated:{ms_id}"
 
 
 # ---------------------------------------------------------------------------
@@ -202,10 +240,11 @@ async def poll_due_callbacks(ctx: dict[str, Any]) -> int:
             )
         ).scalars().all()
         candidates = [
-            (row.application_id, row.attempt_no, row.id) for row in rows
+            (row.application_id, row.attempt_no, row.id, getattr(row, "call_kind", "screening"))
+            for row in rows
         ]
 
-    for application_id, attempt_no, original_id in candidates:
+    for application_id, attempt_no, original_id, call_kind in candidates:
         if attempt_no >= settings.voice_agent_max_callback_attempts:
             logger.info(
                 "voice call %s exceeded max callback attempts (%d); skipping",
@@ -214,11 +253,19 @@ async def poll_due_callbacks(ctx: dict[str, Any]) -> int:
             )
             continue
         try:
-            await _dispatch_voice_screening(
-                application_id=application_id,
-                attempt_no=attempt_no + 1,
-                scheduled_at=now,
-            )
+            if call_kind == "screening":
+                await _dispatch_voice_screening(
+                    application_id=application_id,
+                    attempt_no=attempt_no + 1,
+                    scheduled_at=now,
+                )
+            else:
+                await _dispatch_voice_call(
+                    application_id=application_id,
+                    call_kind=CallKind(call_kind),
+                    attempt_no=attempt_no + 1,
+                    scheduled_at=now,
+                )
             dispatched += 1
         except Exception as exc:  # noqa: BLE001
             logger.exception(
@@ -228,6 +275,18 @@ async def poll_due_callbacks(ctx: dict[str, Any]) -> int:
             )
 
     return dispatched
+
+
+# ---------------------------------------------------------------------------
+# Cron: campaign dispatcher tick — scans all dispatching campaigns.
+# ---------------------------------------------------------------------------
+
+
+async def campaign_dispatch_tick(ctx: dict[str, Any]) -> dict[str, Any]:
+    """Scan all dispatching campaigns and dispatch one tick for each."""
+    from src.activities.v1_campaign_dispatcher import campaign_dispatch_tick_all
+
+    return await campaign_dispatch_tick_all()
 
 
 # ---------------------------------------------------------------------------
@@ -444,6 +503,85 @@ async def reconcile_stuck_voice_calls(ctx: dict[str, Any]) -> int:
         reconciled += 1
 
     return reconciled
+
+
+# ---------------------------------------------------------------------------
+# Cron: assignment deadline reminders.
+# ---------------------------------------------------------------------------
+
+
+async def assignment_deadline_reminders(ctx: dict[str, Any]) -> int:
+    """Find assignments due within 24h that haven't been submitted and nudge."""
+    from sqlalchemy import and_
+
+    from src.db.base import Application, AssignmentRow, Candidate, Role
+    from src.db.repositories.audit import log_audit
+
+    now = datetime.now(UTC)
+    reminder_window = timedelta(hours=24)
+    reminded = 0
+
+    async with session_scope() as session:
+        rows = (
+            await session.execute(
+                select(AssignmentRow, Application, Candidate, Role)
+                .join(Application, Application.id == AssignmentRow.application_id)
+                .join(Candidate, Candidate.id == Application.candidate_id)
+                .join(Role, Role.id == Application.role_id, isouter=True)
+                .where(
+                    and_(
+                        AssignmentRow.submitted_at.is_(None),
+                        AssignmentRow.deadline_at.isnot(None),
+                        AssignmentRow.deadline_at <= now + reminder_window,
+                        AssignmentRow.deadline_at > now,
+                        AssignmentRow.reminder_sent_at.is_(None),
+                        Application.current_stage.in_(("assignment_sent",)),
+                    )
+                )
+            )
+        ).all()
+
+        for assignment, app, candidate, role in rows:
+            if not candidate.email:
+                continue
+
+            hours_left = max(0, (assignment.deadline_at - now).total_seconds() / 3600)
+            try:
+                from src.channels.email import send_email
+
+                await send_email(
+                    to=candidate.email,
+                    template="assignment_deadline_reminder",
+                    variables={
+                        "candidate_name": candidate.name or "there",
+                        "role_title": role.title if role else "the position",
+                        "hours_remaining": round(hours_left),
+                        "deadline": assignment.deadline_at.strftime("%B %d, %Y at %I:%M %p UTC"),
+                    },
+                    tags={"type": "assignment_reminder", "application_id": str(app.id)},
+                    idempotency_key=f"assignment-reminder-{assignment.id}",
+                    application_id=str(app.id),
+                    candidate_id=str(candidate.id),
+                )
+                assignment.reminder_sent_at = now
+                await log_audit(
+                    session,
+                    application_id=app.id,
+                    candidate_id=candidate.id,
+                    action="assignment_deadline_reminder_sent",
+                    actor="agent",
+                    details={
+                        "hours_remaining": round(hours_left, 1),
+                        "deadline": assignment.deadline_at.isoformat(),
+                    },
+                )
+                reminded += 1
+            except Exception as exc:
+                logger.warning(
+                    "assignment reminder failed for %s: %s", app.id, exc
+                )
+
+    return reminded
 
 
 # ---------------------------------------------------------------------------

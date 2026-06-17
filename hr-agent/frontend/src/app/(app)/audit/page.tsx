@@ -14,6 +14,7 @@ import { swrFetcher } from "@/lib/api";
 import { fmtDate } from "@/lib/utils";
 import type { AuditItem } from "@/lib/types";
 import { Pagination } from "@/components/pagination";
+import { ExportMenu } from "@/components/export-menu";
 
 interface AuditPageResp {
   items: AuditItem[];
@@ -51,15 +52,33 @@ export default function AuditPage() {
   return (
     <>
       <Topbar title="Audit log" subtitle="Every action is recorded, append-only, forever" />
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 overflow-auto px-8 py-6 pb-24 space-y-6">
         <PageHeader
           title="Activity trail"
           description="The database blocks updates and deletes on this table -- what's written is permanent. Search by action, actor, or candidate."
           actions={
-            <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshingNow}>
-              <RefreshCw className={cn("mr-1 h-3.5 w-3.5", refreshingNow && "animate-spin")} />
-              {refreshingNow ? "Refreshing" : "Refresh"}
-            </Button>
+            <>
+              <ExportMenu
+                options={[
+                  {
+                    label: "Audit log (CSV, last 30 days)",
+                    path: "/export/audit?since_days=30",
+                    filename: "audit-export.csv",
+                    icon: "text",
+                  },
+                  {
+                    label: "Audit log (CSV, last 90 days)",
+                    path: "/export/audit?since_days=90",
+                    filename: "audit-export.csv",
+                    icon: "text",
+                  },
+                ]}
+              />
+              <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshingNow}>
+                <RefreshCw className={cn("mr-1 h-3.5 w-3.5", refreshingNow && "animate-spin")} />
+                {refreshingNow ? "Refreshing" : "Refresh"}
+              </Button>
+            </>
           }
         />
 

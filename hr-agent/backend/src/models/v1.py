@@ -224,7 +224,7 @@ def can_transition(src: PipelineStage, dst: PipelineStage) -> bool:
 class GeneratedQuestion(BaseModel):
     id: str
     question: str
-    type: Literal["logistics", "skill_probe", "depth", "open_text"]
+    type: Literal["logistics", "skill_probe", "depth", "open_text", "behavioral", "gap_probe"]
     expected_signal: str
     required: bool = True
 
@@ -419,6 +419,15 @@ class VoiceCallScore(BaseModel):
     prompt_version: str | None = None
 
 
+class CallKind(StrEnum):
+    SCREENING = "screening"
+    CONFIRMATION = "confirmation"
+    MEETING_SCHEDULE = "meeting_schedule"
+    STATUS_UPDATE = "status_update"
+    JOINING_DETAILS = "joining_details"
+    GENERAL_QUERY = "general_query"
+
+
 class VoiceCallStatus(StrEnum):
     PENDING = "pending"
     DIALING = "dialing"
@@ -428,6 +437,7 @@ class VoiceCallStatus(StrEnum):
     NO_ANSWER = "no_answer"
     CALLBACK_REQUESTED = "callback_requested"
     DECLINED = "declined"
+    VOICEMAIL = "voicemail"
 
 
 class MeetingRound(StrEnum):

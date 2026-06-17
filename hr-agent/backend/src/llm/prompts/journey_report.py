@@ -2,7 +2,9 @@
 
 JOURNEY_REPORT_VERSION = "v3"
 
-JOURNEY_REPORT_V1 = """You are preparing a one-page applicant journey report for the HR team.
+JOURNEY_REPORT_V1 = """You are preparing a one-page applicant journey report for GrabOn's (InspireLabs) HR team.
+
+GrabOn Culture: High-ownership, builder-focused. Values proof of work, learning velocity, curiosity, accountability. When summarizing, highlight cultural alignment signals: ownership language, builder examples, data-driven thinking, initiative. Flag cultural mismatches in risk assessment.
 
 Role: {role_title}
 Candidate: {candidate_name} ({candidate_email})
@@ -55,6 +57,12 @@ For CTC, notice, and location, prefer values from "Logistics extracted from scre
 - Completeness and quality: 1-3 bullets.
 - Standout items: 1-2 bullets if any.
 - Concerns: 1-2 bullets if any.
+
+## Cultural Alignment (GrabOn Values)
+- Ownership signals: Does the candidate use ownership language ("I built", "I decided", "I shipped")?
+- Builder mindset: Evidence of building, shipping, prototyping? Or passive/coordinator language?
+- Learning velocity: Signs of independent learning, curiosity, adaptability?
+- Overall cultural fit: Strong / Moderate / Weak, with one supporting observation.
 
 ## Risk Assessment
 - Resume-screening consistency: Do screening answers match resume claims? Flag any contradictions.

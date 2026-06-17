@@ -95,16 +95,11 @@ class Role(Base):
     assignment_deadline_days: Mapped[int] = mapped_column(Integer, default=7, server_default="7")
     assignment_problem_doc_key: Mapped[str | None] = mapped_column(String(500))
     assignment_problem_filename: Mapped[str | None] = mapped_column(String(255))
-    # Static Predictive Index Cognitive Assessment link. HR pastes this once
-    # at role creation; backend emails it to candidates after voice screen
-    # passes. NULL = skip the assessment courtesy email entirely.
-    pi_cognitive_url: Mapped[str | None] = mapped_column(String(1000))
-    # V2: screening modality picked by HR at role creation.
-    #   "chat"  -> agentic chat-first screening (default)
-    #   "voice" -> AI phone-screen (V1 voice path)
+    # Screening modality: voice is the only supported channel.
     screening_modality: Mapped[str] = mapped_column(
-        String(16), default="chat", server_default="chat", index=True
+        String(16), default="voice", server_default="voice", index=True
     )
+    pipeline_template: Mapped[list | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -306,13 +301,46 @@ class VoiceCall(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
+    campaign_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("voice_campaigns.id", ondelete="SET NULL"),
+        index=True,
+    )
+
     __table_args__ = (
         Index("ix_voice_calls_app_status", "application_id", "status"),
     )
 
 
+class VoiceCampaign(Base):
+    """Bulk outbound voice call campaign. Tracks dispatch of 1-N calls."""
+
+    __tablename__ = "voice_campaigns"
+
+    id: Mapped[UUID] = _uuid_pk()
+    role_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("roles.id", ondelete="SET NULL"), index=True
+    )
+    call_kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(20), default="draft", server_default="draft", index=True
+    )
+    total_calls: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    completed_calls: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    failed_calls: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    max_concurrent: Mapped[int] = mapped_column(Integer, default=10, server_default="10")
+    dispatch_rate_per_minute: Mapped[int] = mapped_column(Integer, default=5, server_default="5")
+    target_application_ids: Mapped[list | None] = mapped_column(JSONB)
+    context_template: Mapped[dict | None] = mapped_column(JSONB)
+    created_by: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class AssessmentResult(Base):
-    """Result of a third-party (PI / Mettl / TestGorilla) or in-house assessment."""
+    """Result of a third-party (Mettl / TestGorilla) or in-house assessment."""
 
     __tablename__ = "assessment_results"
 
@@ -322,7 +350,7 @@ class AssessmentResult(Base):
         ForeignKey("applications.id", ondelete="CASCADE"),
         index=True,
     )
-    provider: Mapped[str] = mapped_column(String(32), nullable=False)  # e.g. "pi_cognitive"
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)  # e.g. "mettl", "testgorilla"
     assessment_kind: Mapped[str | None] = mapped_column(String(32))  # behavioral | cognitive | tech
     external_assessment_id: Mapped[str | None] = mapped_column(String(255), index=True)
     invite_url: Mapped[str | None] = mapped_column(String(1000))
@@ -398,6 +426,8 @@ class MeetingSession(Base):
     llm_report: Mapped[str | None] = mapped_column(Text)
     verdict: Mapped[str | None] = mapped_column(String(32))
 
+    negotiation_state: Mapped[dict | None] = mapped_column(JSONB)
+
     error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -433,6 +463,10 @@ class PanelMember(Base):
     )
     # ^^ "microsoft" | "google" | "none"
     calendar_id: Mapped[str | None] = mapped_column(String(255))
+    expertise_tags: Mapped[list | None] = mapped_column(JSONB)
+    department: Mapped[str | None] = mapped_column(String(100))
+    max_interviews_per_week: Mapped[int] = mapped_column(Integer, default=10, server_default="10")
+    seniority_level: Mapped[str | None] = mapped_column(String(20))  # junior | mid | senior | lead | executive
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default="true", index=True
     )
@@ -654,6 +688,8 @@ class AssignmentRow(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reminder_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
@@ -756,6 +792,139 @@ class RecruiterMemory(Base):
     )
 
 
+# ---------------------------------------------------------------------------
+# Evidence & Policy layer (Phase 0 of autonomous-agent architecture)
+# ---------------------------------------------------------------------------
+
+
+class EvidenceRecord(Base):
+    """Provenance-tracked fact extracted from any pipeline stage.
+
+    Each row is one atomic fact (e.g. "expected_ctc_lpa = 18") with full
+    source lineage: which stage, what document, how extracted, how confident.
+    Cross-stage contradiction detection queries (application_id, fact_key).
+    """
+
+    __tablename__ = "evidence_records"
+
+    id: Mapped[UUID] = _uuid_pk()
+    application_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("applications.id", ondelete="CASCADE"),
+        index=True,
+    )
+    candidate_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), index=True)
+
+    fact_key: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    fact_value: Mapped[dict | list | str | int | float | bool | None] = mapped_column(
+        JSONB, nullable=False
+    )
+
+    source_stage: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    extraction_method: Mapped[str] = mapped_column(String(32), nullable=False)
+
+    evidence_text: Mapped[str | None] = mapped_column(Text)
+    source_ref: Mapped[str | None] = mapped_column(String(500))
+    char_offset_start: Mapped[int | None] = mapped_column(Integer)
+    char_offset_end: Mapped[int | None] = mapped_column(Integer)
+
+    confidence: Mapped[float | None] = mapped_column(Float)
+    langfuse_trace_id: Mapped[str | None] = mapped_column(String(100))
+    model_version: Mapped[str | None] = mapped_column(String(100))
+
+    superseded_by_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("evidence_records.id", ondelete="SET NULL"),
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("ix_evidence_app_fact", "application_id", "fact_key"),
+        Index("ix_evidence_candidate_fact", "candidate_id", "fact_key"),
+    )
+
+
+class DecisionRecord(Base):
+    """Auditable agent decision with citation graph.
+
+    Links to the EvidenceRecord rows and PolicyRule rows that informed the
+    decision. Also links to the existing AuditLog row for backward compat.
+    """
+
+    __tablename__ = "decision_records"
+
+    id: Mapped[UUID] = _uuid_pk()
+    application_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("applications.id", ondelete="CASCADE"),
+        index=True,
+    )
+    candidate_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), index=True)
+
+    decision_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    outcome: Mapped[str] = mapped_column(String(64), nullable=False)
+    outcome_value: Mapped[dict | None] = mapped_column(JSONB)
+
+    evidence_ids: Mapped[list] = mapped_column(JSONB, default=list)
+    policy_rule_ids: Mapped[list] = mapped_column(JSONB, default=list)
+
+    audit_log_id: Mapped[int | None] = mapped_column(BigInteger)
+    langfuse_trace_id: Mapped[str | None] = mapped_column(String(100))
+    model_version: Mapped[str | None] = mapped_column(String(100))
+    prompt_version: Mapped[str | None] = mapped_column(String(50))
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("ix_decision_app_type", "application_id", "decision_type"),
+    )
+
+
+class PolicyRule(Base):
+    """Configurable pipeline threshold / weight / rule.
+
+    NULL role_id = global default. Non-null = per-role override.
+    resolve_policy(key, role_id) checks per-role first, falls back to global.
+    """
+
+    __tablename__ = "policy_rules"
+
+    id: Mapped[UUID] = _uuid_pk()
+    key: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    role_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("roles.id", ondelete="CASCADE"),
+        index=True,
+    )
+
+    value: Mapped[dict | list | str | int | float | bool | None] = mapped_column(
+        JSONB, nullable=False
+    )
+    value_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    updated_by: Mapped[str] = mapped_column(String(128), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("key", "role_id", name="uq_policy_rules_key_role"),
+        Index("ix_policy_rules_key_role", "key", "role_id"),
+    )
+
+
 class PipelineAlert(Base):
     __tablename__ = "pipeline_alerts"
 
@@ -767,3 +936,75 @@ class PipelineAlert(Base):
     details: Mapped[dict | None] = mapped_column(JSONB)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: Supervisor event bus + action log
+# ---------------------------------------------------------------------------
+
+
+class SupervisorEvent(Base):
+    """Typed, durable event that the supervisor engine processes.
+
+    Events are claimed by a single worker (status-based locking) and
+    processed exactly once. dedup_key prevents duplicate firing.
+    """
+    __tablename__ = "supervisor_events"
+    __table_args__ = (
+        Index("ix_supervisor_events_status_created", "status", "created_at"),
+        Index("ix_supervisor_events_app", "application_id"),
+    )
+
+    id: Mapped[UUID] = _uuid_pk()
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    application_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True))
+    candidate_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True))
+    payload: Mapped[dict] = mapped_column(JSONB, default=dict)
+    dedup_key: Mapped[str | None] = mapped_column(String(255), unique=True)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="pending"
+    )  # pending → claimed → processed | failed
+    claimed_by: Mapped[str | None] = mapped_column(String(128))
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class SupervisorAction(Base):
+    """Proposed or executed action from the supervisor engine.
+
+    In shadow mode, actions are written with executed=False for HR review.
+    In execute mode, executed=True after successful tool invocation.
+    """
+    __tablename__ = "supervisor_actions"
+    __table_args__ = (
+        Index("ix_supervisor_actions_event", "event_id"),
+        Index("ix_supervisor_actions_app", "application_id"),
+    )
+
+    id: Mapped[UUID] = _uuid_pk()
+    event_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("supervisor_events.id"), nullable=False
+    )
+    application_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True))
+    candidate_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True))
+    action_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    action_params: Mapped[dict] = mapped_column(JSONB, default=dict)
+    reasoning: Mapped[str | None] = mapped_column(Text)
+    confidence: Mapped[float | None] = mapped_column(Float)
+    mode: Mapped[str] = mapped_column(String(16), nullable=False)  # shadow | execute
+    executed: Mapped[bool] = mapped_column(Boolean, default=False)
+    execution_result: Mapped[dict | None] = mapped_column(JSONB)
+    evidence_ids: Mapped[list | None] = mapped_column(JSONB)
+    policy_rule_ids: Mapped[list | None] = mapped_column(JSONB)
+    approved_by: Mapped[str | None] = mapped_column(String(128))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    rejected_by: Mapped[str | None] = mapped_column(String(128))
+    rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decision_record_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )

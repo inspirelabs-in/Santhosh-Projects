@@ -16,7 +16,7 @@ from sqlalchemy import desc, func, select
 
 from src.api.auth import require_recruiter, require_viewer
 from src.config import get_settings
-from src.db.base import Application, AuditLog, Candidate, CandidateProfileRow, MeetingSession, Role
+from src.db.base import Application, AuditLog, Candidate, CandidateProfileRow, Interview, MeetingSession, Role, VoiceCall
 from src.db.connection import session_scope
 from src.db.repositories.audit import log_audit
 from src.db.repositories.v1_application import set_stage
@@ -258,6 +258,7 @@ class CandidateDetail(BaseModel):
     fit_score: int | None = None
     fit_tier: str | None = None
     fit_breakdown: dict[str, Any] | None = None
+    voice_evaluation: dict[str, Any] | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -299,7 +300,9 @@ async def candidate_detail(
                     profile_row.raw_resume_r2_key,
                     ttl_seconds=3600,
                 )
-                resume_filename = profile_row.raw_resume_r2_key.split("/")[-1]
+                raw_name = profile_row.raw_resume_r2_key.split("/")[-1]
+                import re as _re
+                resume_filename = _re.sub(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_", "", raw_name)
             except Exception:  # noqa: BLE001
                 pass
 
@@ -346,9 +349,41 @@ async def candidate_detail(
                     "knock_outs": d.get("knock_outs"),
                     "deterministic_tier": d.get("deterministic_tier"),
                     "weights_used": d.get("weights_used"),
+                    "pending_verification": d.get("pending_verification", []),
+                    "scoring_pass": d.get("scoring_pass", "resume_only"),
                     "scored_at": a.created_at.isoformat(),
                 }
                 break
+
+        # Voice call evaluation + transcript
+        voice_row = (
+            await session.scalars(
+                select(VoiceCall)
+                .where(
+                    VoiceCall.application_id == application_id,
+                    VoiceCall.evaluation.isnot(None),
+                )
+                .order_by(desc(VoiceCall.ended_at))
+                .limit(1)
+            )
+        ).first()
+        voice_evaluation: dict[str, Any] | None = None
+        if voice_row and voice_row.evaluation:
+            ev = voice_row.evaluation
+            voice_evaluation = {
+                "verdict": ev.get("verdict") or voice_row.verdict,
+                "overall_score": ev.get("overall_score") or voice_row.overall_score,
+                "verdict_rationale": ev.get("verdict_rationale"),
+                "red_flags": ev.get("red_flags", []),
+                "strengths": ev.get("strengths", []),
+                "per_question": ev.get("per_question", []),
+                "extracted_facts": ev.get("extracted_facts"),
+                "transcript": voice_row.answers,
+                "questions": voice_row.questions,
+                "duration_sec": voice_row.duration_sec,
+                "started_at": voice_row.started_at.isoformat() if voice_row.started_at else None,
+                "ended_at": voice_row.ended_at.isoformat() if voice_row.ended_at else None,
+            }
 
         return CandidateDetail(
             application_id=application_id,
@@ -393,6 +428,7 @@ async def candidate_detail(
             fit_score=app.fit_score,
             fit_tier=app.fit_tier,
             fit_breakdown=fit_breakdown,
+            voice_evaluation=voice_evaluation,
             created_at=app.created_at,
             updated_at=app.updated_at,
         )
@@ -475,8 +511,14 @@ async def dev_reset(actor: Annotated[str, Depends(require_recruiter)]) -> dict:
             text(
                 "TRUNCATE TABLE "
                 "consent_artifacts, candidate_profiles, screening_responses, "
-                "interviews, processed_messages, applications, candidates, "
-                "roles, webhook_events "
+                "screening_answers, interviews, processed_messages, "
+                "voice_calls, voice_campaigns, assessment_results, "
+                "meeting_sessions, email_sends, assignments, "
+                "conversations, messages, "
+                "recruiter_messages, recruiter_conversations, recruiter_memory, "
+                "supervisor_events, supervisor_actions, "
+                "evidence_records, decision_records, pipeline_alerts, "
+                "applications, candidates, roles, webhook_events "
                 "RESTART IDENTITY CASCADE"
             )
         )
@@ -487,6 +529,15 @@ async def dev_reset(actor: Annotated[str, Depends(require_recruiter)]) -> dict:
             await session.execute(text("ALTER TABLE audit_log ENABLE TRIGGER audit_log_immutable"))
         except Exception:  # noqa: BLE001
             pass
+    # Flush recruiter-chat Redis keys (inbox, cancel, pubsub)
+    try:
+        from src.db.connection import get_redis
+        r = get_redis()
+        keys = await r.keys("recruiter-chat:*")
+        if keys:
+            await r.delete(*keys)
+    except Exception:  # noqa: BLE001
+        pass
     return {"status": "ok", "wiped_by": actor}
 
 
@@ -1141,6 +1192,56 @@ async def set_stage_action(
     return {"status": "ok", "stage": target.value}
 
 
+class TriggerPanelAvailabilityBody(BaseModel):
+    round: str  # "technical" | "ceo" | "hr"
+
+
+@router.post("/candidates/{application_id}/trigger-panel-availability")
+async def trigger_panel_availability(
+    application_id: UUID,
+    body: TriggerPanelAvailabilityBody,
+    actor: Annotated[str, Depends(require_recruiter)],
+) -> dict:
+    """Manually trigger panel availability emails for a given interview round.
+
+    Sends confirmation-link emails to all panel members for the specified round.
+    Used to test mail delivery or re-send when the auto flow didn't fire.
+    """
+    if not body.round or not body.round.strip():
+        raise HTTPException(status_code=400, detail="round is required")
+
+    from src.services.panel_availability import initiate_panel_availability
+
+    async with session_scope() as session:
+        app = await session.get(Application, application_id)
+        if app is None:
+            raise HTTPException(status_code=404, detail="application_not_found")
+        await log_audit(
+            session,
+            application_id=application_id,
+            action="panel_availability_manual_trigger",
+            actor=actor,
+            details={"round": body.round},
+        )
+
+    try:
+        meeting_session_id = await initiate_panel_availability(
+            application_id=application_id,
+            round=body.round,
+        )
+        return {
+            "status": "ok",
+            "meeting_session_id": str(meeting_session_id),
+            "round": body.round,
+            "message": f"Panel availability emails sent for {body.round} round",
+        }
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to send panel emails: {exc!s:.300}",
+        ) from exc
+
+
 class TechDecisionBody(BaseModel):
     action: str  # "advance_to_ceo" | "reject"
     note: str | None = None
@@ -1489,3 +1590,281 @@ async def hr_decision(
             details={"note": body.note, "offer_email_sent": offer_sent},
         )
     return {"status": "offer_extended", "offer_email_sent": offer_sent}
+
+
+# ---------------------------------------------------------------------------
+# Evidence chain (Phase 2)
+# ---------------------------------------------------------------------------
+
+
+class EvidenceItem(BaseModel):
+    id: str
+    fact_key: str
+    fact_value: Any
+    source_stage: str
+    source_type: str
+    extraction_method: str
+    confidence: float | None
+    evidence_text: str | None
+    created_at: datetime
+
+
+class DecisionItem(BaseModel):
+    id: str
+    decision_type: str
+    outcome: str
+    outcome_value: dict
+    evidence_ids: list[str]
+    policy_rule_ids: list[str]
+    created_at: datetime
+
+
+class ContradictionItem(BaseModel):
+    id: str
+    fact_key: str | None
+    old_value: Any | None
+    new_value: Any | None
+    old_source_stage: str | None
+    new_source_stage: str | None
+    created_at: datetime
+
+
+class EvidenceChainResponse(BaseModel):
+    application_id: str
+    evidence: list[EvidenceItem]
+    decisions: list[DecisionItem]
+    contradictions: list[ContradictionItem]
+
+
+@router.get(
+    "/applications/{application_id}/evidence-chain",
+    response_model=EvidenceChainResponse,
+)
+async def evidence_chain(
+    application_id: UUID,
+    _: Annotated[str, Depends(require_viewer)],
+) -> EvidenceChainResponse:
+    """Full provenance trail for an application: evidence, decisions, contradiction alerts."""
+    from src.db.base import DecisionRecord, EvidenceRecord, PipelineAlert
+    from src.db.repositories.evidence import (
+        get_decisions_for_application,
+        get_evidence_for_application,
+    )
+
+    async with session_scope() as session:
+        app = await session.get(Application, application_id)
+        if app is None:
+            raise HTTPException(status_code=404, detail="application not found")
+
+        evidence_rows = await get_evidence_for_application(session, application_id)
+        decision_rows = await get_decisions_for_application(session, application_id)
+
+        contradiction_rows = (
+            await session.execute(
+                select(PipelineAlert)
+                .where(PipelineAlert.application_id == application_id)
+                .where(PipelineAlert.alert_type == "fact_contradiction")
+                .order_by(PipelineAlert.created_at)
+            )
+        ).scalars().all()
+
+    return EvidenceChainResponse(
+        application_id=str(application_id),
+        evidence=[
+            EvidenceItem(
+                id=str(e.id),
+                fact_key=e.fact_key,
+                fact_value=e.fact_value,
+                source_stage=e.source_stage,
+                source_type=e.source_type,
+                extraction_method=e.extraction_method,
+                confidence=e.confidence,
+                evidence_text=e.evidence_text,
+                created_at=e.created_at,
+            )
+            for e in evidence_rows
+        ],
+        decisions=[
+            DecisionItem(
+                id=str(d.id),
+                decision_type=d.decision_type,
+                outcome=d.outcome,
+                outcome_value=d.outcome_value or {},
+                evidence_ids=d.evidence_ids or [],
+                policy_rule_ids=d.policy_rule_ids or [],
+                created_at=d.created_at,
+            )
+            for d in decision_rows
+        ],
+        contradictions=[
+            ContradictionItem(
+                id=str(c.id),
+                fact_key=(c.details or {}).get("fact_key"),
+                old_value=(c.details or {}).get("old_value"),
+                new_value=(c.details or {}).get("new_value"),
+                old_source_stage=(c.details or {}).get("old_source_stage"),
+                new_source_stage=(c.details or {}).get("new_source_stage"),
+                created_at=c.created_at,
+            )
+            for c in contradiction_rows
+        ],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 6: Pipeline confidence
+# ---------------------------------------------------------------------------
+
+
+class StageConfidenceResponse(BaseModel):
+    stage: str
+    evidence_count: int
+    avg_confidence: float
+    contradiction_count: int
+    consistency_ratio: float
+
+
+class PipelineConfidenceResponse(BaseModel):
+    application_id: str
+    overall: float
+    recommendation: str
+    supervisor_accuracy: float | None
+    per_stage: list[StageConfidenceResponse]
+    details: dict
+
+
+@router.get(
+    "/applications/{application_id}/confidence",
+    response_model=PipelineConfidenceResponse,
+)
+async def pipeline_confidence(
+    application_id: UUID,
+    _: Annotated[str, Depends(require_viewer)],
+) -> PipelineConfidenceResponse:
+    """Pipeline confidence score for an application."""
+    from src.services.confidence_analyzer import analyze_confidence
+
+    async with session_scope() as session:
+        app = await session.get(Application, application_id)
+        if app is None:
+            raise HTTPException(status_code=404, detail="application not found")
+
+        result = await analyze_confidence(
+            session, application_id, current_stage=app.current_stage,
+        )
+
+    return PipelineConfidenceResponse(
+        application_id=str(application_id),
+        overall=result.overall,
+        recommendation=result.recommendation,
+        supervisor_accuracy=result.supervisor_accuracy,
+        per_stage=[
+            StageConfidenceResponse(
+                stage=sc.stage,
+                evidence_count=sc.evidence_count,
+                avg_confidence=sc.avg_confidence,
+                contradiction_count=sc.contradiction_count,
+                consistency_ratio=sc.consistency_ratio,
+            )
+            for sc in result.per_stage.values()
+        ],
+        details=result.details,
+    )
+
+
+class EngagementResponse(BaseModel):
+    application_id: str
+    overall: float
+    response_speed: float
+    completion_rate: float
+    scheduling_flexibility: float
+    signals: list[str]
+    risk: str
+
+
+@router.get(
+    "/applications/{application_id}/engagement",
+    response_model=EngagementResponse,
+)
+async def application_engagement(
+    application_id: UUID,
+    _: Annotated[str, Depends(require_viewer)],
+) -> EngagementResponse:
+    """Candidate engagement score for an application."""
+    from src.services.engagement_scorer import compute_engagement
+
+    async with session_scope() as session:
+        app = await session.get(Application, application_id)
+        if app is None:
+            raise HTTPException(status_code=404, detail="application not found")
+        result = await compute_engagement(session, application_id)
+
+    return EngagementResponse(
+        application_id=str(application_id),
+        overall=result.overall,
+        response_speed=result.response_speed,
+        completion_rate=result.completion_rate,
+        scheduling_flexibility=result.scheduling_flexibility,
+        signals=result.signals,
+        risk=result.risk,
+    )
+
+
+class FeedbackDiscrepancy(BaseModel):
+    type: str
+    description: str
+    evidence_id: str | None = None
+    round: str | None = None
+
+
+class InterviewIntelligenceResponse(BaseModel):
+    application_id: str
+    interviews_with_feedback: int
+    total_discrepancies: int
+    discrepancies: list[FeedbackDiscrepancy]
+
+
+@router.get(
+    "/applications/{application_id}/interview-intelligence",
+    response_model=InterviewIntelligenceResponse,
+)
+async def application_interview_intelligence(
+    application_id: UUID,
+    _: Annotated[str, Depends(require_viewer)],
+) -> InterviewIntelligenceResponse:
+    """Cross-reference report: interviewer feedback vs pipeline evidence."""
+    from src.services.interview_intelligence import cross_reference_feedback
+
+    async with session_scope() as session:
+        app = await session.get(Application, application_id)
+        if app is None:
+            raise HTTPException(status_code=404, detail="application not found")
+
+        interviews = (
+            await session.execute(
+                select(Interview)
+                .where(Interview.application_id == application_id)
+                .where(Interview.feedback.isnot(None))
+            )
+        ).scalars().all()
+
+    all_discrepancies: list[dict] = []
+    for interview in interviews:
+        if interview.feedback:
+            disc = await cross_reference_feedback(interview.id, interview.feedback)
+            all_discrepancies.extend(disc)
+
+    return InterviewIntelligenceResponse(
+        application_id=str(application_id),
+        interviews_with_feedback=len(interviews),
+        total_discrepancies=len(all_discrepancies),
+        discrepancies=[
+            FeedbackDiscrepancy(
+                type=d.get("type", "unknown"),
+                description=d.get("description", ""),
+                evidence_id=d.get("evidence_id"),
+                round=d.get("round"),
+            )
+            for d in all_discrepancies[:20]
+        ],
+    )

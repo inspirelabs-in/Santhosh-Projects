@@ -52,6 +52,8 @@ class InterviewBooking(BaseModel):
 
 
 MeetingRoundLiteral = Literal["technical", "ceo", "hr"]
+# Accept any round name for generic scheduling (2 tech rounds, no HR, etc.)
+MeetingRoundKey = str
 
 
 class AvailabilityWindow(BaseModel):
@@ -79,7 +81,7 @@ class RoleScheduling(BaseModel):
     enabled: bool = False
     panel_timezone: str = "Asia/Kolkata"
     candidate_timezone: str | None = None
-    rounds: dict[MeetingRoundLiteral, RoundScheduling] = Field(
+    rounds: dict[MeetingRoundKey, RoundScheduling] = Field(
         default_factory=lambda: {
             "technical": RoundScheduling(),
             "ceo": RoundScheduling(),

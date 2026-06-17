@@ -7,7 +7,9 @@ Does NOT grade the assignment -- final judgment is HR's. Just extracts signal.
 
 ASSIGNMENT_PARSE_VERSION = "v2"
 
-ASSIGNMENT_PARSE_V1 = """You are reviewing a candidate's submitted assignment. Your job is to extract signal for the HR reviewer, NOT to grade.
+ASSIGNMENT_PARSE_V1 = """You are reviewing a candidate's submitted assignment for GrabOn (InspireLabs). Your job is to extract signal for the HR reviewer, NOT to grade.
+
+GrabOn values builders who ship. When assessing quality signals, also look for: ownership and initiative (went beyond requirements), practical problem-solving, clean execution, evidence of independent thinking, and prototype/builder mindset. Note these in highlights/concerns.
 
 Role: {role_title}
 Assignment Brief (what was asked):
@@ -31,19 +33,26 @@ Project choice check (MANDATORY):
   project_choice, add "project_choice_mismatch" to concerns.
 
 Deployed URL check (when provided):
-- Note in highlights whether the URL shape looks like a live deployment
-  (vercel.app, netlify.app, railway.app, render.com, fly.dev, custom domain,
-  etc.). You cannot fetch the URL -- only inspect the shape.
+- If live enrichment data is appended below, use the actual HTTP status to
+  determine if the deployment is live. Otherwise, inspect the URL shape.
+- Add "deployed_url_down" to concerns if the deploy check shows it's not live.
 - Add "deployed_url_invalid" to concerns if the URL is clearly not a live
   deployment (e.g. points to a localhost, a ZIP file, or a broken host).
 
-IMPORTANT:
-- You cannot fetch the GitHub repo or watch the Loom video. Evaluate what you
-  can infer from the URL shape (org/repo name, repo path, public-looking vs
-  private), the candidate's notes, and the fit between the assignment brief
-  and what the candidate claims they did.
-- Do NOT assume. If the notes don't describe what's in the repo/video, say
-  so in `concerns`.
+IMPORTANT -- LIVE ENRICHMENT DATA:
+- If a "LIVE ENRICHMENT DATA" section is appended at the end, it contains REAL
+  data fetched from the candidate's GitHub repo, Loom video, and deployed URL.
+  USE THIS DATA to do a thorough review:
+  * GitHub: analyze the README quality, file structure (does it have tests?
+    CI config? proper project structure?), commit history (frequency, message
+    quality, single-dump vs incremental), languages used vs what was expected,
+    repo age (created just before deadline = potential concern).
+  * Loom transcript: if available, assess whether the candidate explains their
+    approach clearly, covers key decisions, demonstrates understanding.
+  * Deploy check: note if the URL is actually live and responsive.
+- If enrichment data shows errors (repo private, rate limit, etc.), fall back
+  to URL-shape analysis and note the limitation.
+- Do NOT assume. If data is missing or incomplete, say so in concerns.
 
 Produce a structured review:
 

@@ -38,7 +38,6 @@ import {
   FileText,
   MapPin,
   IndianRupee,
-  ClipboardCheck,
   Upload,
 } from "lucide-react";
 
@@ -218,7 +217,8 @@ export default function NewRoleChatPage() {
         assignment_brief: draft.assignment_brief ?? null,
         assignment_instructions: draft.assignment_instructions ?? null,
         assignment_deadline_days: draft.assignment_deadline_days ?? 7,
-        pi_cognitive_url: draft.pi_cognitive_url ?? null,
+        screening_modality: draft.screening_modality ?? "voice",
+        pipeline_template: draft.pipeline_template ?? null,
       };
       const created = await api.post<Role>("/dashboard/roles", role);
       if (problemDoc) {
@@ -226,7 +226,7 @@ export default function NewRoleChatPage() {
         fd.append("file", problemDoc);
         const key = getDashboardKey();
         const resp = await fetch(
-          `${(process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000")}/dashboard/roles/${created.id}/problem-doc`,
+          `${(process.env.NEXT_PUBLIC_API_BASE_URL ?? "")}/dashboard/roles/${created.id}/problem-doc`,
           {
             method: "POST",
             headers: key ? { "X-Dashboard-Key": key } : {},
@@ -544,11 +544,6 @@ export default function NewRoleChatPage() {
                     ) : null}
                     {draft.max_notice_days ? (
                       <Pill>{draft.max_notice_days} days notice</Pill>
-                    ) : null}
-                    {draft.pi_cognitive_url ? (
-                      <Pill icon={ClipboardCheck}>PI cognitive link set</Pill>
-                    ) : draft.pi_cognitive_url === null ? (
-                      <Pill icon={ClipboardCheck}>PI assessment skipped</Pill>
                     ) : null}
                     {problemDoc ? (
                       <Pill icon={FileText}>doc: {problemDoc.name}</Pill>

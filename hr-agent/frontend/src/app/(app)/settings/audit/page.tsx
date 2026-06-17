@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import useSWR from "swr";
 import { ChevronLeft, RefreshCw } from "lucide-react";
+import { ExportMenu } from "@/components/export-menu";
 import { Topbar } from "@/components/layout/topbar";
 import { PageHeader } from "@/components/layout/page-header";
 import { Input } from "@/components/ui/input";
@@ -29,7 +30,7 @@ export default function AuditLogPage() {
     <>
       <Topbar title="Settings · Audit" subtitle="config_audit log" />
       <div className="flex-1 overflow-auto">
-        <div className="mx-auto max-w-6xl px-8 py-6">
+        <div className="mx-auto max-w-6xl px-8 py-6 pb-24">
           <Link
             href="/settings"
             className="inline-flex items-center gap-1 font-mono text-[11px] text-muted-foreground hover:text-foreground"
@@ -69,6 +70,16 @@ export default function AuditLogPage() {
               <RefreshCw className="mr-1 h-3.5 w-3.5" />
               Refresh
             </Button>
+            <ExportMenu
+              options={[
+                {
+                  label: "Audit log (CSV)",
+                  path: `/export/audit?since_days=30${filter ? `&action=${encodeURIComponent(filter)}` : ""}`,
+                  filename: "audit-log.csv",
+                  icon: "text",
+                },
+              ]}
+            />
           </div>
 
           <div className="mt-6 overflow-x-auto rounded-lg border border-border">

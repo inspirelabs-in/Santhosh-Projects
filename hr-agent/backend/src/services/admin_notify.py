@@ -18,7 +18,7 @@ _ROUND_LABEL = {
     "assessment": "Assessment",
     "technical": "Technical interview",
     "ceo": "CEO interview",
-    "hr": "HR interview",
+    "hr": "HR Discussion",
 }
 
 

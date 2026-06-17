@@ -30,6 +30,7 @@ from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request, 
 from pydantic import BaseModel, Field
 
 from src.activities.v1_evaluate_voice_call import evaluate_voice_call
+from src.activities.v1_dispatch_voice_call import dispatch_voice_call
 from src.activities.v1_voice_screening import dispatch_voice_screening
 from src.config import get_settings
 from src.db.base import VoiceCall
@@ -48,6 +49,8 @@ from src.services.emotion_client import analyze_recording
 from src.services.events import publish_event
 from src.services.file_storage import presigned_get_url, upload_blob
 from src.services.queue import enqueue
+from src.services.typed_event_bus import EventType
+from src.services.typed_event_bus import publish_event as publish_supervisor_event
 from src.services.voice_window import clamp_to_call_window
 
 logger = logging.getLogger(__name__)
@@ -486,11 +489,61 @@ async def elevenlabs_webhook(
     x_elevenlabs_signature: str | None = Header(default=None),
 ) -> dict[str, Any]:
     raw = await request.body()
+    logger.info(
+        "elevenlabs webhook received: %d bytes, sig=%s, x-sig=%s",
+        len(raw),
+        bool(elevenlabs_signature),
+        bool(x_elevenlabs_signature),
+    )
     _verify_signature(raw, elevenlabs_signature or x_elevenlabs_signature)
     try:
         payload = ElPayload.model_validate_json(raw)
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"invalid payload: {exc}")
+        logger.error(
+            "elevenlabs webhook payload validation failed: %s\nraw body (first 2000 chars): %s",
+            exc,
+            raw[:2000].decode("utf-8", errors="replace"),
+        )
+        # Fallback: try to extract conversation_id from raw JSON and build
+        # a minimal payload. ElevenLabs sometimes sends events in slightly
+        # different shapes (e.g. flat structure, "event" instead of "type").
+        import json as _json
+
+        try:
+            raw_dict = _json.loads(raw)
+        except Exception:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"invalid payload: {exc}")
+        conv_id = (
+            (raw_dict.get("data") or {}).get("conversation_id")
+            or raw_dict.get("conversation_id")
+        )
+        event_type = raw_dict.get("type") or raw_dict.get("event") or "unknown"
+        if not conv_id:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"invalid payload: {exc}")
+        logger.warning(
+            "elevenlabs webhook: using fallback parsing for conversation_id=%s type=%s",
+            conv_id,
+            event_type,
+        )
+        data_raw = raw_dict.get("data") or raw_dict
+        payload = ElPayload(
+            type=event_type,
+            event_timestamp=raw_dict.get("event_timestamp"),
+            data=ElData(
+                agent_id=data_raw.get("agent_id"),
+                conversation_id=conv_id,
+                status=data_raw.get("status"),
+                transcript=[
+                    ElTranscriptTurn(**t)
+                    for t in (data_raw.get("transcript") or [])
+                    if isinstance(t, dict)
+                ],
+                metadata=ElMetadata(**(data_raw.get("metadata") or {}))
+                if data_raw.get("metadata")
+                else None,
+                analysis=data_raw.get("analysis"),
+            ),
+        )
 
     data = payload.data
     conversation_id = data.conversation_id
@@ -511,8 +564,10 @@ async def elevenlabs_webhook(
         # Explicit call kind column. Pre-0014 rows without the column default
         # to 'screening'; backfill in the migration flipped legacy
         # no-questions rows to 'confirmation'.
-        is_confirmation = (
-            getattr(voice, "call_kind", "screening") == "confirmation"
+        call_kind = getattr(voice, "call_kind", "screening")
+        is_confirmation = call_kind == "confirmation"
+        is_informational = call_kind in (
+            "status_update", "joining_details", "general_query", "meeting_schedule"
         )
 
     # ------------------------------------------------------------------
@@ -537,9 +592,10 @@ async def elevenlabs_webhook(
     if payload.type == "conversation_started" or data.status == "in_progress":
         async with session_scope() as session:
             await mark_in_progress(session, voice_call_id)
-            await set_stage(
-                session, application_id, PipelineStage.VOICE_SCREEN_IN_PROGRESS, force=True
-            )
+            if not is_informational:
+                await set_stage(
+                    session, application_id, PipelineStage.VOICE_SCREEN_IN_PROGRESS, force=True
+                )
             await log_audit(
                 session,
                 application_id=application_id,
@@ -573,6 +629,30 @@ async def elevenlabs_webhook(
         if dur < 5:
             no_answer = True
 
+        # Voicemail detection: short call with no candidate speech, or
+        # typical voicemail greeting phrases in the agent/system transcript.
+        is_voicemail = False
+        if not no_answer and dur > 0:
+            _transcript = data.transcript or []
+            candidate_spoke = any(
+                t.role in ("user", "candidate") and t.message and len(t.message.strip()) > 5
+                for t in _transcript
+                if isinstance(t, ElTranscriptTurn)
+            )
+            if not candidate_spoke and dur < 30:
+                is_voicemail = True
+            # Check for voicemail phrases in all turns
+            all_text = " ".join(
+                (t.message or "") for t in _transcript if isinstance(t, ElTranscriptTurn)
+            ).lower()
+            voicemail_phrases = (
+                "leave a message", "voicemail", "after the beep", "after the tone",
+                "not available", "unavailable", "please leave", "record your message",
+                "mailbox", "greeting", "press 1 to leave",
+            )
+            if any(p in all_text for p in voicemail_phrases):
+                is_voicemail = True
+
         max_retry = settings.voice_agent_max_noanswer_attempts
         backoff_base = settings.voice_agent_noanswer_backoff_seconds
         async with session_scope() as session:
@@ -585,12 +665,13 @@ async def elevenlabs_webhook(
                     "voice_call_id": str(voice_call_id),
                     "conversation_id": conversation_id,
                     "no_answer": no_answer,
+                    "is_voicemail": is_voicemail,
                     "duration_sec": dur,
                     "attempt_no": attempt_no,
                 },
             )
 
-        if no_answer and attempt_no < max_retry:
+        if (no_answer or is_voicemail) and attempt_no < max_retry:
             # Exponential backoff: base * 2^(attempt_no-1), then clamped into
             # the configured call window so retries never land at midnight.
             delay = backoff_base * (2 ** (attempt_no - 1))
@@ -604,13 +685,17 @@ async def elevenlabs_webhook(
                 await mark_failed(
                     session,
                     voice_call_id,
-                    error=f"no_answer attempt={attempt_no}",
-                    status=VoiceCallStatus.NO_ANSWER,
+                    error=f"{'voicemail' if is_voicemail else 'no_answer'} attempt={attempt_no}",
+                    status=VoiceCallStatus.VOICEMAIL if is_voicemail else VoiceCallStatus.NO_ANSWER,
                 )
                 row = await session.get(VoiceCall, voice_call_id)
                 if row is not None:
                     row.callback_at = retry_at
-                    row.callback_reason = f"Auto-retry #{attempt_no + 1} scheduled"
+                    row.callback_reason = (
+                        f"Voicemail detected — auto-retry #{attempt_no + 1} scheduled"
+                        if is_voicemail
+                        else f"Auto-retry #{attempt_no + 1} scheduled"
+                    )
                 if was_clamped:
                     await log_audit(
                         session,
@@ -624,27 +709,49 @@ async def elevenlabs_webhook(
                             "retry_at": retry_at.isoformat(),
                         },
                     )
-            queued = await enqueue(
-                "dispatch_voice_screening",
-                str(application_id),
-                attempt_no=attempt_no + 1,
-                scheduled_at_iso=retry_at.isoformat(),
-                _defer_until=retry_at,
-                _job_id=f"voice-noanswer-{voice_call_id}-{attempt_no + 1}",
-            )
-            if not queued:
-                background.add_task(
-                    dispatch_voice_screening,
-                    application_id=application_id,
+            # Use correct dispatcher based on call kind
+            if call_kind != "screening":
+                queued = await enqueue(
+                    "dispatch_voice_call",
+                    str(application_id),
+                    call_kind=call_kind,
                     attempt_no=attempt_no + 1,
-                    scheduled_at=retry_at,
+                    scheduled_at_iso=retry_at.isoformat(),
+                    _defer_until=retry_at,
+                    _job_id=f"voice-retry-{voice_call_id}-{attempt_no + 1}",
                 )
+            else:
+                queued = await enqueue(
+                    "dispatch_voice_screening",
+                    str(application_id),
+                    attempt_no=attempt_no + 1,
+                    scheduled_at_iso=retry_at.isoformat(),
+                    _defer_until=retry_at,
+                    _job_id=f"voice-noanswer-{voice_call_id}-{attempt_no + 1}",
+                )
+            if not queued:
+                if call_kind != "screening":
+                    background.add_task(
+                        dispatch_voice_call,
+                        application_id=application_id,
+                        call_kind=call_kind,
+                        attempt_no=attempt_no + 1,
+                        scheduled_at=retry_at,
+                    )
+                else:
+                    background.add_task(
+                        dispatch_voice_screening,
+                        application_id=application_id,
+                        attempt_no=attempt_no + 1,
+                        scheduled_at=retry_at,
+                    )
             await publish_event(
                 application_id,
-                event="voice_call_no_answer",
+                event="voice_call_voicemail" if is_voicemail else "voice_call_no_answer",
                 data={
                     "voice_call_id": str(voice_call_id),
                     "attempt_no": attempt_no,
+                    "is_voicemail": is_voicemail,
                     "next_attempt_in_seconds": effective_delay,
                     "retry_at": retry_at.isoformat(),
                 },
@@ -656,15 +763,36 @@ async def elevenlabs_webhook(
                 "attempt_no": attempt_no + 1,
             }
 
-        # Out of retries (or non no-answer failure) -- park for HR.
+        # Out of retries (or non no-answer/voicemail failure) -- park for HR.
         async with session_scope() as session:
             await mark_failed(
                 session,
                 voice_call_id,
-                error="elevenlabs status=failed (max retries reached)" if no_answer else "elevenlabs status=failed",
-                status=VoiceCallStatus.FAILED,
+                error=(
+                    f"{'voicemail' if is_voicemail else 'no_answer'} max retries reached"
+                    if (no_answer or is_voicemail)
+                    else "elevenlabs status=failed"
+                ),
+                status=VoiceCallStatus.VOICEMAIL if is_voicemail else VoiceCallStatus.FAILED,
             )
             await set_stage(session, application_id, PipelineStage.NEEDS_HR_REVIEW, force=True)
+            await publish_supervisor_event(
+                session,
+                EventType.VOICE_CALL_FAILED,
+                application_id=application_id,
+                payload={
+                    "voice_call_id": str(voice_call_id),
+                    "no_answer": no_answer,
+                    "is_voicemail": is_voicemail,
+                    "attempt_no": attempt_no,
+                    "reason": (
+                        "voicemail_max_retries_exhausted" if is_voicemail
+                        else "max_retries_exhausted" if no_answer
+                        else "call_failed"
+                    ),
+                },
+                dedup_extra=f"failed-{voice_call_id}",
+            )
         return {"ok": True, "parked_for_hr": True}
 
     # ------------------------------------------------------------------
@@ -722,16 +850,16 @@ async def elevenlabs_webhook(
         from src.activities.v1_schedule_meeting import schedule_meeting
 
         if decision == "reschedule":
+            meta = (voice.questions or {}) if isinstance(voice.questions, dict) else {}
+            round_name = meta.get("round") or "technical"
             queued = await enqueue(
                 "schedule_meeting_reattempt",
                 str(application_id),
                 voice_call_id=str(voice_call_id),
                 requested_at_iso=requested_at.isoformat() if requested_at else None,
+                round=round_name,
             )
             if not queued:
-                # Inline retry -- pick a slot avoiding the rejected one.
-                meta = (voice.questions or {}) if isinstance(voice.questions, dict) else {}
-                round_name = meta.get("round") or "technical"
                 avoid: list[datetime] = []
                 # We don't know the originally-proposed start here; pulling it
                 # from the most recent meeting_session is sufficient.
@@ -759,6 +887,103 @@ async def elevenlabs_webhook(
             },
         )
         return {"ok": True, "decision": decision}
+
+    # Informational calls: store transcript, no scoring, no stage change.
+    if is_informational:
+        transcript_text = _transcript_text(data.transcript)
+        transcript_key = await _store_transcript(application_id, voice_call_id, transcript_text)
+        recording_key = await _fetch_and_store_recording(
+            application_id, voice_call_id, conversation_id
+        )
+        _duration = data.metadata.call_duration_secs if data.metadata else None
+
+        # Handle meeting_schedule decisions the same as confirmation calls
+        if call_kind == "meeting_schedule":
+            decision, requested_at = _extract_confirmation(data.transcript)
+        else:
+            decision, requested_at = None, None
+
+        # Check for callback requests on informational calls too
+        cb_at, cb_reason = _extract_callback(data.transcript)
+        if cb_at is None:
+            cb_at, _ar = _extract_callback_from_analysis(data.analysis)
+            if cb_reason is None:
+                cb_reason = _ar
+        if cb_at is None:
+            cb_at, _nr = _extract_callback_natural(data.transcript)
+            if cb_reason is None:
+                cb_reason = _nr
+
+        async with session_scope() as session:
+            if cb_at is not None:
+                cb_at_clamped, _ = clamp_to_call_window(cb_at)
+                await save_callback_request(
+                    session, voice_call_id, callback_at=cb_at_clamped, reason=cb_reason
+                )
+            else:
+                await save_call_completion(
+                    session,
+                    voice_call_id,
+                    answers=[],
+                    transcript_r2_key=transcript_key,
+                    recording_r2_key=recording_key,
+                    duration_sec=_duration,
+                    ended_at=datetime.now(UTC),
+                )
+            await log_audit(
+                session,
+                application_id=application_id,
+                action=f"voice_{call_kind}_completed",
+                actor="agent",
+                details={
+                    "voice_call_id": str(voice_call_id),
+                    "call_kind": call_kind,
+                    "duration_sec": _duration,
+                    "decision": decision,
+                },
+            )
+
+        if call_kind == "meeting_schedule":
+            from src.services.smart_scheduler import handle_candidate_response
+            # Find the active meeting session for this application
+            async with session_scope() as session:
+                from sqlalchemy import select as sa_select
+                from src.db.base import MeetingSession
+                ms = (await session.execute(
+                    sa_select(MeetingSession).where(
+                        MeetingSession.application_id == application_id,
+                        MeetingSession.bot_status == "negotiating",
+                    ).order_by(MeetingSession.created_at.desc()).limit(1)
+                )).scalar_one_or_none()
+                ms_id = ms.id if ms else None
+
+            if ms_id:
+                background.add_task(
+                    handle_candidate_response,
+                    meeting_session_id=ms_id,
+                    decision=decision or "no",
+                    preferred_at=requested_at,
+                )
+            elif decision == "reschedule":
+                v_meta = (voice.questions or {}) if isinstance(voice.questions, dict) else {}
+                await enqueue(
+                    "schedule_meeting_reattempt",
+                    str(application_id),
+                    voice_call_id=str(voice_call_id),
+                    requested_at_iso=requested_at.isoformat() if requested_at else None,
+                    round=v_meta.get("round") or "technical",
+                )
+
+        await publish_event(
+            application_id,
+            event=f"voice_{call_kind}_completed",
+            data={
+                "voice_call_id": str(voice_call_id),
+                "call_kind": call_kind,
+                "duration_sec": _duration,
+            },
+        )
+        return {"ok": True, "call_kind": call_kind, "voice_call_id": str(voice_call_id)}
 
     # Three-tier callback extraction:
     #   1. Explicit ``CALLBACK_AT=...`` marker in agent transcript.
@@ -816,6 +1041,19 @@ async def elevenlabs_webhook(
                 application_id=application_id,
                 attempt_no=attempt_no + 1,
                 scheduled_at=callback_at,
+            )
+        # Supervisor event
+        async with session_scope() as sess:
+            await publish_supervisor_event(
+                sess,
+                EventType.VOICE_CALLBACK_REQUESTED,
+                application_id=application_id,
+                payload={
+                    "voice_call_id": str(voice_call_id),
+                    "callback_at": callback_at.isoformat(),
+                    "reason": (callback_reason or "")[:200],
+                },
+                dedup_extra=f"callback-{voice_call_id}",
             )
         return {
             "ok": True,
@@ -1047,4 +1285,179 @@ async def elevenlabs_webhook(
             "answer_count": len(answers_jsonable),
         },
     )
+    # Supervisor event — typed bus
+    async with session_scope() as sess:
+        await publish_supervisor_event(
+            sess,
+            EventType.VOICE_CALL_COMPLETED,
+            application_id=application_id,
+            payload={
+                "voice_call_id": str(voice_call_id),
+                "duration_sec": duration_sec,
+                "answer_count": len(answers_jsonable),
+            },
+            dedup_extra=str(voice_call_id),
+        )
     return {"ok": True, "voice_call_id": str(voice_call_id)}
+
+
+# ---------------------------------------------------------------------------
+# Recovery: poll ElevenLabs API for a stuck conversation
+# ---------------------------------------------------------------------------
+
+
+@router.post("/elevenlabs/recover/{conversation_id}", status_code=status.HTTP_200_OK)
+async def recover_elevenlabs_conversation(
+    conversation_id: str,
+    background: BackgroundTasks,
+) -> dict[str, Any]:
+    """Manually recover a voice call by polling ElevenLabs conversation API.
+
+    Use when the webhook failed (400/500) but the call completed on ElevenLabs.
+    Fetches the conversation transcript directly from ElevenLabs and processes it
+    as if the webhook had arrived successfully.
+    """
+    settings = get_settings()
+    if not settings.elevenlabs_api_key:
+        raise HTTPException(500, "ELEVENLABS_API_KEY not configured")
+
+    # Look up our voice_call row
+    async with session_scope() as session:
+        voice = await get_by_provider_id(
+            session, provider="elevenlabs", provider_call_id=conversation_id
+        )
+        if voice is None:
+            raise HTTPException(404, f"No voice_call found for conversation_id={conversation_id}")
+        if voice.transcript_r2_key:
+            return {"ok": True, "already_completed": True, "voice_call_id": str(voice.id)}
+        application_id = voice.application_id
+        voice_call_id = voice.id
+        questions = voice.questions
+        attempt_no = voice.attempt_no
+        call_kind = getattr(voice, "call_kind", "screening")
+
+    # Fetch conversation from ElevenLabs API
+    url = f"https://api.elevenlabs.io/v1/convai/conversations/{conversation_id}"
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.get(
+            url, headers={"xi-api-key": settings.elevenlabs_api_key}
+        )
+        if resp.status_code == 404:
+            raise HTTPException(404, "Conversation not found on ElevenLabs")
+        resp.raise_for_status()
+        conv_data = resp.json()
+
+    logger.info("elevenlabs recovery: fetched conversation %s, status=%s", conversation_id, conv_data.get("status"))
+
+    el_status = conv_data.get("status", "unknown")
+    if el_status not in ("done", "ended"):
+        return {"ok": False, "status": el_status, "message": "Conversation not yet completed on ElevenLabs"}
+
+    # Build transcript from ElevenLabs response format
+    raw_transcript = conv_data.get("transcript") or []
+    transcript_turns = []
+    for t in raw_transcript:
+        if isinstance(t, dict):
+            transcript_turns.append(ElTranscriptTurn(
+                role=t.get("role", "user"),
+                message=t.get("message") or t.get("text") or "",
+                time_in_call_secs=t.get("time_in_call_secs"),
+            ))
+
+    el_metadata = conv_data.get("metadata") or {}
+    duration_sec = el_metadata.get("call_duration_secs")
+    analysis = conv_data.get("analysis")
+
+    # Build a synthetic payload and pass through the normal webhook flow
+    payload = ElPayload(
+        type="post_call_transcription",
+        data=ElData(
+            agent_id=conv_data.get("agent_id"),
+            conversation_id=conversation_id,
+            status="done",
+            transcript=transcript_turns,
+            metadata=ElMetadata(
+                call_duration_secs=duration_sec,
+                cost=el_metadata.get("cost"),
+            ) if el_metadata else None,
+            analysis=analysis,
+        ),
+    )
+
+    # Process using the same logic as the webhook handler.
+    # We skip signature verification since this is an authenticated internal call.
+    is_confirmation = call_kind == "confirmation"
+    is_informational = call_kind in ("status_update", "joining_details", "general_query", "meeting_schedule")
+
+    # For screening calls: store transcript + answers, kick evaluator
+    transcript_text = _transcript_text(payload.data.transcript)
+    transcript_key = await _store_transcript(application_id, voice_call_id, transcript_text)
+    answers_jsonable = _zip_answers(questions, payload.data.transcript)
+    ended_at = datetime.now(UTC)
+
+    recording_key = await _fetch_and_store_recording(
+        application_id, voice_call_id, conversation_id
+    )
+
+    async with session_scope() as session:
+        await save_call_completion(
+            session,
+            voice_call_id,
+            answers=answers_jsonable,
+            transcript_r2_key=transcript_key,
+            recording_r2_key=recording_key,
+            duration_sec=duration_sec,
+            ended_at=ended_at,
+        )
+        if not is_informational:
+            await set_stage(
+                session, application_id, PipelineStage.VOICE_SCREEN_COMPLETED, force=True
+            )
+        await log_audit(
+            session,
+            application_id=application_id,
+            action="voice_call_recovered",
+            actor="system",
+            details={
+                "voice_call_id": str(voice_call_id),
+                "conversation_id": conversation_id,
+                "duration_sec": duration_sec,
+                "answer_count": len(answers_jsonable),
+                "recovery": True,
+            },
+        )
+
+    # Kick evaluator for screening calls
+    if not is_confirmation and not is_informational:
+        queued = await enqueue(
+            "evaluate_voice_call",
+            str(voice_call_id),
+        )
+        if not queued:
+            background.add_task(
+                evaluate_voice_call,
+                voice_call_id=voice_call_id,
+            )
+
+    await publish_event(
+        application_id,
+        event="voice_call_completed",
+        data={
+            "voice_call_id": str(voice_call_id),
+            "duration_sec": duration_sec,
+            "answer_count": len(answers_jsonable),
+            "recovered": True,
+        },
+    )
+
+    logger.info(
+        "elevenlabs recovery: completed voice_call=%s conversation=%s answers=%d",
+        voice_call_id, conversation_id, len(answers_jsonable),
+    )
+    return {
+        "ok": True,
+        "voice_call_id": str(voice_call_id),
+        "recovered": True,
+        "answer_count": len(answers_jsonable),
+        "duration_sec": duration_sec,
+    }

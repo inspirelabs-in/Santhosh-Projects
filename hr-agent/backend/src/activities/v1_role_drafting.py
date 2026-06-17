@@ -13,6 +13,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from src.llm.client import get_llm_client
+from src.llm.prompt_manager import get_prompt
 from src.llm.prompts.role_drafting import (
     LINKEDIN_POST_SYSTEM,
     LINKEDIN_POST_TURN_TEMPLATE,
@@ -78,7 +79,7 @@ async def chat_role_draft(
         model=client.smart,
         trace_name="role_draft_chat",
         prompt_version=ROLE_DRAFT_VERSION,
-        system=ROLE_DRAFT_SYSTEM,
+        system=get_prompt("role_draft_system", fallback=ROLE_DRAFT_SYSTEM),
         max_tokens=2000,
     )
     return result.parsed
@@ -121,7 +122,7 @@ async def rewrite_section(
         model=client.smart,
         trace_name="role_section_rewrite",
         prompt_version=SECTION_REWRITE_VERSION,
-        system=SECTION_REWRITE_SYSTEM,
+        system=get_prompt("section_rewrite_system", fallback=SECTION_REWRITE_SYSTEM),
         max_tokens=900,
     )
     return result.parsed
@@ -153,7 +154,7 @@ async def generate_linkedin_post(
         model=client.smart,
         trace_name="linkedin_post",
         prompt_version=LINKEDIN_POST_VERSION,
-        system=LINKEDIN_POST_SYSTEM,
+        system=get_prompt("linkedin_post_system", fallback=LINKEDIN_POST_SYSTEM),
         max_tokens=900,
     )
     return result.parsed

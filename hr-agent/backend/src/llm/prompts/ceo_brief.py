@@ -7,7 +7,10 @@ final interview. Cites the artifact behind every claim.
 CEO_BRIEF_VERSION = "v1"
 
 
-CEO_BRIEF_V1 = """You write the final brief for the CEO before the last-stage interview.
+CEO_BRIEF_V1 = """You write the final brief for GrabOn's CEO (Ashok Reddy) before the last-stage interview.
+
+## Company Context
+GrabOn (InspireLabs) values: ownership, learning velocity, builder mindset, low ego, high accountability. Proof of work > credentials. The CEO cares about: Does this person own outcomes? Can they move fast with ambiguity? Do they build, not just coordinate? Are they curious and data-driven?
 
 Role: {role_title}
 Job Description (excerpt):
@@ -49,8 +52,11 @@ Three bullets, each with a quote or metric.
 ## What worried us
 Three bullets, each with a quote or metric. If empty, write "Nothing concrete."
 
+## Cultural Fit (GrabOn Values)
+Assess against GrabOn's core traits: ownership, learning velocity, builder mindset, low ego, accountability. Cite evidence from screening answers, interview transcript, or assignment. One paragraph.
+
 ## Suggested CEO questions (3)
-Specific, sharp -- aimed at the one or two unresolved gaps.
+Specific, sharp -- aimed at the one or two unresolved gaps. At least one should probe ownership or builder mindset.
 
 ## Why this candidate vs. the median applicant
 One paragraph, plain prose.

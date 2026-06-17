@@ -18,6 +18,7 @@ from src.api import (
     agent_status,
     analytics,
     apply,
+    candidate_portal,
     candidate_ranking,
     ceo_dashboard,
     chat,
@@ -28,15 +29,23 @@ from src.api import (
     hr_dashboard,
     events as events_router,
     meetings,
+    panel_availability,
     panels,
     role_drafting,
     roles,
     settings as settings_router,
+    policy_rules,
+    supervisor as supervisor_api,
     talent_search,
+    v1_campaigns,
     v1_dashboard,
     webhooks,
+    webhooks_email,
+    webhooks_inbound_call,
     webhooks_meeting,
+    webhooks_sms,
     webhooks_voice,
+    webhooks_whatsapp,
 )
 from src.config import get_settings
 from src.services.config_store import run_invalidation_listener
@@ -46,6 +55,7 @@ from src.services.auto_nudge import run_auto_nudge_worker
 from src.services.recruiter_nudge_worker import run_recruiter_nudge_worker
 from src.services.stall_detector import run_stall_detector
 from src.services.webhook_watchdog import run_webhook_watchdog
+from src.supervisor.engine import run_supervisor_loop
 
 _settings = get_settings()
 logging.basicConfig(
@@ -87,12 +97,16 @@ async def lifespan(_: FastAPI):
     watchdog = asyncio.create_task(
         run_webhook_watchdog(), name="webhook-watchdog"
     )
+    supervisor = asyncio.create_task(
+        run_supervisor_loop(), name="supervisor-engine"
+    )
+    _all_tasks = (poller, config_listener, nudge_worker, stall_worker, auto_nudge, watchdog, supervisor)
     try:
         yield
     finally:
-        for t in (poller, config_listener, nudge_worker, stall_worker, auto_nudge, watchdog):
+        for t in _all_tasks:
             t.cancel()
-        for t in (poller, config_listener, nudge_worker, stall_worker, auto_nudge, watchdog):
+        for t in _all_tasks:
             try:
                 await t
             except (asyncio.CancelledError, Exception):
@@ -139,6 +153,10 @@ app.add_middleware(
 app.include_router(webhooks.router)
 app.include_router(webhooks_voice.router)
 app.include_router(webhooks_meeting.router)
+app.include_router(webhooks_inbound_call.router)
+app.include_router(webhooks_whatsapp.router)
+app.include_router(webhooks_sms.router)
+app.include_router(webhooks_email.router)
 app.include_router(meetings.router)
 app.include_router(apply.router)
 app.include_router(chat.router)
@@ -151,16 +169,21 @@ app.include_router(roles.careers_router)
 app.include_router(role_drafting.router)
 app.include_router(settings_router.router)
 app.include_router(v1_dashboard.router)
+app.include_router(v1_campaigns.router)
 app.include_router(ceo_dashboard.router)
 app.include_router(hr_dashboard.router)
 app.include_router(events_router.router)
 app.include_router(agent_status.router)
+app.include_router(panel_availability.router)
 app.include_router(panels.router)
 app.include_router(admin_config.router)
 app.include_router(talent_search.router)
 app.include_router(analytics.router)
 app.include_router(export.router)
 app.include_router(candidate_ranking.router)
+app.include_router(supervisor_api.router)
+app.include_router(policy_rules.router)
+app.include_router(candidate_portal.router)
 
 
 @app.get("/healthz", summary="Liveness probe")

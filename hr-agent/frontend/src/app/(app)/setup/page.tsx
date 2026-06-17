@@ -104,7 +104,7 @@ export default function SetupWizardPage() {
     <>
       <Topbar title="Setup" subtitle="first-run configuration" />
       <div className="flex-1 overflow-auto">
-        <div className="mx-auto max-w-4xl px-8 py-10">
+        <div className="mx-auto max-w-5xl px-8 py-6 pb-24">
           <div className="flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-primary" />
             <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-muted-foreground">

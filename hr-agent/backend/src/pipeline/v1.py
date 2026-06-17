@@ -112,6 +112,18 @@ async def run_apply_to_screening(
     # the parser merged this placeholder into a prior candidate row.
     profile: CandidateProfile | None = None
     if resume_r2_key:
+        # Fetch current candidate identity so parse_resume can use it as
+        # fallback when the LLM fails to extract name/email from the PDF.
+        fallback_email: str | None = None
+        fallback_name: str | None = None
+        try:
+            async with session_scope() as session:
+                cand = await session.get(Candidate, candidate_id)
+                if cand:
+                    fallback_email = cand.email
+                    fallback_name = cand.name
+        except Exception:
+            pass
         try:
             parse_result = await run_parse_resume(
                 ParseResumeInput(
@@ -119,6 +131,8 @@ async def run_apply_to_screening(
                     application_id=application_id,
                     r2_key=resume_r2_key,
                     filename=resume_filename or "resume.pdf",
+                    fallback_email=fallback_email,
+                    fallback_name=fallback_name,
                 )
             )
             if parse_result and parse_result.candidate_id != candidate_id:
@@ -217,7 +231,6 @@ async def run_apply_to_screening(
     fit_tier: FitTier | None = None
     voice_screen_enabled = False
     auto_shortlist = False
-    screening_modality = "chat"
     try:
         async with session_scope() as session:
             role = await session.get(Role, role_id)
@@ -227,14 +240,11 @@ async def run_apply_to_screening(
                 if isinstance(rubric, dict)
                 else {}
             )
-            screening_modality = (role.screening_modality if role else "chat") or "chat"
-            # Voice path only when role.screening_modality == 'voice' AND
-            # voice provider configured. Chat-first roles never enter the
-            # voice branch even if the global flag is on.
+            # Voice is the only screening channel.
             voice_provider_on = bool(
                 agentic.get("voice_screening_enabled")
             ) or _settings.enable_voice_screening
-            voice_screen_enabled = screening_modality == "voice" and voice_provider_on
+            voice_screen_enabled = voice_provider_on
             auto_shortlist = bool(agentic.get("auto_shortlist", True))
         # fit_score is the resume-vs-JD validation gate. ALWAYS run it as the
         # first check so unqualified candidates never reach the voice agent.
@@ -272,10 +282,9 @@ async def run_apply_to_screening(
             await _log_error(application_id, candidate_id, "auto_reject_fit", e)
         return
 
-    # Voice-screen path: green/amber + provider enabled -> agent calls candidate.
-    # auto_progress on APPLIED stage will dispatch the voice screening activity,
-    # which itself sets VOICE_SCREEN_SCHEDULED.
-    if fit_tier in {FitTier.GREEN, FitTier.AMBER} and voice_screen_enabled:
+    # Green/amber fit: voice screening is mandatory for all roles.
+    # Log shortlist and let auto_progress advance to voice_screen.
+    if fit_tier in {FitTier.GREEN, FitTier.AMBER}:
         try:
             async with session_scope() as session:
                 await log_audit(
@@ -291,45 +300,27 @@ async def run_apply_to_screening(
             await _log_error(application_id, candidate_id, "auto_shortlist_voice", e)
         return
 
-    # Voice screening is the configured screening modality. If we land here it
-    # means voice screening is disabled OR fit_score failed/unknown. Park for
-    # HR rather than fall back to written email-screening (per product flow:
-    # screening always happens via agent phone call).
-    if voice_screen_enabled:
-        try:
-            async with session_scope() as session:
-                await log_audit(
-                    session,
-                    application_id=application_id,
-                    candidate_id=candidate_id,
-                    action="parked_voice_screen_unavailable",
-                    actor="agent",
-                    details={
-                        "reason": "fit_tier_missing_or_not_eligible",
-                        "fit_tier": fit_tier.value if fit_tier else None,
-                    },
-                )
-                await set_stage(
-                    session, application_id, PipelineStage.NEEDS_HR_REVIEW, force=True
-                )
-        except Exception as e:  # noqa: BLE001
-            await _log_error(application_id, candidate_id, "park_no_voice", e)
-        return
-
-    # V2 chat-first screening path. Used when voice screening is disabled.
-    # Pre-warms the agent (tailored questions + assignment skeleton) and
-    # emails the candidate a single chat link.
+    # If we land here, fit tier was not GREEN/AMBER (shouldn't happen after
+    # RED auto-reject above, but guard anyway). Park for HR review.
     try:
-        from src.pipeline.chat_invite import run_apply_to_chat
-
-        await run_apply_to_chat(
-            application_id=application_id,
-            candidate_id=candidate_id,
-            role_id=role_id,
-        )
+        async with session_scope() as session:
+            await log_audit(
+                session,
+                application_id=application_id,
+                candidate_id=candidate_id,
+                action="parked_voice_screen_unavailable",
+                actor="agent",
+                details={
+                    "reason": "fit_tier_not_eligible",
+                    "fit_tier": fit_tier.value if fit_tier else None,
+                    "voice_screen_enabled": voice_screen_enabled,
+                },
+            )
+            await set_stage(
+                session, application_id, PipelineStage.NEEDS_HR_REVIEW, force=True
+            )
     except Exception as e:  # noqa: BLE001
-        logger.exception("chat invite failed for %s", application_id)
-        await _log_error(application_id, candidate_id, "send_chat_invite", e)
+        await _log_error(application_id, candidate_id, "park_no_voice", e)
 
 
 # ---------------------------------------------------------------------------
@@ -439,18 +430,39 @@ async def run_screening_evaluation(
     else:
         async with session_scope() as session:
             await set_stage(session, application_id, PipelineStage.SCREENING_EVALUATED)
-            await set_stage(session, application_id, PipelineStage.NEEDS_HR_REVIEW)
+
+            from src.services.confidence_gate import should_auto_advance_gate
+            can_skip = await should_auto_advance_gate(
+                session, application_id, "screening_evaluated",
+                role_id=role_id,
+            )
+            if can_skip and evaluation.verdict != "clear_reject":
+                await log_audit(
+                    session,
+                    application_id=application_id,
+                    candidate_id=candidate_id,
+                    action="screening_confidence_auto_advance",
+                    actor="agent",
+                    details={
+                        "verdict": evaluation.verdict,
+                        "overall_score": evaluation.overall_score,
+                    },
+                )
+            else:
+                await set_stage(session, application_id, PipelineStage.NEEDS_HR_REVIEW)
+
             await log_audit(
                 session,
                 application_id=application_id,
                 candidate_id=candidate_id,
-                action="screening_routed_to_hr",
+                action="screening_routed_to_hr" if not can_skip or evaluation.verdict == "clear_reject" else "screening_confidence_passed",
                 actor="agent",
                 details={
                     "verdict": evaluation.verdict,
                     "overall_score": evaluation.overall_score,
                     "reason": "did not clear_pass" if not forced_review else "forced_review",
                     "red_flags": [f.description for f in evaluation.red_flags] if evaluation.red_flags else [],
+                    "confidence_auto_advance": can_skip and evaluation.verdict != "clear_reject",
                 },
             )
 

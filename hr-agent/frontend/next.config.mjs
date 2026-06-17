@@ -4,6 +4,9 @@ const nextConfig = {
   output: "standalone",
   typedRoutes: false,
   devIndicators: false,
+  turbopack: {
+    root: process.cwd(),
+  },
 };
 
 export default nextConfig;

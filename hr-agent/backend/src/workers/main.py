@@ -83,6 +83,7 @@ class WorkerSettings:
 
     functions = [
         jobs.dispatch_voice_screening,
+        jobs.dispatch_voice_call,
         jobs.evaluate_voice_call,
         jobs.dispatch_assessment,
         jobs.dispatch_meeting_bot,
@@ -90,17 +91,26 @@ class WorkerSettings:
         jobs.schedule_meeting,
         jobs.schedule_meeting_reattempt,
         jobs.generate_ceo_brief,
+        jobs.smart_schedule_meeting,
+        jobs.panel_availability_request,
         jobs.poll_due_callbacks,
         jobs.reconcile_stuck_voice_calls,
         jobs.pipeline_sla_monitor,
         jobs.prune_old_artifacts,
+        jobs.assignment_deadline_reminders,
     ]
 
     cron_jobs = [
         cron(
             jobs.poll_due_callbacks,
             name="poll_due_callbacks",
-            second={0, 15, 30, 45},  # every 15 seconds for tight callback timing
+            second={0, 15, 30, 45},
+            run_at_startup=False,
+        ),
+        cron(
+            jobs.campaign_dispatch_tick,
+            name="campaign_dispatch_tick",
+            second={7, 22, 37, 52},
             run_at_startup=False,
         ),
         cron(
@@ -120,6 +130,12 @@ class WorkerSettings:
             name="prune_old_artifacts",
             hour={3},  # daily at 03:00 UTC
             minute={11},
+            run_at_startup=False,
+        ),
+        cron(
+            jobs.assignment_deadline_reminders,
+            name="assignment_deadline_reminders",
+            minute={0, 30},  # every 30 minutes
             run_at_startup=False,
         ),
     ]

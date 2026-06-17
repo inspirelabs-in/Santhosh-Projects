@@ -3,7 +3,9 @@
 import { X, Mail, Phone, ExternalLink } from "lucide-react";
 import useSWR from "swr";
 import { swrFetcher } from "@/lib/api";
+import { evidenceApi, type PipelineConfidenceResponse } from "@/lib/api/supervisor";
 import { StatusTag, type Stage } from "@/components/status-tag";
+import { ConfidenceBadge } from "@/components/confidence-badge";
 import { Avatar } from "@/components/ui/avatar";
 import { SkeletonLines } from "@/components/skeleton";
 import Link from "next/link";
@@ -28,6 +30,11 @@ export function QuickViewPanel({
   const { data, isLoading } = useSWR<QuickDetail>(
     `/dashboard/v1/candidates/${applicationId}`,
     swrFetcher,
+    { shouldRetryOnError: false },
+  );
+  const { data: confidence } = useSWR<PipelineConfidenceResponse>(
+    applicationId ? `confidence:${applicationId}` : null,
+    () => evidenceApi.confidence(applicationId),
     { shouldRetryOnError: false },
   );
 
@@ -67,11 +74,48 @@ export function QuickViewPanel({
             </div>
 
             <div className="flex items-center justify-between">
-              <StatusTag stage={data.current_stage} />
+              <div className="flex items-center gap-2">
+                <StatusTag stage={data.current_stage} />
+                <ConfidenceBadge value={confidence?.overall} />
+              </div>
               {data.role && (
                 <span className="text-xs text-muted-foreground">{data.role.title}</span>
               )}
             </div>
+
+            {confidence && (
+              <div className="rounded-lg border border-border bg-muted/30 p-3">
+                <div className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
+                  Pipeline confidence
+                </div>
+                <div className="mt-1 flex items-baseline gap-3">
+                  <span className="font-data text-2xl font-bold text-primary">
+                    {Math.round(confidence.overall * 100)}%
+                  </span>
+                  <span className="text-xs uppercase text-muted-foreground">
+                    {confidence.recommendation?.replace(/_/g, " ")}
+                  </span>
+                </div>
+                {confidence.per_stage && Object.keys(confidence.per_stage).length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {Object.entries(confidence.per_stage).map(([stage, info]) => (
+                      <div key={stage} className="flex items-center gap-2">
+                        <span className="w-24 truncate text-[10px] text-muted-foreground">{stage.replace(/_/g, " ")}</span>
+                        <div className="h-1 flex-1 rounded-full bg-border">
+                          <div
+                            className="h-1 rounded-full bg-primary"
+                            style={{ width: `${Math.round((info.avg_confidence ?? 0) * 100)}%` }}
+                          />
+                        </div>
+                        <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+                          {Math.round((info.avg_confidence ?? 0) * 100)}%
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             {data.screening_evaluation && (
               <div className="rounded-lg border border-border bg-muted/30 p-3">

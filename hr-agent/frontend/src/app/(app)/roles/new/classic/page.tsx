@@ -10,7 +10,7 @@ import { api } from "@/lib/api";
 import { getDashboardKey } from "@/lib/auth";
 import type { Role } from "@/lib/types";
 
-const BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+const BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
 const empty: Omit<Role, "id" | "created_at"> = {
   title: "",
@@ -28,7 +28,8 @@ const empty: Omit<Role, "id" | "created_at"> = {
   assignment_brief: null,
   assignment_instructions: null,
   assignment_deadline_days: 7,
-  pi_cognitive_url: null,
+  screening_modality: "voice",
+  pipeline_template: null,
 };
 
 export default function ClassicRolePage() {
@@ -37,7 +38,7 @@ export default function ClassicRolePage() {
     <>
       <Topbar title="New role · classic form" subtitle="every field, manually" />
       <div className="flex-1 overflow-auto bg-muted/30">
-        <div className="mx-auto max-w-4xl px-6 py-6">
+        <div className="mx-auto max-w-5xl px-8 py-6 pb-24">
           <Link
             href="/roles/new"
             className="group mb-4 flex items-center justify-between gap-3 rounded-xl border border-primary/30 bg-gradient-to-r from-primary/10 via-primary/5 to-transparent px-4 py-3 transition hover:border-primary/60 hover:shadow-card"

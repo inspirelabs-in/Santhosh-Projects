@@ -42,7 +42,7 @@
     # ------------------------------------------------------------------
     # Backend-only paths: APIs + webhooks + health probes.
     # ------------------------------------------------------------------
-    @backend path /webhooks/* /dashboard/* /agentic/* /diagnostics/* /healthz /metrics /events/* /v2/chat/* /v2/* /admin/*
+    @backend path /webhooks/* /dashboard/* /agentic/* /diagnostics/* /healthz /metrics /events/* /v2/chat/* /v2/* /admin/* /panel-availability/*
     handle @backend {
         reverse_proxy localhost:8001 {
             header_up Host {host}

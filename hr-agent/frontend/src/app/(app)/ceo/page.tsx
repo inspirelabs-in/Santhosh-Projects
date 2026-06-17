@@ -7,6 +7,7 @@ import { Crown, ArrowRight, Sparkles } from "lucide-react";
 import { Topbar } from "@/components/layout/topbar";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatusTag } from "@/components/status-tag";
+import { LazyConfidenceBadge } from "@/components/lazy-confidence-badge";
 import { ceoDashboard, type CEOListItem } from "@/lib/api/agentic";
 import { fmtRelative } from "@/lib/utils";
 
@@ -20,7 +21,7 @@ export default function CEOListPage() {
   return (
     <>
       <Topbar title="CEO journey" subtitle="finalists awaiting your decision" />
-      <div className="flex-1 overflow-auto px-8 py-6">
+      <div className="flex-1 overflow-auto px-8 py-6 pb-24 space-y-6">
         {/* Hero */}
         <div className="relative mb-6 overflow-hidden rounded-xl bg-brand-blue-deep p-6 text-white shadow-card">
           <div
@@ -86,11 +87,14 @@ export default function CEOListPage() {
                           {row.role_title ?? "—"}
                         </p>
                       </div>
-                      {row.fit_score != null ? (
-                        <span className="rounded-md bg-primary/10 px-2 py-1 font-mono text-[11px] font-semibold tabular-nums text-primary">
-                          {row.fit_score}
-                        </span>
-                      ) : null}
+                      <div className="flex items-center gap-1.5">
+                        <LazyConfidenceBadge applicationId={row.application_id} />
+                        {row.fit_score != null ? (
+                          <span className="rounded-md bg-primary/10 px-2 py-1 font-mono text-[11px] font-semibold tabular-nums text-primary">
+                            {row.fit_score}
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
 
                     <div className="flex items-center gap-2">

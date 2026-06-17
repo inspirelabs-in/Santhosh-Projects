@@ -1,0 +1,14 @@
+# macOS archive junk
+__MACOSX/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Claude Code local config
+.claude/

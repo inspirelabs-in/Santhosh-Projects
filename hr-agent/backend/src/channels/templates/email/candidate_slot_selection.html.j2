@@ -1,0 +1,22 @@
+{%- import "_macros.html.j2" as ui with context -%}
+{%- set subject = "Pick your interview time — " ~ (round or "Interview") ~ " round" -%}
+{{ ui.page_open() }}
+{% include "_header.html.j2" %}
+{{ ui.card_open() }}
+  {{ ui.eyebrow("Interview Scheduling") }}
+  {{ ui.hero_title("Hi " ~ (candidate_name or "there") ~ " 👋") }}
+  {{ ui.paragraph("Great news! Your <strong>" ~ (round or "interview") ~ "</strong> interview for the <strong>" ~ (role_title or "open role") ~ "</strong> position has been scheduled.") }}
+  {{ ui.paragraph("Please pick the time that works best for you from the options below:") }}
+
+  {% for slot in slots %}
+  {{ ui.highlight_box("<strong>Option " ~ slot.index ~ ":</strong> " ~ slot.label, accent="info") }}
+  {% endfor %}
+
+  {{ ui.paragraph("If none of these work, you can also propose your own time on the next page.") }}
+  {{ ui.cta_button(select_url, "Choose Your Time Slot") }}
+  {{ ui.fallback_link(select_url) }}
+  {{ ui.paragraph("This link expires in 5 days. A Google Meet link and calendar invite will be sent once you confirm.") }}
+  {{ ui.signoff(name=company_name or "GrabOn Hiring Agent") }}
+{{ ui.card_close() }}
+{% include "_footer.html.j2" %}
+{{ ui.page_close() }}

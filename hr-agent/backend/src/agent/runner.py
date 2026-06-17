@@ -33,6 +33,7 @@ from src.agent.generators import gen_assignment, gen_tailored_questions
 from src.agent.graph import get_graph
 from src.agent.llm_stream import stream_chat
 from src.agent.prompts import CHAT_TURN_SYSTEM_V1, CHAT_TURN_VERSION
+from src.llm.prompt_manager import compile_prompt
 from src.agent.state import AgentState, empty_state
 from src.config import get_settings
 from src.db.base import Application, Candidate, CandidateProfileRow, Role
@@ -159,7 +160,9 @@ def _system_prompt(state: AgentState, role: Role, *, is_opening: bool = False) -
         **(state.get("logistics") or {}),
         **{f"tailored_a{i+1}_present": True for i, _ in enumerate((state.get("tailored_answers") or {}).keys())},
     }
-    base = CHAT_TURN_SYSTEM_V1.format(
+    base = compile_prompt(
+        "chat_turn_system",
+        fallback=CHAT_TURN_SYSTEM_V1,
         company_name="GrabOn",
         role_title=role.title,
         role_location=role.location or "our office",

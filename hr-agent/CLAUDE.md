@@ -1,54 +1,24 @@
 # HR Agent — Project Instructions
 
-## Knowledge Graph (Auto-Managed — DO NOT SKIP)
-
-A knowledge graph at `graphify-out/graph.json` maps every module, function, and relationship in this codebase.
-**It updates automatically** — hooks mark it stale after edits, and it rebuilds at session start.
-
-### MANDATORY: Query graph BEFORE reading files
-
-For ANY codebase question (where is X, how does Y work, what calls Z), ALWAYS run this first:
-```python
-python -c "
-import json; from networkx.readwrite import json_graph; import networkx as nx; from pathlib import Path
-G = json_graph.node_link_graph(json.loads(Path('graphify-out/graph.json').read_text()), edges='links')
-[print(n, d.get('label',''), d.get('source_file','')) for n,d in G.nodes(data=True) if 'KEYWORD' in d.get('label','').lower()]
-"
-```
-Replace KEYWORD with what you're looking for. This tells you exactly which files to read — no wasted token on irrelevant files.
-
-For deeper exploration: `/graphify query "<question>"`
-
-### Auto-update system (already configured)
-- **PostToolUse hook** (Edit/Write): flags `graphify-out/.needs_update`
-- **SessionStart hook**: if flag exists, runs AST-only rebuild (fast, no LLM cost)
-- For non-code changes (docs/prompts): run `/graphify . --update` manually (needs LLM)
-
-### If graph seems stale
-```
-/graphify . --update
-```
-
 ## Architecture Quick Reference
 
-### God Nodes (most connected)
-- `Application` (55 edges) — central ORM, everything FK's to it
-- `Candidate` (50), `Role` (49), `CandidateProfileRow` (36)
-- `get_settings()` (33), `PipelineStage` (33), `set_stage()` (29)
+### Core Entities
+- `Application` — central ORM model, everything FK's to it
+- `Candidate`, `Role`, `CandidateProfileRow`
+- `get_settings()`, `PipelineStage`, `set_stage()`
 
-### Key Communities
-| ID | Name | What |
-|----|------|------|
-| 0 | Resume Parse & Analytics | Parse resume activity, analytics API |
-| 1 | Meeting Scheduling | Schedule + dispatch meetings (Teams/GMeet) |
-| 4 | Chat Agent LangGraph | V2 candidate chat (LangGraph state machine) |
-| 5 | Fit Score & Tiering | Candidate-vs-JD scoring |
-| 6 | Recruiter Agent RBAC | Pulse recruiter agent permissions |
-| 7 | Recruiter Chat API | Pulse API endpoints |
-| 8 | Background Workers | Mail poller, stall detector, nudge, watchdog |
-| 10 | Intake Pipeline | Careers form → intake activity |
-| 13 | Circuit Breaker & Voice | ElevenLabs voice + resilience |
-| 17 | V2 Chat Agent Core | agent runner/graph/generators/state |
+### Key Modules
+| Area | What |
+|------|------|
+| Resume Parse & Analytics | Parse resume activity, analytics API |
+| Meeting Scheduling | Schedule + dispatch meetings (Teams/GMeet) |
+| Chat Agent LangGraph | V2 candidate chat (LangGraph state machine) |
+| Fit Score & Tiering | Candidate-vs-JD scoring |
+| Recruiter Agent RBAC | Pulse recruiter agent permissions |
+| Recruiter Chat API | Pulse API endpoints |
+| Background Workers | Mail poller, stall detector, nudge, watchdog |
+| Intake Pipeline | Careers form → intake activity |
+| Circuit Breaker & Voice | ElevenLabs voice + resilience |
 
 ### Tech Stack
 - **Backend**: Python, FastAPI, Temporal (workflows), Arq (background jobs), PostgreSQL, Redis

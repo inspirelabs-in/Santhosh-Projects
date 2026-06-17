@@ -34,6 +34,10 @@ class PanelMemberCreate(BaseModel):
     timezone: str = "Asia/Kolkata"
     calendar_provider: CalendarProviderLiteral = "microsoft"
     calendar_id: str | None = None
+    expertise_tags: list[str] | None = None
+    department: str | None = None
+    max_interviews_per_week: int = 10
+    seniority_level: str | None = None
     notes: str | None = None
 
 
@@ -45,6 +49,10 @@ class PanelMemberUpdate(BaseModel):
     timezone: str | None = None
     calendar_provider: CalendarProviderLiteral | None = None
     calendar_id: str | None = None
+    expertise_tags: list[str] | None = None
+    department: str | None = None
+    max_interviews_per_week: int | None = None
+    seniority_level: str | None = None
     notes: str | None = None
     is_active: bool | None = None
 
@@ -58,6 +66,10 @@ class PanelMemberOut(BaseModel):
     timezone: str
     calendar_provider: str
     calendar_id: str | None
+    expertise_tags: list[str] | None
+    department: str | None
+    max_interviews_per_week: int
+    seniority_level: str | None
     is_active: bool
     notes: str | None
     created_at: datetime
@@ -77,6 +89,10 @@ def _to_out(row: PanelMember) -> PanelMemberOut:
         timezone=row.timezone,
         calendar_provider=row.calendar_provider,
         calendar_id=row.calendar_id,
+        expertise_tags=row.expertise_tags,
+        department=row.department,
+        max_interviews_per_week=row.max_interviews_per_week,
+        seniority_level=row.seniority_level,
         is_active=row.is_active,
         notes=row.notes,
         created_at=row.created_at,
@@ -124,6 +140,10 @@ async def create_panel_member(
             timezone=body.timezone,
             calendar_provider=body.calendar_provider,
             calendar_id=body.calendar_id,
+            expertise_tags=body.expertise_tags,
+            department=body.department,
+            max_interviews_per_week=body.max_interviews_per_week,
+            seniority_level=body.seniority_level,
             notes=body.notes,
         )
         session.add(row)

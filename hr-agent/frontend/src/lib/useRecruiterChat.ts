@@ -16,7 +16,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getDashboardKey } from "@/lib/auth";
 
-const BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+const BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
 export type RecruiterMessageRole = "user" | "assistant" | "tool" | "system";
 

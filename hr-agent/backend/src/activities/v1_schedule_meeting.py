@@ -199,6 +199,14 @@ async def schedule_meeting(
                 actor="agent",
                 details={"round": round, "attempt_no": attempt_no},
             )
+            from src.services.typed_event_bus import EventType, publish_event
+            await publish_event(
+                session, EventType.PANEL_UNAVAILABLE,
+                application_id=application_id,
+                candidate_id=app.candidate_id,
+                payload={"round": round, "attempt_no": attempt_no, "panel_emails": list(round_cfg.panel_emails)},
+                dedup_extra=f"panel_unavail:{application_id}:{round}",
+            )
             await set_stage(
                 session,
                 application_id,

@@ -157,6 +157,9 @@ async def run_intake(payload: IntakePayload) -> IntakeResult:
     forwarder_email = (
         payload.raw_payload.get("forwarder_email") if payload.raw_payload else None
     )
+    forwarder_name = (
+        payload.raw_payload.get("forwarder_name") if payload.raw_payload else None
+    )
     ack_to = candidate_email or forwarder_email
     ack_sent = False
     if ack_to and not was_duplicate:
@@ -165,7 +168,7 @@ async def run_intake(payload: IntakePayload) -> IntakeResult:
             to=ack_to,
             template="acknowledgement",
             variables={
-                "candidate_name": candidate_name,
+                "candidate_name": candidate_name or forwarder_name or "Applicant",
                 "role_title": role_title,
                 "reference_id": str(application_id),
                 "received_at": datetime.now(tz=UTC).strftime("%d %b %Y, %H:%M UTC"),

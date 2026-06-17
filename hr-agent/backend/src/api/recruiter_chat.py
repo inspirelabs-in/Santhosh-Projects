@@ -379,6 +379,7 @@ async def edit_and_resend(
 class ConfirmBody(BaseModel):
     request_id: str = Field(min_length=1, max_length=128)
     accept: bool = True
+    edited_args: dict[str, Any] | None = None
 
 
 @router.post(
@@ -408,6 +409,13 @@ async def confirm_pending(
 
     redis = get_redis()
     if body.accept:
+        if body.edited_args:
+            confirm_key = f"recruiter-confirm:{conversation_id}:{body.request_id}"
+            raw = await redis.get(confirm_key)
+            if raw:
+                payload = json.loads(raw)
+                payload["args"].update(body.edited_args)
+                await redis.setex(confirm_key, 600, json.dumps(payload))
         await redis.rpush(
             _inbox_key(conversation_id),
             json.dumps(

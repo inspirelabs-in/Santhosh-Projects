@@ -30,6 +30,7 @@ from src.db.repositories import (
     screening_answer as screening_repo,
 )
 from src.db.repositories.audit import log_audit
+from src.db.repositories.policy import resolve_policy
 from src.db.repositories.v1_application import set_stage
 from src.models.v1 import PipelineStage
 
@@ -162,47 +163,41 @@ def _screening_complete(state: AgentState) -> bool:
     return _pick_first_pending(state) == "none"
 
 
-def _evaluate_screening(
+async def _evaluate_screening(
     *,
     logistics: dict[str, Any],
     role: Role,
 ) -> dict[str, Any]:
-    """Cheap heuristic evaluation: knock-outs + composite score.
+    """Heuristic knock-out evaluation with policy-driven thresholds."""
+    async with session_scope() as session:
+        ctc_multiplier, _ = await resolve_policy(
+            session, "ctc_overshoot_multiplier", role.id, fallback=1.15
+        )
+        knock_score, _ = await resolve_policy(
+            session, "screening_knock_score", role.id, fallback=50
+        )
+        pass_score, _ = await resolve_policy(
+            session, "screening_pass_score", role.id, fallback=75
+        )
 
-    Returns ``{evaluation, composite_score, knock_out_triggered, knock_out_reason}``.
-    A more nuanced LLM-based evaluator can be wired here later -- for now we
-    only block on hard constraints (expected CTC vs role band, notice period
-    cap) so the agent still moves the candidate forward in good faith.
-    """
-    reasons: list[str] = []
+    from src.services.knockout import check_hard_knockouts
+
     expected = logistics.get("expected_ctc_lpa")
-    if (
-        expected is not None
-        and role.ctc_max_lpa is not None
-        and float(expected) > float(role.ctc_max_lpa) * 1.15
-    ):
-        reasons.append(
-            f"expected_ctc {expected} LPA exceeds role band ceiling "
-            f"({role.ctc_max_lpa} LPA)"
-        )
     notice = logistics.get("notice_period_days")
-    if (
-        notice is not None
-        and role.max_notice_days is not None
-        and int(notice) > int(role.max_notice_days)
-    ):
-        reasons.append(
-            f"notice_period {notice}d exceeds role max ({role.max_notice_days}d)"
-        )
     relocate = logistics.get("willing_to_relocate")
-    if (
-        relocate is False
-        and (role.remote_policy or "").lower() in {"on_site", "onsite", "office"}
-    ):
-        reasons.append("candidate not willing to relocate to on-site role")
 
-    knock = bool(reasons)
-    score = 50 if knock else 75
+    ko_result = check_hard_knockouts(
+        expected_ctc=float(expected) if expected is not None else None,
+        notice_days=int(notice) if notice is not None else None,
+        willing_to_relocate=relocate,
+        role_ctc_max=float(role.ctc_max_lpa) if role.ctc_max_lpa is not None else None,
+        role_max_notice_days=int(role.max_notice_days) if role.max_notice_days is not None else None,
+        role_remote_policy=role.remote_policy,
+        ctc_multiplier=ctc_multiplier,
+    )
+    reasons = ko_result.reasons
+    knock = ko_result.triggered
+    score = knock_score if knock else pass_score
     return {
         "evaluation": {
             "method": "heuristic_v1",
@@ -236,7 +231,7 @@ async def _advance_pipeline_to_assignment(
         if role is None:
             return None
 
-        eval_payload = _evaluate_screening(logistics=logistics, role=role)
+        eval_payload = await _evaluate_screening(logistics=logistics, role=role)
         stages_to_walk = [
             PipelineStage.SCREENING_SENT,
             PipelineStage.SCREENING_SUBMITTED,

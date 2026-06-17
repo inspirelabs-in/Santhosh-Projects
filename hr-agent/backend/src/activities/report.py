@@ -21,6 +21,7 @@ from src.db.repositories.candidate import get_application, get_candidate
 from src.db.repositories.interview import get_latest_for_application
 from src.db.repositories.role import get_role
 from src.llm.client import get_llm_client
+from src.llm.prompt_manager import compile_prompt
 from src.llm.prompts import INTERVIEW_REPORT_V1, INTERVIEW_REPORT_VERSION
 from src.models.llm_outputs import InterviewReport
 from src.models.scheduling import InterviewStatus
@@ -82,7 +83,9 @@ async def run_interview_report(payload: InterviewReportInput) -> InterviewReport
         else "role-appropriate technical and behavioural competencies"
     )
 
-    prompt = INTERVIEW_REPORT_V1.format(
+    prompt = compile_prompt(
+        "interview_report",
+        fallback=INTERVIEW_REPORT_V1,
         role_title=snapshot["role_title"],
         candidate_name=snapshot["candidate_name"],
         interviewer_names=", ".join(snapshot["panel"]) or "(unspecified)",

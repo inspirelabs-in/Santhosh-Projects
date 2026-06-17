@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getDashboardKey } from "@/lib/auth";
 import { api } from "@/lib/api";
 
-const BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+const BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 const MAX_SSE_RETRIES = 2;
 const POLL_INTERVAL_MS = 8_000;
 

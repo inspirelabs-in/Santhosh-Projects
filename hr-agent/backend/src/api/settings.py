@@ -7,15 +7,54 @@ but never the key value itself.
 
 from __future__ import annotations
 
+import logging
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
-from src.api.auth import require_viewer
+from src.api.auth import require_recruiter, require_viewer
 from src.config import get_settings
+from src.llm.prompt_manager import invalidate_cache as invalidate_prompt_cache, get_prompt_sources
 from src.services.rate_limit import snapshot
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/dashboard/settings", tags=["settings"])
+
+# ---------------------------------------------------------------------------
+# Prompt registry — names used across all activities / agents
+# ---------------------------------------------------------------------------
+
+PROMPT_REGISTRY: list[dict[str, str]] = [
+    {"name": "voice_screen_gen", "label": "Voice Screen — Question Generation", "stage": "voice_screen"},
+    {"name": "voice_screen_eval", "label": "Voice Screen — Evaluation", "stage": "voice_screen"},
+    {"name": "fit_score", "label": "Fit Score", "stage": "fit_score"},
+    {"name": "parse_resume", "label": "Resume Parsing", "stage": "parse"},
+    {"name": "classify_email", "label": "Email Classification", "stage": "intake"},
+    {"name": "screening_gen", "label": "Screening — Question Generation", "stage": "screening"},
+    {"name": "screening_eval", "label": "Screening — Evaluation", "stage": "screening"},
+    {"name": "rejection_message", "label": "Rejection Message", "stage": "rejection"},
+    {"name": "meeting_analysis", "label": "Meeting Analysis", "stage": "interview"},
+    {"name": "ceo_brief", "label": "CEO Brief", "stage": "ceo_interview"},
+    {"name": "journey_report", "label": "Journey Report", "stage": "report"},
+    {"name": "interview_report", "label": "Interview Report", "stage": "report"},
+    {"name": "assignment_parse", "label": "Assignment Parsing", "stage": "assignment"},
+    {"name": "extract_turn", "label": "Chat — Extract Turn Data", "stage": "chat_agent"},
+    {"name": "tailored_qs", "label": "Chat — Tailored Questions", "stage": "chat_agent"},
+    {"name": "assignment_gen", "label": "Assignment Generation", "stage": "assignment"},
+]
+
+
+def _get_langfuse():
+    from langfuse import Langfuse
+    s = get_settings()
+    if not (s.langfuse_public_key and s.langfuse_secret_key):
+        return None
+    return Langfuse(
+        public_key=s.langfuse_public_key,
+        secret_key=s.langfuse_secret_key,
+        host=s.langfuse_host,
+    )
 
 
 @router.get("")
@@ -79,6 +118,123 @@ async def get_ui_settings(
             "usd_spent_today": round(usage.day_usd_spent, 4),
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# Prompt management endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get("/prompts/status")
+async def prompt_status(
+    _: Annotated[str, Depends(require_viewer)],
+) -> dict[str, Any]:
+    from src.llm.client import _langfuse_enabled
+    return {
+        "langfuse_tracing_enabled": _langfuse_enabled,
+        "prompt_sources": get_prompt_sources(),
+    }
+
+
+@router.get("/prompts")
+async def list_prompts(
+    _: Annotated[str, Depends(require_viewer)],
+) -> list[dict[str, Any]]:
+    """List all prompts with their current content and source."""
+    lf = _get_langfuse()
+    results = []
+    for entry in PROMPT_REGISTRY:
+        item: dict[str, Any] = {
+            "name": entry["name"],
+            "label": entry["label"],
+            "stage": entry["stage"],
+            "source": "unknown",
+            "version": None,
+            "content": "",
+            "labels": [],
+        }
+        if lf:
+            try:
+                p = lf.get_prompt(entry["name"], label="production", type="text")
+                item["source"] = "langfuse"
+                item["version"] = p.version
+                item["content"] = p.prompt
+                item["labels"] = list(p.labels) if p.labels else ["production"]
+            except Exception:
+                item["source"] = "not_in_langfuse"
+        results.append(item)
+    return results
+
+
+@router.get("/prompts/{prompt_name}")
+async def get_prompt_detail(
+    prompt_name: str,
+    _: Annotated[str, Depends(require_viewer)],
+) -> dict[str, Any]:
+    """Get a single prompt's content and metadata."""
+    lf = _get_langfuse()
+    if not lf:
+        raise HTTPException(status_code=503, detail="Langfuse not configured")
+    try:
+        p = lf.get_prompt(prompt_name, label="production", type="text")
+        return {
+            "name": p.name,
+            "version": p.version,
+            "labels": list(p.labels) if p.labels else [],
+            "content": p.prompt,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Prompt '{prompt_name}' not found: {e}")
+
+
+class PromptUpdate(BaseModel):
+    content: str
+    commit_message: str = ""
+
+
+@router.put("/prompts/{prompt_name}")
+async def update_prompt(
+    prompt_name: str,
+    payload: PromptUpdate,
+    _: Annotated[str, Depends(require_recruiter)],
+) -> dict[str, Any]:
+    """Update a prompt in Langfuse (creates a new version)."""
+    lf = _get_langfuse()
+    if not lf:
+        raise HTTPException(status_code=503, detail="Langfuse not configured")
+    known = {e["name"] for e in PROMPT_REGISTRY}
+    if prompt_name not in known:
+        raise HTTPException(status_code=400, detail=f"Unknown prompt: {prompt_name}")
+    if not payload.content.strip():
+        raise HTTPException(status_code=400, detail="Prompt content cannot be empty")
+    try:
+        p = lf.create_prompt(
+            name=prompt_name,
+            prompt=payload.content,
+            labels=["production", "latest"],
+            type="text",
+            commit_message=payload.commit_message or f"Updated via dashboard",
+        )
+        invalidate_prompt_cache(prompt_name)
+        logger.info("Prompt '%s' updated to version %s", prompt_name, p.version)
+        return {
+            "name": p.name,
+            "version": p.version,
+            "labels": list(p.labels) if p.labels else [],
+            "status": "ok",
+        }
+    except Exception as e:
+        logger.error("Failed to update prompt '%s': %s", prompt_name, e)
+        raise HTTPException(status_code=500, detail=f"Failed to update prompt: {e}")
+
+
+@router.post("/prompts/refresh")
+async def refresh_prompts(
+    _: Annotated[str, Depends(require_viewer)],
+) -> dict[str, str]:
+    """Flush cached Langfuse prompts so next LLM call picks up latest edits."""
+    invalidate_prompt_cache()
+    return {"status": "ok", "detail": "Prompt cache cleared"}
 
 
 @router.get("/whoami")

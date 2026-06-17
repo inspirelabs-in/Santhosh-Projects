@@ -3,9 +3,8 @@ import type { FitTier } from "@/lib/types";
 
 export function TierBadge({ tier }: { tier: FitTier | null | undefined }) {
   if (!tier) return <Badge variant="muted">—</Badge>;
-  if (tier === "green") return <Badge variant="success">Green</Badge>;
-  if (tier === "amber") return <Badge variant="warning">Amber</Badge>;
-  return <Badge variant="destructive">Red</Badge>;
+  if (tier === "green" || tier === "amber") return <Badge variant="success">{tier === "amber" ? "Pass" : "Pass"}</Badge>;
+  return <Badge variant="destructive">Reject</Badge>;
 }
 
 export function StatusBadge({ status }: { status: string | null | undefined }) {
@@ -19,7 +18,7 @@ export function StatusBadge({ status }: { status: string | null | undefined }) {
 
 export function ScoreBar({ score }: { score: number | null | undefined }) {
   if (score == null) return <span className="text-muted-foreground">—</span>;
-  const color = score >= 70 ? "bg-success" : score >= 50 ? "bg-warning" : "bg-destructive";
+  const color = score >= 60 ? "bg-success" : "bg-destructive";
   return (
     <div className="flex items-center gap-2">
       <div className="h-1.5 w-24 overflow-hidden rounded-full bg-muted">

@@ -4,6 +4,7 @@ import useSWR from "swr";
 import { Topbar } from "@/components/layout/topbar";
 import { swrFetcher } from "@/lib/api";
 import { SkeletonLines } from "@/components/skeleton";
+import { ExportMenu } from "@/components/export-menu";
 import {
   BarChart,
   Bar,
@@ -71,7 +72,7 @@ export default function AnalyticsPage() {
     <>
       <Topbar title="Analytics" subtitle="Pipeline health at a glance" />
       <div className="flex-1 overflow-auto">
-        <div className="mx-auto max-w-6xl px-8 py-6 page-enter">
+        <div className="mx-auto max-w-6xl px-8 py-6 pb-24 page-enter">
           {isLoading ? (
             <SkeletonLines lines={8} />
           ) : !data ? (
@@ -80,6 +81,18 @@ export default function AnalyticsPage() {
             </div>
           ) : (
             <>
+              <div className="mb-4 flex justify-end">
+                <ExportMenu
+                  options={[
+                    {
+                      label: "Pipeline summary (CSV)",
+                      path: "/export/pipeline-summary",
+                      filename: "pipeline-summary.csv",
+                      icon: "spreadsheet",
+                    },
+                  ]}
+                />
+              </div>
               {/* KPI cards */}
               <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
                 <KpiCard label="Total candidates" value={data?.total_candidates ?? 0} />
@@ -98,8 +111,8 @@ export default function AnalyticsPage() {
                 <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">
                   Candidates at each stage
                 </p>
-                <div className="mt-4 h-64">
-                  <ResponsiveContainer width="100%" height="100%" minWidth={200} minHeight={200}>
+                <div className="mt-4 h-64" style={{ minHeight: 200, minWidth: 200 }}>
+                  <ResponsiveContainer width="100%" height="100%" debounce={1}>
                     <BarChart data={funnelData} margin={{ left: 0, right: 16 }}>
                       <XAxis
                         dataKey="stage"
@@ -131,8 +144,8 @@ export default function AnalyticsPage() {
                 {sourceData.length > 0 && (
                   <div className="rounded-xl border border-border bg-card p-5 shadow-card">
                     <h2 className="text-base font-bold tracking-tight">Source mix</h2>
-                    <div className="mt-4 h-52">
-                      <ResponsiveContainer width="100%" height="100%" minWidth={200} minHeight={180}>
+                    <div className="mt-4 h-52" style={{ minHeight: 180, minWidth: 200 }}>
+                      <ResponsiveContainer width="100%" height="100%" debounce={1}>
                         <PieChart>
                           <Pie
                             data={sourceData}
@@ -161,8 +174,8 @@ export default function AnalyticsPage() {
                 {trendData.length > 0 && (
                   <div className="rounded-xl border border-border bg-card p-5 shadow-card">
                     <h2 className="text-base font-bold tracking-tight">Daily applications</h2>
-                    <div className="mt-4 h-52">
-                      <ResponsiveContainer width="100%" height="100%" minWidth={200} minHeight={180}>
+                    <div className="mt-4 h-52" style={{ minHeight: 180, minWidth: 200 }}>
+                      <ResponsiveContainer width="100%" height="100%" debounce={1}>
                         <AreaChart data={trendData}>
                           <XAxis
                             dataKey="date"

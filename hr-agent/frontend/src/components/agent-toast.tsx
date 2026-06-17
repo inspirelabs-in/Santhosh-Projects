@@ -38,6 +38,10 @@ const ACTION_META: Record<
   journey_report_generated: { icon: Sparkles, verb: "Generated report", color: "text-emerald-500" },
   voice_screen_dispatched: { icon: Phone, verb: "Started voice screen", color: "text-cyan-500" },
   voice_screen_evaluated: { icon: Brain, verb: "Analyzed voice screen", color: "text-violet-500" },
+  voice_confirmation_dispatched: { icon: Phone, verb: "Confirmation call", color: "text-cyan-500" },
+  voice_status_update_dispatched: { icon: Phone, verb: "Status update call", color: "text-cyan-500" },
+  voice_meeting_schedule_dispatched: { icon: Phone, verb: "Meeting schedule call", color: "text-cyan-500" },
+  voice_joining_details_dispatched: { icon: Phone, verb: "Joining details call", color: "text-emerald-500" },
   fit_score_computed: { icon: Zap, verb: "Computed fit score", color: "text-amber-500" },
 };
 
@@ -55,6 +59,8 @@ export function AgentToastStack() {
   );
 
   const seenRef = useRef<Set<number>>(new Set());
+  const initializedRef = useRef(false);
+  const mountedAt = useRef(new Date().toISOString());
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   useEffect(() => {
@@ -63,11 +69,22 @@ export function AgentToastStack() {
       (e) => e.actor === "agent" && ACTION_META[e.action],
     );
 
+    // First load: mark all existing events as seen without showing toasts
+    if (!initializedRef.current) {
+      initializedRef.current = true;
+      for (const e of agentEvents) {
+        seenRef.current.add(e.id);
+      }
+      return;
+    }
+
     const fresh: AgentEvent[] = [];
     for (const e of agentEvents) {
-      if (!seenRef.current.has(e.id)) {
+      if (!seenRef.current.has(e.id) && e.created_at > mountedAt.current) {
         seenRef.current.add(e.id);
         fresh.push(e);
+      } else {
+        seenRef.current.add(e.id);
       }
     }
 

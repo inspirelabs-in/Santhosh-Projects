@@ -60,6 +60,11 @@ async def run_apply_to_chat(
     frontend_base = _settings.frontend_base_url.rstrip("/")
     url = f"{frontend_base}/apply/{token}"
 
+    # Generate portal URL for candidate status tracking
+    from src.api.candidate_portal import generate_portal_token
+    portal_token = generate_portal_token(application_id)
+    portal_url = f"{frontend_base}/portal?token={portal_token}"
+
     async with session_scope() as session:
         candidate = await session.get(Candidate, candidate_id)
         role = await session.get(Role, role_id) if role_id else None
@@ -74,6 +79,7 @@ async def run_apply_to_chat(
                     "candidate_name": candidate.name,
                     "role_title": role_title,
                     "form_url": url,
+                    "portal_url": portal_url,
                     "expires_at": "14 days from now",
                     "application_id": str(application_id),
                 },

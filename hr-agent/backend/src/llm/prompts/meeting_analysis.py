@@ -7,7 +7,9 @@ Used for the technical round and reused for the CEO round (with different
 MEETING_ANALYSIS_VERSION = "v1"
 
 
-MEETING_ANALYSIS_V1 = """You evaluate an interview between an employer panel and a candidate.
+MEETING_ANALYSIS_V1 = """You evaluate an interview between a GrabOn (InspireLabs) panel and a candidate.
+
+GrabOn Culture: High-ownership, builder-focused. Values: We Own It, We Learn Always, We Build Trust, We Check Ego, We Dream Big, We Win Together, We Genuinely Care. Assess whether the candidate demonstrates ownership, learning velocity, builder mindset, low ego, and accountability. Note cultural alignment signals in strengths/red_flags.
 
 Round: {round}                 # technical | ceo
 Role: {role_title}

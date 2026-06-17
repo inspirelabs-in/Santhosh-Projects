@@ -32,6 +32,7 @@ import { KanbanView } from "@/components/candidates/kanban-view";
 import { QuickViewPanel } from "@/components/candidates/quick-view-panel";
 import { CandidateContextMenu } from "@/components/candidates/candidate-context-menu";
 import { CsvExportButton } from "@/components/candidates/csv-export";
+import { ExportMenu } from "@/components/export-menu";
 
 interface Candidate {
   application_id: string;
@@ -188,7 +189,7 @@ export default function CandidatesPage() {
       <Topbar title="Candidates" subtitle="Everyone, everywhere in the pipeline" />
       <div className="flex flex-1 overflow-hidden">
       <div className="flex-1 overflow-auto">
-        <div className="mx-auto max-w-6xl px-8 py-6">
+        <div className="mx-auto max-w-6xl px-8 py-6 pb-24">
           <div className="mb-4 flex items-center justify-between gap-4">
             <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
               {total} total
@@ -211,6 +212,22 @@ export default function CandidatesPage() {
                 </button>
               </div>
               <CsvExportButton data={data ?? []} />
+              <ExportMenu
+                options={[
+                  {
+                    label: "All candidates (CSV)",
+                    path: `/export/candidates?format=csv&since_days=90${stage !== "all" ? `&status=${stage}` : ""}`,
+                    filename: "candidates-export.csv",
+                    icon: "spreadsheet",
+                  },
+                  {
+                    label: "Pipeline summary (CSV)",
+                    path: "/export/pipeline-summary",
+                    filename: "pipeline-summary.csv",
+                    icon: "spreadsheet",
+                  },
+                ]}
+              />
               <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshingNow}>
                 <RefreshCw className={cn("mr-1 h-3.5 w-3.5", refreshingNow && "animate-spin")} />
                 {refreshingNow ? "Refreshing" : "Refresh"}

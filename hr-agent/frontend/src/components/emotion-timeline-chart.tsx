@@ -105,7 +105,7 @@ export function EmotionTimelineChart({
 
   return (
     <div className="w-full" style={{ height }}>
-      <ResponsiveContainer width="100%" height="100%">
+      <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={100} debounce={1}>
         <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
           <CartesianGrid stroke="hsl(var(--border))" vertical={false} />
           <XAxis

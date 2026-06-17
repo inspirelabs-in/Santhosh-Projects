@@ -7,7 +7,9 @@ clear_reject is advisory; HR still decides.
 
 SCREENING_EVAL_VERSION = "v3"
 
-SCREENING_EVAL_V1 = """You are evaluating a candidate's written screening responses against the role they applied for.
+SCREENING_EVAL_V1 = """You are evaluating a candidate's screening responses for GrabOn (InspireLabs).
+
+GrabOn Culture: Ownership > task completion. Builders > coordinators. Proof of work > credentials. Learning velocity > static expertise. When evaluating, look for: ownership language, concrete examples of building/shipping, data-driven thinking, curiosity signals. Flag: vague answers with no proof of work, passive "I was assigned" language, credential-heavy but impact-light responses.
 
 Role: {role_title}
 Job Description:

@@ -32,7 +32,6 @@ from typing import Any, Generic, TypeVar
 from uuid import UUID
 
 import litellm
-from langfuse import Langfuse
 from pydantic import BaseModel, ValidationError
 from tenacity import (
     AsyncRetrying,
@@ -242,25 +241,63 @@ class LLMResult(Generic[TModel]):
 
 
 # ---------------------------------------------------------------------------
-# Langfuse (singleton)
+# Langfuse via LiteLLM callback (Langfuse 4.x compatible)
 # ---------------------------------------------------------------------------
 
+# Langfuse 4.x compatibility shims for LiteLLM's bundled adapter.
+#
+# 1. `langfuse.version.__version__` — sub-module removed in 4.x; LiteLLM
+#    reads it to decide which kwargs to pass. We recreate the module.
+#
+# 2. `sdk_integration` kwarg — LiteLLM passes this to Langfuse() but
+#    4.x doesn't accept it. We wrap the constructor to silently drop
+#    unknown kwargs so `safe_init_langfuse_client` doesn't explode.
+try:
+    import langfuse as _langfuse_pkg
+    import sys, types, functools, inspect
 
-def _build_langfuse() -> Langfuse | None:
-    if not (_settings.langfuse_public_key and _settings.langfuse_secret_key):
-        return None
-    return Langfuse(
-        public_key=_settings.langfuse_public_key,
-        secret_key=_settings.langfuse_secret_key,
-        host=_settings.langfuse_host,
-    )
+    # Shim 1: restore langfuse.version module
+    if not hasattr(_langfuse_pkg, "version"):
+        _compat = types.ModuleType("langfuse.version")
+        _compat.__version__ = _langfuse_pkg.__version__
+        _langfuse_pkg.version = _compat  # type: ignore[attr-defined]
+        sys.modules["langfuse.version"] = _compat
 
+    # Shim 2: make Langfuse() accept (and ignore) unknown kwargs
+    _orig_init = _langfuse_pkg.Langfuse.__init__
+    _valid_params = set(inspect.signature(_orig_init).parameters.keys())
 
-_langfuse: Langfuse | None = _build_langfuse()
+    @functools.wraps(_orig_init)
+    def _patched_init(self, *args, **kwargs):
+        filtered = {k: v for k, v in kwargs.items() if k in _valid_params}
+        return _orig_init(self, *args, **filtered)
 
+    _langfuse_pkg.Langfuse.__init__ = _patched_init  # type: ignore[method-assign]
+except Exception:
+    pass
 
-def get_langfuse() -> Langfuse | None:
-    return _langfuse
+_langfuse_enabled = False
+
+if _settings.langfuse_public_key and _settings.langfuse_secret_key:
+    os.environ.setdefault("LANGFUSE_PUBLIC_KEY", _settings.langfuse_public_key)
+    os.environ.setdefault("LANGFUSE_SECRET_KEY", _settings.langfuse_secret_key)
+    if _settings.langfuse_host:
+        os.environ.setdefault("LANGFUSE_HOST", _settings.langfuse_host)
+    try:
+        litellm.success_callback = litellm.success_callback or []
+        if "langfuse" not in litellm.success_callback:
+            litellm.success_callback.append("langfuse")
+        litellm.failure_callback = litellm.failure_callback or []
+        if "langfuse" not in litellm.failure_callback:
+            litellm.failure_callback.append("langfuse")
+        from litellm.integrations.langfuse.langfuse import LangFuseLogger
+        LangFuseLogger()
+        _langfuse_enabled = True
+        logger.info("Langfuse tracing enabled via LiteLLM callback")
+    except Exception as exc:
+        logger.warning("Langfuse callback failed to initialise (%s); tracing disabled", exc)
+        litellm.success_callback = [c for c in (litellm.success_callback or []) if c != "langfuse"]
+        litellm.failure_callback = [c for c in (litellm.failure_callback or []) if c != "langfuse"]
 
 
 # ---------------------------------------------------------------------------
@@ -352,29 +389,16 @@ class LLMClient:
         except RateLimitExceeded as e:
             raise LLMError(f"LLM rate limit hit: {e}") from e
 
-        lf = get_langfuse()
-        trace = None
-        generation = None
+        # Langfuse metadata passed through LiteLLM's callback system.
+        lf_metadata: dict[str, Any] = {
+            "trace_name": trace_name,
+            "candidate_id": str(candidate_id) if candidate_id else None,
+            "application_id": str(application_id) if application_id else None,
+            "prompt_version": prompt_version,
+            **(metadata or {}),
+        }
         trace_id: str | None = None
         generation_id: str | None = None
-        if lf is not None:
-            trace = lf.trace(
-                name=trace_name,
-                metadata={
-                    "candidate_id": str(candidate_id) if candidate_id else None,
-                    "application_id": str(application_id) if application_id else None,
-                    "prompt_version": prompt_version,
-                    **(metadata or {}),
-                },
-            )
-            trace_id = trace.id
-            generation = trace.generation(
-                name=trace_name,
-                model=model_id,
-                input=messages,
-                metadata={"prompt_version": prompt_version},
-            )
-            generation_id = generation.id
 
         last_error: Exception | None = None
         async for attempt in AsyncRetrying(
@@ -391,20 +415,15 @@ class LLMClient:
                         temperature=temperature,
                         max_tokens=max_tokens,
                         response_format={"type": "json_object"},
+                        metadata=lf_metadata,
                     )
                 except litellm.exceptions.AuthenticationError as e:
                     last_error = e
                     safe = pat_sub(str(e))
-                    if generation is not None:
-                        generation.end(level="ERROR", status_message=safe)
-                    # Do not include `e` in the exception chain -- the
-                    # provider's error body can contain the key it received.
                     raise LLMError(f"LLM auth failure: {safe}") from None
                 except litellm.exceptions.BadRequestError as e:
                     last_error = e
                     safe = pat_sub(str(e))
-                    if generation is not None:
-                        generation.end(level="ERROR", status_message=safe)
                     raise LLMError(f"LLM bad request: {safe}") from None
 
                 raw_text: str = response.choices[0].message.content or ""
@@ -414,6 +433,11 @@ class LLMClient:
                 latency_ms = int(
                     float(response._response_ms) if hasattr(response, "_response_ms") else 0
                 )
+
+                # Extract trace/generation IDs from LiteLLM response if available.
+                lf_log = getattr(response, "_hidden_params", {}).get("litellm_logging_obj")
+                if lf_log and hasattr(lf_log, "model_call_details"):
+                    trace_id = lf_log.model_call_details.get("litellm_trace_id")
 
                 try:
                     payload = extract_json(raw_text)
@@ -425,25 +449,8 @@ class LLMClient:
                         attempt.retry_state.attempt_number,
                         e,
                     )
-                    if generation is not None and attempt.retry_state.attempt_number >= max_attempts:
-                        generation.end(
-                            output=raw_text,
-                            level="ERROR",
-                            status_message=f"validation_failed: {e}",
-                        )
                     raise LLMParseError(str(e)) from e
 
-                if generation is not None:
-                    generation.end(
-                        output=parsed.model_dump(mode="json"),
-                        usage={
-                            "input": input_tokens,
-                            "output": output_tokens,
-                            "total": input_tokens + output_tokens,
-                        },
-                    )
-
-                # Update daily counters now that we know real token usage.
                 await record_after_call(
                     model=model_id,
                     input_tokens=input_tokens,
@@ -462,7 +469,6 @@ class LLMClient:
                     generation_id=generation_id,
                 )
 
-        # Unreachable: tenacity either returns a value or re-raises.
         raise LLMError(f"LLM call exhausted retries: {last_error}")
 
 

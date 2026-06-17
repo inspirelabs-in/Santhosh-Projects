@@ -35,14 +35,18 @@ async def save_generated(
     problems: list[dict[str, Any]],
     submission_format: dict[str, Any],
     evaluation_rubric: dict[str, Any] | None = None,
+    deadline_days: int | None = None,
 ) -> AssignmentRow:
-    payload = {
+    payload: dict[str, Any] = {
         "brief_md": brief_md,
         "problems": problems,
         "submission_format": submission_format,
         "evaluation_rubric": evaluation_rubric,
         "generated_at": datetime.now(tz=UTC),
     }
+    if deadline_days:
+        from datetime import timedelta
+        payload["deadline_at"] = datetime.now(tz=UTC) + timedelta(days=deadline_days)
     stmt = (
         pg_insert(AssignmentRow)
         .values(application_id=application_id, **payload)

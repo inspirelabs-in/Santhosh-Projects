@@ -24,10 +24,10 @@ async def voice_to_chat_fallback(
     application_id: UUID,
     error: str,
 ) -> str:
-    """When voice screening fails, fall back to chat-first screening.
+    """When voice screening fails, park for HR review.
 
-    This handles: ElevenLabs out of credits, API errors, phone number
-    issues, candidate unreachable, circuit breaker open.
+    HR can re-trigger voice screening manually. Chat is NOT used as a
+    fallback — voice calls are the only screening channel.
     """
     async with session_scope() as session:
         app = await session.get(Application, application_id)
@@ -46,7 +46,7 @@ async def voice_to_chat_fallback(
             details={
                 "original_error": error[:500],
                 "fallback_action": "parked_for_hr_review",
-                "reason": "Voice screening unavailable. HR can re-trigger voice or switch to chat.",
+                "reason": "Voice screening unavailable. HR can re-trigger voice screening.",
             },
         )
 
@@ -67,34 +67,12 @@ async def voice_to_chat_auto_fallback(
     role_id: UUID | None,
     error: str,
 ) -> str:
-    """Auto-fallback: when voice fails AND auto_fallback_to_chat is enabled,
-    skip HR review and directly send chat screening invite."""
-    try:
-        from src.pipeline.chat_invite import run_apply_to_chat
+    """When voice fails, park for HR review. HR can re-trigger voice manually.
 
-        async with session_scope() as session:
-            await log_audit(
-                session,
-                action="voice_auto_fallback_to_chat",
-                actor="fallback_manager",
-                candidate_id=candidate_id,
-                application_id=application_id,
-                details={
-                    "original_error": error[:500],
-                    "fallback_action": "auto_switch_to_chat_screening",
-                },
-            )
-
-        await run_apply_to_chat(
-            application_id=application_id,
-            candidate_id=candidate_id,
-            role_id=role_id,
-        )
-        return "fallback:voice_to_chat_auto"
-
-    except Exception as e:
-        logger.exception("Auto chat fallback also failed for %s", application_id)
-        return await voice_to_chat_fallback(application_id, f"voice+chat both failed: {e}")
+    Chat screening is NOT used as a fallback — voice calls are the only
+    screening channel for shortlisting.
+    """
+    return await voice_to_chat_fallback(application_id, error)
 
 
 async def email_fallback(

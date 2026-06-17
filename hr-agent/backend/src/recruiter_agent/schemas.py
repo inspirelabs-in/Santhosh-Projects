@@ -107,6 +107,22 @@ RECRUITER_TOOLS: list[dict] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_talent_pool",
+            "description": "Semantic search across the talent pool (vector similarity). Use when the recruiter asks 'find candidates who know X', 'who in our pool matches this role', 'similar candidates to...'. Much richer than keyword search_candidates — uses embeddings to find skill/experience matches.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Free-text query (skills, role description, experience)."},
+                    "role_id": {"type": "string", "description": "Optional role UUID — matches candidates against the role's JD instead of free-text query."},
+                    "limit": {"type": "integer", "default": 20, "minimum": 1, "maximum": 50},
+                },
+                "required": ["query"],
+            },
+        },
+    },
     # ---------------- Phase 1 write tools ----------------
     {
         "type": "function",
@@ -135,7 +151,12 @@ RECRUITER_TOOLS: list[dict] = [
                     "location": {"type": "string"},
                     "remote_policy": {"type": "string", "enum": ["on_site", "hybrid", "remote"]},
                     "max_notice_days": {"type": "integer"},
-                    "screening_modality": {"type": "string", "enum": ["chat", "voice"], "default": "chat"},
+                    "screening_modality": {"type": "string", "enum": ["voice"], "default": "voice"},
+                    "pipeline_template": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Ordered pipeline step IDs. Must end with 'offer'. Use preset names or custom list.",
+                    },
                 },
                 "required": ["title", "jd_text"],
             },
@@ -157,7 +178,7 @@ RECRUITER_TOOLS: list[dict] = [
                     "location": {"type": "string"},
                     "remote_policy": {"type": "string"},
                     "max_notice_days": {"type": "integer"},
-                    "screening_modality": {"type": "string", "enum": ["chat", "voice"]},
+                    "screening_modality": {"type": "string", "enum": ["voice"]},
                     "status": {"type": "string", "enum": ["open", "closed", "draft"]},
                 },
                 "required": ["role_id"],
@@ -278,6 +299,26 @@ RECRUITER_TOOLS: list[dict] = [
                     "round": {"type": "string", "enum": ["technical", "hr", "ceo"]},
                 },
                 "required": ["role_id", "panel_member_id", "round"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_panel_member",
+            "description": "Add a new interviewer to the workspace panel directory. Use when HR mentions a new team member who should conduct interviews. Requires confirmation.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Full name"},
+                    "email": {"type": "string", "description": "Work email"},
+                    "role_type": {"type": "string", "enum": ["technical", "hr", "ceo"], "description": "Panel role type"},
+                    "job_title": {"type": "string", "description": "e.g. Senior Backend Engineer"},
+                    "expertise_tags": {"type": "array", "items": {"type": "string"}, "description": "Skills/expertise areas"},
+                    "department": {"type": "string", "description": "e.g. Engineering, Product, Design"},
+                    "seniority_level": {"type": "string", "enum": ["junior", "mid", "senior", "lead", "executive"]},
+                },
+                "required": ["name", "email", "role_type"],
             },
         },
     },
@@ -405,7 +446,12 @@ RECRUITER_TOOLS: list[dict] = [
                     "location": {"type": "string"},
                     "remote_policy": {"type": "string", "enum": ["on_site", "hybrid", "remote"]},
                     "max_notice_days": {"type": "integer"},
-                    "screening_modality": {"type": "string", "enum": ["chat", "voice"], "default": "chat"},
+                    "screening_modality": {"type": "string", "enum": ["voice"], "default": "voice"},
+                    "pipeline_template": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Ordered list of pipeline step IDs. Presets: standard_engineer, senior_engineer, intern, executive, referral, contract, campus, internal_transfer, rehire. Or custom list from: fit_score, voice_screen, chat_screen, assignment, cognitive_test, technical_interview, hiring_manager, ceo_interview, hr_interview, panel_interview, bar_raiser, reference_check, background_check, offer. Must end with 'offer'.",
+                    },
                     "time_budget_hours": {"type": "integer", "default": 6},
                     "deadline_days": {"type": "integer", "default": 7},
                 },

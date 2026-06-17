@@ -206,7 +206,7 @@ export function AdminReviewPanel({ applicationId, currentStage, meetingReports, 
 
   if (currentStage === "hr_evaluated" || currentStage === "hr_meeting_completed") {
     return (
-      <Panel title="HR round complete — finalize">
+      <Panel title="HR discussion complete — finalize">
         <MeetingReportCard report={meetingReports?.hr} />
         <NotesField notes={notes} setNotes={setNotes} />
         <ActionRow

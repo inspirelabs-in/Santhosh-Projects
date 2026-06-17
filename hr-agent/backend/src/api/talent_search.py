@@ -83,11 +83,19 @@ def _extract_profile_fields(parsed_data: dict) -> dict[str, Any]:
 async def _embed_text(text_input: str) -> list[float]:
     """Generate embedding for search query using the same model as resume parsing."""
     import litellm
-    response = await litellm.aembedding(
-        model=_settings.embedding_model or "text-embedding-3-large",
-        input=[text_input],
-    )
-    return response.data[0]["embedding"]
+    try:
+        response = await litellm.aembedding(
+            model=_settings.embedding_model or "text-embedding-3-large",
+            input=[text_input],
+        )
+        return response.data[0]["embedding"]
+    except Exception as e:
+        logger.error("Embedding generation failed: %s", e)
+        raise HTTPException(
+            503,
+            f"Embedding service unavailable: {type(e).__name__}. "
+            "Check EMBEDDING_MODEL and API key access.",
+        )
 
 
 async def _search_by_embedding(

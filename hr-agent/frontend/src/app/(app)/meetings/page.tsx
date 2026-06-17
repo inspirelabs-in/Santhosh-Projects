@@ -237,7 +237,7 @@ export default function MeetingsPage() {
   return (
     <>
       <Topbar title="Meetings" subtitle="Teams technical + CEO interviews" />
-      <div className="flex-1 overflow-auto px-8 py-6 space-y-4">
+      <div className="flex-1 overflow-auto px-8 py-6 pb-24 space-y-6">
         <KpiStrip stats={stats} />
 
         <div className="flex flex-wrap items-center gap-2">

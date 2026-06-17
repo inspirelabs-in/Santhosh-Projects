@@ -14,6 +14,10 @@ export interface PanelMember {
   timezone: string;
   calendar_provider: CalendarProvider;
   calendar_id: string | null;
+  expertise_tags: string[] | null;
+  department: string | null;
+  max_interviews_per_week: number;
+  seniority_level: string | null;
   is_active: boolean;
   notes: string | null;
   created_at: string;
@@ -28,6 +32,10 @@ export interface PanelMemberCreate {
   timezone?: string;
   calendar_provider?: CalendarProvider;
   calendar_id?: string | null;
+  expertise_tags?: string[] | null;
+  department?: string | null;
+  max_interviews_per_week?: number;
+  seniority_level?: string | null;
   notes?: string | null;
 }
 

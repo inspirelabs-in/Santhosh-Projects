@@ -39,7 +39,19 @@ async def set_stage(
     current = PipelineStage(app.current_stage)
     if not force and not can_transition(current, new_stage):
         raise InvalidTransition(f"{current} -> {new_stage} not allowed")
+    old_stage = app.current_stage
     app.current_stage = new_stage.value
+
+    # Emit supervisor event (no-op if supervisor disabled)
+    from src.services.typed_event_bus import EventType, publish_event
+    await publish_event(
+        session,
+        EventType.STAGE_CHANGED,
+        application_id=application_id,
+        candidate_id=app.candidate_id,
+        payload={"old_stage": old_stage, "new_stage": new_stage.value, "forced": force},
+        dedup_extra=f"{old_stage}->{new_stage.value}",
+    )
 
 
 async def save_screening_questions(

@@ -96,7 +96,7 @@ def _styles() -> Mapping[str, ParagraphStyle]:
 
 def _para(text: str, style: ParagraphStyle) -> Paragraph:
     if not text:
-        text = "&nbsp;"
+        text = " "
     # Escape angle brackets minimally so user content can't break the parser.
     safe = (
         text.replace("&", "&amp;")
@@ -196,13 +196,13 @@ def render_assignment_pdf(
         author=company_name,
     )
     doc._company = company_name
-    doc._title = brief.get("cover_title") or f"{company_name} Challenge"
+    doc._title = f"{company_name} | {role_title} Challenge"
 
     st = _styles()
     story: list[Any] = []
 
     # ---- Cover ----
-    cover_title = brief.get("cover_title") or f"{company_name} | {role_title} Challenge"
+    cover_title = f"{company_name} | {role_title} Challenge"
     story.append(_para(cover_title, st["h_cover"]))
     confidential = brief.get("confidential_tag") or "CONFIDENTIAL"
     story.append(_para(confidential, st["muted_small"]))
@@ -238,7 +238,7 @@ def render_assignment_pdf(
     if what_we_look_for:
         story.append(_para("What We Look For In Builders", st["h2"]))
         for b in what_we_look_for:
-            story.append(_para(f"&bull; {b}", st["bullet"]))
+            story.append(_para(f"• {b}", st["bullet"]))
 
     story.append(PageBreak())
 
@@ -276,19 +276,19 @@ def render_assignment_pdf(
         if techs:
             chunk.append(_para("Technical Requirements", st["h3"]))
             for b in techs:
-                chunk.append(_para(f"&bull; {b}", st["bullet"]))
+                chunk.append(_para(f"• {b}", st["bullet"]))
         if p.get("what_to_submit"):
             chunk.append(_para("What To Submit", st["h3"]))
             chunk.append(_para(p["what_to_submit"], st["body"]))
         artifacts = p.get("expected_artifacts") or []
         if artifacts:
             chunk.append(_para("Expected Artifacts", st["h3"]))
-            chunk.append(_para(", ".join(f"<b>{a}</b>" for a in artifacts), st["body"]))
+            chunk.append(_para(", ".join(f"**{a}**" for a in artifacts), st["body"]))
         evals = p.get("evaluation_bullets") or []
         if evals:
             chunk.append(_para("How It Will Be Evaluated", st["h3"]))
             for b in evals:
-                chunk.append(_para(f"&bull; {b}", st["bullet"]))
+                chunk.append(_para(f"• {b}", st["bullet"]))
         story.extend(chunk)
         story.append(PageBreak())
 
@@ -328,7 +328,7 @@ def render_assignment_pdf(
     if subs:
         story.append(_para("Submission Requirements", st["h1"]))
         for b in subs:
-            story.append(_para(f"&bull; {b}", st["bullet"]))
+            story.append(_para(f"• {b}", st["bullet"]))
         story.append(Spacer(1, 6))
 
     if subm.get("instructions"):

@@ -30,6 +30,7 @@ from src.db.connection import session_scope
 from src.db.repositories.audit import log_audit
 from src.db.repositories.v1_application import save_journey_report
 from src.llm.client import get_llm_client
+from src.llm.prompt_manager import compile_prompt
 from src.llm.prompts.ceo_brief import CEO_BRIEF_V1, CEO_BRIEF_VERSION
 
 logger = logging.getLogger(__name__)
@@ -127,7 +128,9 @@ async def generate_ceo_brief(*, application_id: UUID) -> str:
         fit_score = app.fit_score
         fit_tier = app.fit_tier or "n/a"
 
-    prompt = CEO_BRIEF_V1.format(
+    prompt = compile_prompt(
+        "ceo_brief",
+        fallback=CEO_BRIEF_V1,
         role_title=role_title,
         jd_text=jd_excerpt,
         candidate_json=json.dumps(candidate_summary, ensure_ascii=False)[:4000],

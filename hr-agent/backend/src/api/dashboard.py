@@ -1056,6 +1056,37 @@ async def record_interview_feedback(
             application_id=interview.application_id,
             details=feedback_blob,
         )
+    # Emit supervisor event for feedback received
+    try:
+        from src.services.typed_event_bus import EventType
+        from src.services.typed_event_bus import publish_event as publish_supervisor_event
+        async with session_scope() as sess:
+            await publish_supervisor_event(
+                sess,
+                event_type=EventType.INTERVIEW_FEEDBACK_RECEIVED,
+                application_id=interview.application_id,
+                payload={
+                    "interview_id": str(interview_id),
+                    "recommendation": payload.recommendation,
+                    "overall_score": payload.overall_score,
+                    "reviewer": payload.hr_email,
+                },
+            )
+    except Exception:
+        logger.warning("failed to emit feedback event", exc_info=True)
+
+    # Cross-reference feedback against evidence records
+    try:
+        from src.services.interview_intelligence import cross_reference_feedback
+        discrepancies = await cross_reference_feedback(interview_id, feedback_blob)
+        if discrepancies:
+            logger.info(
+                "feedback cross-ref found %d discrepancies for interview %s",
+                len(discrepancies), interview_id,
+            )
+    except Exception:
+        logger.warning("feedback cross-reference failed", exc_info=True)
+
     return {"ok": True, "interview_id": str(interview_id), "recommendation": payload.recommendation}
 
 

@@ -21,6 +21,7 @@ export type Stage =
   | "voice_screen_failed"
   | "voice_screen_no_answer"
   | "voice_screen_declined"
+  | "voice_screen_voicemail"
   | "assessment_invited"
   | "assessment_completed"
   | "assessment_evaluated"
@@ -31,6 +32,15 @@ export type Stage =
   | "ceo_meeting_scheduled"
   | "ceo_meeting_in_progress"
   | "ceo_meeting_completed"
+  | "ceo_pending_approval"
+  // HR discussion
+  | "hr_meeting_scheduled"
+  | "hr_meeting_in_progress"
+  | "hr_meeting_completed"
+  | "hr_evaluated"
+  // Approval gates
+  | "technical_pending_approval"
+  | "assessment_pending_review"
   // Terminal
   | "rejected"
   | "hired";
@@ -54,6 +64,7 @@ export const STAGE_LABELS: Record<Stage, string> = {
   voice_screen_failed: "call failed",
   voice_screen_no_answer: "did not pick up",
   voice_screen_declined: "candidate declined",
+  voice_screen_voicemail: "went to voicemail",
   assessment_invited: "assessment invited",
   assessment_completed: "assessment completed",
   assessment_evaluated: "assessment evaluated",
@@ -64,6 +75,13 @@ export const STAGE_LABELS: Record<Stage, string> = {
   ceo_meeting_scheduled: "ceo scheduled",
   ceo_meeting_in_progress: "ceo in progress",
   ceo_meeting_completed: "ceo completed",
+  ceo_pending_approval: "ceo approval",
+  hr_meeting_scheduled: "hr scheduled",
+  hr_meeting_in_progress: "hr in progress",
+  hr_meeting_completed: "hr completed",
+  hr_evaluated: "hr evaluated",
+  technical_pending_approval: "tech approval",
+  assessment_pending_review: "assessment review",
   rejected: "rejected",
   hired: "hired",
 };
@@ -118,6 +136,7 @@ const styles: Record<Stage, Style> = {
   voice_screen_failed:              DANGER,
   voice_screen_no_answer:           WARN,
   voice_screen_declined:            DANGER,
+  voice_screen_voicemail:           WARN,
   assessment_invited:               INFO,
   assessment_completed:             INFO,
   assessment_evaluated:             SUCCESS,
@@ -128,6 +147,13 @@ const styles: Record<Stage, Style> = {
   ceo_meeting_scheduled:            { ...ACCENT, border: "border border-primary/40" },
   ceo_meeting_in_progress:          { ...ACCENT, border: "border border-primary/40" },
   ceo_meeting_completed:            SUCCESS,
+  ceo_pending_approval:             { ...WARN, border: "border border-warning/40" },
+  hr_meeting_scheduled:             INFO,
+  hr_meeting_in_progress:           INFO,
+  hr_meeting_completed:             SUCCESS,
+  hr_evaluated:                     { ...WARN, border: "border border-warning/40" },
+  technical_pending_approval:       { ...WARN, border: "border border-warning/40" },
+  assessment_pending_review:        { ...WARN, border: "border border-warning/40" },
   rejected:                         DANGER,
   hired:                            HIRED,
 };

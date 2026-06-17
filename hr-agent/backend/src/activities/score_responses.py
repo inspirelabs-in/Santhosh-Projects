@@ -24,13 +24,14 @@ from src.db.base import CandidateProfileRow, ScreeningResponseRow
 from src.db.connection import session_scope
 from src.db.repositories.audit import log_audit
 from src.db.repositories.candidate import get_application, update_application_status
+from src.db.repositories.policy import resolve_policy
 from src.db.repositories.role import get_role
 from src.llm.client import get_llm_client
+from src.llm.prompt_manager import compile_prompt
 from src.llm.prompts import SCORE_OPEN_TEXT_V1, SCORE_OPEN_TEXT_VERSION
 from src.models.candidate import ApplicationStatus, CandidateProfile
 from src.models.llm_outputs import OpenTextScore
 from src.models.screening import (
-    KnockOutType,
     ScoreResult,
     ScreeningQuestion,
     ScreeningResponseItem,
@@ -39,7 +40,7 @@ from src.models.screening import (
 logger = logging.getLogger(__name__)
 _settings = get_settings()
 
-GREY_ZONE_WIDTH = 10  # ±N points around cut_line
+_DEFAULT_GREY_ZONE_WIDTH = 10
 
 
 @dataclass
@@ -53,67 +54,7 @@ class ScoreResponsesInput:
 # ---------------------------------------------------------------------------
 
 
-def _check_knockouts(
-    questions: list[ScreeningQuestion],
-    responses: list[ScreeningResponseItem],
-    profile: CandidateProfile,
-    role_ctc_max_lpa: float | None,
-    role_max_notice_days: int | None,
-) -> tuple[bool, str | None]:
-    responses_by_id = {r.question_id: r for r in responses}
-
-    for q in questions:
-        if not q.knock_out_value:
-            continue
-
-        if q.type == KnockOutType.CTC_CHECK.value:
-            # Candidate's expected CTC from profile (or from the answer itself)
-            expected = profile.expected_ctc_lpa
-            if expected is None:
-                r = responses_by_id.get(q.id)
-                try:
-                    expected = float(r.answer) if r and r.answer else None
-                except ValueError:
-                    expected = None
-            if (
-                expected is not None
-                and role_ctc_max_lpa is not None
-                and expected > role_ctc_max_lpa * 1.15
-            ):
-                return (
-                    True,
-                    f"Expected CTC ({expected}L) exceeds budget ({role_ctc_max_lpa}L) by >15%",
-                )
-
-        elif q.type == KnockOutType.NOTICE_PERIOD_CHECK.value:
-            notice = profile.notice_period_days
-            if notice is None:
-                r = responses_by_id.get(q.id)
-                try:
-                    notice = int(r.answer) if r and r.answer else None
-                except ValueError:
-                    notice = None
-            if (
-                notice is not None
-                and role_max_notice_days is not None
-                and notice > role_max_notice_days
-            ):
-                return (
-                    True,
-                    f"Notice period ({notice}d) exceeds max ({role_max_notice_days}d)",
-                )
-
-        elif q.type == KnockOutType.MUST_HAVE_SKILL.value:
-            r = responses_by_id.get(q.id)
-            if r is None or r.answer.strip().lower() in ("no", "false", "0", ""):
-                return True, f"Missing must-have: {q.question}"
-
-        elif q.type == KnockOutType.LOCATION_CHECK.value:
-            r = responses_by_id.get(q.id)
-            if r is None or r.answer.strip().lower() != q.knock_out_value.lower():
-                return True, f"Location requirement not met: {q.question}"
-
-    return False, None
+from src.services.knockout import check_screening_knockouts
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +69,9 @@ async def _score_open_text(
     candidate_id: UUID,
     application_id: UUID,
 ) -> OpenTextScore:
-    prompt = SCORE_OPEN_TEXT_V1.format(
+    prompt = compile_prompt(
+        "score_open_text",
+        fallback=SCORE_OPEN_TEXT_V1,
         question_text=question.question,
         rubric_description=question.rubric_description or "relevance, specificity, depth",
         answer_text=response.answer[:4000],
@@ -215,6 +158,13 @@ async def run_score_responses(payload: ScoreResponsesInput) -> ScoreResult:
         responses = [
             ScreeningResponseItem.model_validate(r) for r in (response_row.responses or [])
         ]
+        ctc_multiplier, _ = await resolve_policy(
+            session, "ctc_overshoot_multiplier", role.id, fallback=1.15
+        )
+        grey_zone_width, _ = await resolve_policy(
+            session, "screening_grey_zone_width", role.id, fallback=_DEFAULT_GREY_ZONE_WIDTH
+        )
+
         role_snapshot = {
             "cut_line": role.cut_line,
             "ctc_max_lpa": role.ctc_max_lpa,
@@ -224,12 +174,14 @@ async def run_score_responses(payload: ScoreResponsesInput) -> ScoreResult:
         response_row_id = response_row.id
 
     # 1. Knock-outs
-    knocked, reason = _check_knockouts(
-        questions,
-        responses,
-        profile,
-        role_snapshot["ctc_max_lpa"],
-        role_snapshot["max_notice_days"],
+    knocked, reason = check_screening_knockouts(
+        questions=questions,
+        responses_by_id={r.question_id: r for r in responses},
+        profile_expected_ctc=profile.expected_ctc_lpa,
+        profile_notice_days=profile.notice_period_days,
+        role_ctc_max=role_snapshot["ctc_max_lpa"],
+        role_max_notice_days=role_snapshot["max_notice_days"],
+        ctc_multiplier=ctc_multiplier,
     )
     if knocked:
         composite = 0
@@ -297,7 +249,7 @@ async def run_score_responses(payload: ScoreResponsesInput) -> ScoreResult:
 
         composite = int(round((weighted_sum / total_weight) * 100)) if total_weight > 0 else 0
         cut = role_snapshot["cut_line"]
-        if abs(composite - cut) <= GREY_ZONE_WIDTH:
+        if abs(composite - cut) <= grey_zone_width:
             recommendation = "hr_review"
         elif composite >= cut:
             recommendation = "shortlist"

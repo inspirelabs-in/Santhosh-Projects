@@ -214,7 +214,7 @@ def _propose_preview(tool_name: str, args: dict[str, Any]) -> str:
     if tool_name == "trigger_chat_invite":
         return f"Re-send chat invite to application {a.get('application_id')}."
     if tool_name == "create_role":
-        return f"Create role '{a.get('title')}' (modality={a.get('screening_modality', 'chat')})."
+        return f"Create role '{a.get('title')}' (modality={a.get('screening_modality', 'voice')})."
     if tool_name == "create_role_with_assignment":
         n_problems = len(a.get("problems") or []) or a.get("n_problems") or 2
         return (
@@ -830,26 +830,25 @@ async def run_recruiter_turn(
         model = _settings.llm_model_fast
         assert_model_allowed(model)
 
+        # Stream-first: single streaming call detects both tool_calls and
+        # text replies. Eliminates the old double-call pattern that caused
+        # 2x latency on simple messages like "hi".
         try:
-            # Non-streaming first to detect tool calls. If no tool calls, we
-            # re-issue with stream=True for token-by-token UX.
-            resp = await litellm.acompletion(
+            stream = await litellm.acompletion(
                 model=model,
                 messages=messages,
                 tools=RECRUITER_TOOLS,
                 tool_choice="auto",
                 temperature=0.2,
                 max_tokens=900,
+                stream=True,
+                stream_options={"include_usage": True},
             )
         except litellm.exceptions.AuthenticationError as e:
             yield {"type": "error", "message": f"LLM auth failure: {pat_sub(str(e))}"}
             return
         except litellm.exceptions.BadRequestError as e:
             err = pat_sub(str(e))
-            # Self-heal: if the error is about orphan tool_call shape, strip
-            # ALL prior tool_calls + tool messages and retry with text-only
-            # history. Worst case Pulse re-asks the question -- much better
-            # than a hard error in the user's face.
             if "tool_call" in err.lower() or "tool_calls" in err.lower():
                 logger.warning("self-healing tool_calls history error: %s", err)
                 stripped = [
@@ -859,16 +858,17 @@ async def run_recruiter_turn(
                     and not m.get("tool_calls")
                     and (m.get("content") or "").strip()
                 ]
-                # Drop one orphaned tool message that may also linger.
                 stripped = [m for m in stripped if m.get("role") != "tool"]
                 try:
-                    resp = await litellm.acompletion(
+                    stream = await litellm.acompletion(
                         model=model,
                         messages=stripped,
                         tools=RECRUITER_TOOLS,
                         tool_choice="auto",
                         temperature=0.2,
                         max_tokens=900,
+                        stream=True,
+                        stream_options={"include_usage": True},
                     )
                 except Exception as e2:  # noqa: BLE001
                     yield {"type": "error", "message": f"agent_recovery_failed: {pat_sub(str(e2))}"}
@@ -881,62 +881,80 @@ async def run_recruiter_turn(
             yield {"type": "error", "message": f"agent_error: {e}"}
             return
 
-        choice = resp.choices[0].message
-        tool_calls = getattr(choice, "tool_calls", None) or []
-
-        # ---- No tool calls: stream the assistant's reply text ----
-        if not tool_calls:
-            text = (choice.content or "").strip()
-            if hop == 0 and not text:
-                # Model returned blank -- escalate as error.
-                yield {"type": "error", "message": "empty_response"}
-                return
-            # Re-issue as streaming to get token UX. Cheap because the
-            # assistant message we already have can be skipped.
-            try:
-                stream = await litellm.acompletion(
-                    model=model,
-                    messages=messages,
-                    temperature=0.2,
-                    max_tokens=900,
-                    stream=True,
-                    stream_options={"include_usage": True},
-                )
-            except Exception as e:  # noqa: BLE001
-                # Fallback: emit the non-streamed text as a single token.
-                final_text = _strip_emdash(text)
-                yield {"type": "token", "delta": final_text}
-                final_usage = {"model": model}
+        # Consume the stream: accumulate text tokens AND tool_call deltas.
+        full_text = ""
+        accumulated_tool_calls: dict[int, dict[str, Any]] = {}
+        usage = {"model": model}
+        was_cancelled = False
+        async for chunk in stream:
+            if await _is_cancelled(conversation_id):
+                yield {"type": "cancelled"}
+                was_cancelled = True
                 break
-
-            full = ""
-            usage = {"model": model}
-            was_cancelled = False
-            async for chunk in stream:
-                # Cancel-aware: stop streaming early on a /cancel call.
-                if await _is_cancelled(conversation_id):
-                    yield {"type": "cancelled"}
-                    was_cancelled = True
-                    break
-                ch = (getattr(chunk, "choices", None) or [None])[0]
-                delta = getattr(ch, "delta", None) if ch else None
-                content = getattr(delta, "content", None) if delta else None
-                if content:
-                    content = _strip_emdash(content)
-                    full += content
-                    yield {"type": "token", "delta": content}
+            ch = (getattr(chunk, "choices", None) or [None])[0]
+            delta = getattr(ch, "delta", None) if ch else None
+            if delta is None:
                 u = getattr(chunk, "usage", None)
                 if u is not None:
                     usage["input_tokens"] = int(getattr(u, "prompt_tokens", 0) or 0)
                     usage["output_tokens"] = int(getattr(u, "completion_tokens", 0) or 0)
-            if was_cancelled:
-                # Skip the final persist: writing a truncated assistant message
-                # would leave the conversation history with a stub that breaks
-                # the next turn's tool-call reconstruction.
-                final_text = ""
-                final_usage = usage
+                continue
+            # Text content
+            content = getattr(delta, "content", None)
+            if content:
+                content = _strip_emdash(content)
+                full_text += content
+                yield {"type": "token", "delta": content}
+            # Tool call deltas
+            tc_deltas = getattr(delta, "tool_calls", None) or []
+            for tc_delta in tc_deltas:
+                idx = getattr(tc_delta, "index", None)
+                if idx is None:
+                    idx = 0
+                if idx not in accumulated_tool_calls:
+                    accumulated_tool_calls[idx] = {
+                        "id": getattr(tc_delta, "id", None) or "",
+                        "function_name": "",
+                        "function_args": "",
+                    }
+                entry = accumulated_tool_calls[idx]
+                if getattr(tc_delta, "id", None):
+                    entry["id"] = tc_delta.id
+                fn = getattr(tc_delta, "function", None)
+                if fn:
+                    if getattr(fn, "name", None):
+                        entry["function_name"] += fn.name
+                    if getattr(fn, "arguments", None):
+                        entry["function_args"] += fn.arguments
+            u = getattr(chunk, "usage", None)
+            if u is not None:
+                usage["input_tokens"] = int(getattr(u, "prompt_tokens", 0) or 0)
+                usage["output_tokens"] = int(getattr(u, "completion_tokens", 0) or 0)
+
+        if was_cancelled:
+            final_text = ""
+            final_usage = usage
+            return
+
+        # Build tool_calls list from accumulated deltas.
+        tool_calls = []
+        for idx in sorted(accumulated_tool_calls.keys()):
+            entry = accumulated_tool_calls[idx]
+            if entry["id"] and entry["function_name"]:
+                tool_calls.append(type("TC", (), {
+                    "id": entry["id"],
+                    "function": type("Fn", (), {
+                        "name": entry["function_name"],
+                        "arguments": entry["function_args"],
+                    })(),
+                })())
+
+        # ---- No tool calls: we already streamed the text ----
+        if not tool_calls:
+            if hop == 0 and not full_text.strip():
+                yield {"type": "error", "message": "empty_response"}
                 return
-            final_text = full or text
+            final_text = full_text
             final_usage = usage
             break
 
@@ -969,7 +987,7 @@ async def run_recruiter_turn(
                 session,
                 conversation_id=conversation_id,
                 role="assistant",
-                content=choice.content or "",
+                content=full_text or "",
                 tool_calls=[
                     {
                         "id": c["id"],

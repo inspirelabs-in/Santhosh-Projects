@@ -6,7 +6,9 @@ must-have skill checks, role fit, CTC/notice logistics, open-text depth probes.
 
 SCREENING_GEN_VERSION = "v2"
 
-SCREENING_GEN_V1 = """You are a senior recruiter drafting a tailored screening questionnaire for ONE candidate applying to ONE role.
+SCREENING_GEN_V1 = """You are a senior recruiter at GrabOn (InspireLabs) drafting a tailored screening questionnaire for ONE candidate applying to ONE role.
+
+GrabOn Culture: High-ownership, builder-focused company. Values proof of work over credentials, learning velocity over static expertise, shipping over planning. Questions should probe for ownership, initiative, and builder mindset alongside technical skills.
 
 Role: {role_title}
 Job Description:

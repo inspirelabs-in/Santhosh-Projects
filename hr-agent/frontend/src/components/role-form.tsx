@@ -7,7 +7,7 @@ import {
   Upload,
   X,
   PhoneCall,
-  ClipboardCheck,
+
   Video,
   CalendarClock,
 } from "lucide-react";
@@ -436,24 +436,6 @@ export function RoleForm({
             }
           />
 
-          {/* PI Cognitive static link */}
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <ClipboardCheck className="h-4 w-4 text-primary" />
-              <span className="text-sm font-semibold">Predictive Index Cognitive link</span>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Paste the static PI Cognitive Assessment link. Sent to the
-              candidate after the phone screen passes. Leave empty to skip
-              the assessment courtesy email entirely.
-            </p>
-            <Input
-              value={role.pi_cognitive_url ?? ""}
-              onChange={(e) => set("pi_cognitive_url", e.target.value || null)}
-              placeholder="https://assessment.predictiveindex.com/..."
-            />
-          </div>
-
           {/* Meeting bot */}
           <ToggleRow
             icon={Video}
@@ -495,7 +477,7 @@ export function RoleForm({
           <CardDescription>
             With this on, the agent picks a slot, books a Teams meeting, calls
             the candidate to confirm, and emails everyone. Works for technical,
-            CEO, and HR rounds. Saved into{" "}
+            CEO, and HR discussions. Saved into{" "}
             <code className="font-mono text-xs">scoring_rubric.scheduling</code>.
           </CardDescription>
         </CardHeader>

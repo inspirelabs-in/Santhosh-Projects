@@ -111,6 +111,11 @@ async def send_assignment_email(
             attachments=attachments,
         )
 
+        from src.db.repositories.assignment import get as get_assignment
+        assignment = await get_assignment(session, application_id)
+        if assignment:
+            assignment.deadline_at = deadline_at
+
         await log_audit(
             session,
             candidate_id=candidate_id,

@@ -230,7 +230,14 @@ class ElevenLabsConvAIProvider:
             try:
                 resp.raise_for_status()
             except httpx.HTTPStatusError as exc:
-                await record_failure(ELEVENLABS, f"HTTP {exc.response.status_code}")
+                if exc.response.status_code in (429, 500, 502, 503, 504):
+                    await record_failure(ELEVENLABS, f"HTTP {exc.response.status_code}")
+                else:
+                    logger.warning(
+                        "elevenlabs per-call error %s (not tripping circuit): %s",
+                        exc.response.status_code,
+                        exc.response.text[:200],
+                    )
                 raise
             await record_success(ELEVENLABS)
             data = resp.json()

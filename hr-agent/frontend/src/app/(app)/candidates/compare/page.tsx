@@ -59,7 +59,7 @@ export default function ComparePage() {
     <>
       <Topbar title="Compare candidates" />
       <div className="flex-1 overflow-auto">
-        <div className="mx-auto max-w-[1400px] px-8 py-6">
+        <div className="mx-auto max-w-[1400px] px-8 py-6 pb-24">
           <Link
             href="/candidates"
             className="inline-flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.15em] text-muted-foreground hover:text-foreground"

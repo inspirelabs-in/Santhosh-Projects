@@ -155,6 +155,19 @@ async def reset_to_default(
             )
         )
 
+        from src.services.typed_event_bus import EventType, publish_event
+        await publish_event(
+            session,
+            EventType.CONFIG_UPDATED,
+            payload={"key": key, "action": "reset_to_default", "old_value": old_value},
+        )
+        if key == "LLM_DAILY_BUDGET_USD":
+            await publish_event(
+                session,
+                EventType.BUDGET_CHANGED,
+                payload={"key": key, "old_value": old_value, "new_value": None},
+            )
+
     try:
         await get_redis().publish("config:invalidate", "1")
     except Exception:
@@ -199,6 +212,21 @@ async def update_values(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    from src.db.connection import session_scope
+    from src.services.typed_event_bus import EventType, publish_event
+    async with session_scope() as session:
+        await publish_event(
+            session,
+            EventType.CONFIG_UPDATED,
+            payload={"keys": list(cleaned.keys()), "action": "update"},
+        )
+        if "LLM_DAILY_BUDGET_USD" in cleaned:
+            await publish_event(
+                session,
+                EventType.BUDGET_CHANGED,
+                payload={"key": "LLM_DAILY_BUDGET_USD", "new_value": cleaned["LLM_DAILY_BUDGET_USD"]},
+            )
 
     return {"updated": stored}
 

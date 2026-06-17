@@ -105,7 +105,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_API_BASE_URL: "https://chili-congested-brethren.ngrok-free.dev"
+        NEXT_PUBLIC_API_BASE_URL: ""
     ports: ["127.0.0.1:3100:3100"]
     depends_on:
       backend: { condition: service_started }

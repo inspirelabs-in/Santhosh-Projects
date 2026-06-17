@@ -26,6 +26,23 @@ export interface DispatchVoiceScreenBody {
   scheduled_at?: string | null;
 }
 
+export type CallKind =
+  | "screening"
+  | "confirmation"
+  | "meeting_schedule"
+  | "status_update"
+  | "joining_details"
+  | "general_query";
+
+export const CALL_KIND_LABELS: Record<CallKind, string> = {
+  screening: "Screening",
+  confirmation: "Confirmation",
+  meeting_schedule: "Meeting schedule",
+  status_update: "Status update",
+  joining_details: "Joining details",
+  general_query: "General query",
+};
+
 export interface VoiceCallListItem {
   voice_call_id: string;
   application_id: string;
@@ -33,6 +50,7 @@ export interface VoiceCallListItem {
   role_title: string | null;
   candidate_phone: string | null;
   status: string;
+  call_kind: CallKind;
   overall_score: number | null;
   verdict: string | null;
   duration_sec: number | null;
@@ -56,13 +74,66 @@ export const voiceCalls = {
       body,
     );
   },
-  list(params: { status?: string; limit?: number; offset?: number } = {}) {
+  dispatchCall(body: { application_id: string; call_kind: CallKind }) {
+    return api.post<{ ok: boolean; voice_call_id: string }>(
+      "/agentic/voice-call/dispatch",
+      body,
+    );
+  },
+  list(params: { status?: string; call_kind?: string; limit?: number; offset?: number } = {}) {
     const qs = new URLSearchParams();
     if (params.status) qs.set("status", params.status);
+    if (params.call_kind) qs.set("call_kind", params.call_kind);
     if (params.limit) qs.set("limit", String(params.limit));
     if (params.offset) qs.set("offset", String(params.offset));
     const q = qs.toString();
     return api.get<VoiceCallListItem[]>(`/agentic/voice-calls${q ? `?${q}` : ""}`);
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Voice campaigns
+// ---------------------------------------------------------------------------
+
+export interface CampaignResponse {
+  id: string;
+  status: string;
+  call_kind: string;
+  name: string;
+  total_calls: number;
+  completed_calls: number;
+  failed_calls: number;
+}
+
+export interface CampaignDetailResponse extends CampaignResponse {
+  progress: Record<string, number>;
+  max_concurrent: number;
+}
+
+export interface CreateCampaignBody {
+  call_kind: CallKind;
+  application_ids: string[];
+  name: string;
+  role_id?: string;
+  max_concurrent?: number;
+  dispatch_rate_per_minute?: number;
+}
+
+export const campaigns = {
+  create(body: CreateCampaignBody) {
+    return api.post<CampaignResponse>("/agentic/voice-campaigns", body);
+  },
+  start(campaignId: string) {
+    return api.post<CampaignResponse>(`/agentic/voice-campaigns/${campaignId}/start`);
+  },
+  get(campaignId: string) {
+    return api.get<CampaignDetailResponse>(`/agentic/voice-campaigns/${campaignId}`);
+  },
+  pause(campaignId: string) {
+    return api.post<CampaignResponse>(`/agentic/voice-campaigns/${campaignId}/pause`);
+  },
+  cancel(campaignId: string) {
+    return api.post<CampaignResponse>(`/agentic/voice-campaigns/${campaignId}/cancel`);
   },
 };
 

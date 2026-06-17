@@ -7,6 +7,7 @@ import { HeartHandshake, ArrowRight, Sparkles } from "lucide-react";
 import { Topbar } from "@/components/layout/topbar";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatusTag } from "@/components/status-tag";
+import { LazyConfidenceBadge } from "@/components/lazy-confidence-badge";
 import { hrDashboard, type CEOListItem } from "@/lib/api/agentic";
 import { fmtRelative } from "@/lib/utils";
 
@@ -23,7 +24,7 @@ export default function HRListPage() {
         title="HR journey"
         subtitle="post-CEO finalists for offer or close"
       />
-      <div className="flex-1 overflow-auto px-8 py-6">
+      <div className="flex-1 overflow-auto px-8 py-6 pb-24 space-y-6">
         <div className="relative mb-6 overflow-hidden rounded-xl bg-emerald-700 p-6 text-white shadow-card">
           <div
             className="absolute -right-24 -top-24 h-64 w-64 rounded-full bg-emerald-300/30 blur-3xl"
@@ -93,11 +94,14 @@ export default function HRListPage() {
                           {row.role_title ?? "—"}
                         </p>
                       </div>
-                      {row.fit_score != null ? (
-                        <span className="rounded-md bg-primary/10 px-2 py-1 font-mono text-[11px] font-semibold tabular-nums text-primary">
-                          {row.fit_score}
-                        </span>
-                      ) : null}
+                      <div className="flex items-center gap-1.5">
+                        <LazyConfidenceBadge applicationId={row.application_id} />
+                        {row.fit_score != null ? (
+                          <span className="rounded-md bg-primary/10 px-2 py-1 font-mono text-[11px] font-semibold tabular-nums text-primary">
+                            {row.fit_score}
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
 
                     <div className="flex items-center gap-2">

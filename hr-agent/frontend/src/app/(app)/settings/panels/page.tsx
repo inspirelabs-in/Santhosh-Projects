@@ -18,6 +18,9 @@ import {
   Globe2,
   Calendar,
   RotateCcw,
+  Briefcase,
+  Award,
+  Tag,
 } from "lucide-react";
 
 import { Topbar } from "@/components/layout/topbar";
@@ -121,7 +124,7 @@ export default function PanelsPage() {
       if (tab !== "all" && m.role_type !== tab) return false;
       if (!showInactive && !m.is_active) return false;
       if (q) {
-        const hay = `${m.name} ${m.email} ${m.job_title ?? ""}`.toLowerCase();
+        const hay = `${m.name} ${m.email} ${m.job_title ?? ""} ${m.department ?? ""} ${(m.expertise_tags ?? []).join(" ")}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -147,7 +150,7 @@ export default function PanelsPage() {
         subtitle="interview directory · workspace"
       />
       <div className="flex-1 overflow-auto">
-        <div className="mx-auto max-w-6xl px-8 py-6 space-y-6">
+        <div className="mx-auto max-w-6xl px-8 py-6 pb-24 space-y-6">
           <PageHeader
             title={
               <span className="font-display text-[40px] font-normal">
@@ -157,7 +160,7 @@ export default function PanelsPage() {
             description={
               <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
                 add once · referenced by roles · used by the agent for
-                tech / CEO / HR rounds
+                tech / CEO / HR discussions
               </span>
             }
           />
@@ -469,6 +472,24 @@ function MemberCard({
               </div>
             </div>
 
+            {/* Department & Seniority badges */}
+            {(m.department || m.seniority_level) && (
+              <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                {m.department && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
+                    <Briefcase className="h-2.5 w-2.5" />
+                    {m.department}
+                  </span>
+                )}
+                {m.seniority_level && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.1em] text-primary">
+                    <Award className="h-2.5 w-2.5" />
+                    {m.seniority_level}
+                  </span>
+                )}
+              </div>
+            )}
+
             <div className="mt-2 space-y-1 text-xs">
               <a
                 href={`mailto:${m.email}`}
@@ -488,7 +509,28 @@ function MemberCard({
                   <span className="truncate">· {m.calendar_id}</span>
                 ) : null}
               </p>
+              {m.max_interviews_per_week > 0 && (
+                <p className="flex items-center gap-1.5 truncate text-muted-foreground">
+                  <Users className="h-3 w-3 shrink-0" />
+                  {m.max_interviews_per_week} interviews / week
+                </p>
+              )}
             </div>
+
+            {/* Expertise tags */}
+            {m.expertise_tags && m.expertise_tags.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {m.expertise_tags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="inline-flex items-center gap-0.5 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary"
+                  >
+                    <Tag className="h-2.5 w-2.5" />
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )}
 
             {m.notes ? (
               <p className="mt-2 line-clamp-2 rounded-md bg-muted/40 px-2 py-1 text-[11px] italic text-muted-foreground">
@@ -516,12 +558,22 @@ function MemberDialog({
     email: existing?.email ?? "",
     role_type: (existing?.role_type as PanelRoleType) ?? "technical",
     job_title: existing?.job_title ?? "",
+    department: existing?.department ?? "",
+    seniority_level: existing?.seniority_level ?? "",
+    max_interviews_per_week: existing?.max_interviews_per_week ?? 5,
     timezone: existing?.timezone ?? "Asia/Kolkata",
     calendar_provider:
       (existing?.calendar_provider as CalendarProvider) ?? "microsoft",
     calendar_id: existing?.calendar_id ?? "",
     notes: existing?.notes ?? "",
   });
+  const [expertiseInput, setExpertiseInput] = useState(
+    existing?.expertise_tags?.join(", ") ?? "",
+  );
+  const parsedTags = expertiseInput
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -532,6 +584,10 @@ function MemberDialog({
       const payload: PanelMemberCreate = {
         ...form,
         job_title: form.job_title || null,
+        department: form.department || null,
+        seniority_level: form.seniority_level || null,
+        max_interviews_per_week: form.max_interviews_per_week ?? 5,
+        expertise_tags: parsedTags.length > 0 ? parsedTags : null,
         calendar_id: form.calendar_id || null,
         notes: form.notes || null,
       };
@@ -554,7 +610,7 @@ function MemberDialog({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg rounded-xl border border-border bg-card p-5 shadow-xl"
+        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-card p-5 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-3 flex items-center justify-between">
@@ -591,14 +647,84 @@ function MemberDialog({
             </Field>
           </div>
 
-          <Field label="Email">
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Department">
+              <input
+                value={form.department ?? ""}
+                onChange={(e) =>
+                  setForm({ ...form, department: e.target.value })
+                }
+                className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm"
+                placeholder="e.g. Engineering, Product, Design"
+              />
+            </Field>
+            <Field label="Seniority level">
+              <select
+                value={form.seniority_level ?? ""}
+                onChange={(e) =>
+                  setForm({ ...form, seniority_level: e.target.value })
+                }
+                className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm"
+              >
+                <option value="">Select level</option>
+                <option value="junior">Junior</option>
+                <option value="mid">Mid</option>
+                <option value="senior">Senior</option>
+                <option value="lead">Lead</option>
+                <option value="executive">Executive</option>
+              </select>
+            </Field>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Max interviews / week">
+              <input
+                type="number"
+                min={1}
+                max={20}
+                value={form.max_interviews_per_week ?? 5}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    max_interviews_per_week: Number(e.target.value),
+                  })
+                }
+                className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm"
+              />
+            </Field>
+            <Field label="Email">
+              <input
+                type="email"
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm"
+                placeholder="jane@grabon.in"
+              />
+            </Field>
+          </div>
+
+          <Field label="Expertise tags">
             <input
-              type="email"
-              value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
+              value={expertiseInput}
+              onChange={(e) => setExpertiseInput(e.target.value)}
               className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm"
-              placeholder="jane@grabon.in"
+              placeholder="python, react, system-design (comma-separated)"
             />
+            <p className="mt-1 text-[10px] text-muted-foreground">
+              Comma-separated skills. Used for smart panel matching.
+            </p>
+            {parsedTags.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {parsedTags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary"
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )}
           </Field>
 
           <Field label="Panel type">
