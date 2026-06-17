@@ -397,8 +397,10 @@ async def reconcile_stuck_voice_calls(ctx: dict[str, Any]) -> int:
             continue
 
         conv_status = (conv.get("status") or "").lower()
-        if conv_status in ("in_progress", "processing", "started", ""):
-            # Still live on provider side -- skip; maybe webhook arrives later.
+        if conv_status in ("in_progress", "processing", "started", "initiated", ""):
+            # Still live on provider side or never connected -- skip.
+            # "initiated" means the call was placed but never bridged; let it
+            # age out via the no-answer retry path instead of faking a completion.
             continue
 
         # Build typed turn list once.
@@ -462,6 +464,33 @@ async def reconcile_stuck_voice_calls(ctx: dict[str, Any]) -> int:
             reconciled += 1
             continue
 
+        # Guard: if ElevenLabs returned a terminal status but the call never
+        # actually connected (0 transcript turns, 0 or missing duration), this
+        # is a telephony failure — not a real screening. Mark as no-answer so
+        # the retry/HR-review path handles it instead of sending empty data to
+        # the LLM evaluator.
+        if not turns and (duration_sec is None or duration_sec == 0):
+            async with session_scope() as session:
+                await mark_failed(
+                    session,
+                    voice_call_id,
+                    error=f"call never connected (reconcile: status={conv_status}, 0 turns, dur=0)",
+                    status=VoiceCallStatus.NO_ANSWER,
+                )
+                await log_audit(
+                    session,
+                    application_id=application_id,
+                    action="voice_call_never_connected_reconcile",
+                    actor="agent",
+                    details={
+                        "voice_call_id": str(voice_call_id),
+                        "conversation_id": provider_call_id,
+                        "conv_status": conv_status,
+                    },
+                )
+            reconciled += 1
+            continue
+
         # Otherwise: treat as completed. Persist transcript + recording + answers.
         transcript_text = _transcript_text(turns)
         transcript_key = await _store_transcript(
@@ -501,6 +530,35 @@ async def reconcile_stuck_voice_calls(ctx: dict[str, Any]) -> int:
             )
         await enqueue("evaluate_voice_call", str(voice_call_id))
         reconciled += 1
+
+    # Phase 2: pick up calls that completed (transcript saved) but evaluation
+    # failed — they sit in voice_screen_completed with no verdict indefinitely.
+    eval_retry_cutoff = now - timedelta(minutes=5)
+    async with session_scope() as session:
+        from src.db.base import Application as _App
+
+        stuck_evaluated = (
+            await session.execute(
+                select(VoiceCall)
+                .join(_App, _App.id == VoiceCall.application_id)
+                .where(
+                    VoiceCall.status == VoiceCallStatus.COMPLETED.value,
+                    VoiceCall.transcript_r2_key.isnot(None),
+                    VoiceCall.overall_score.is_(None),
+                    VoiceCall.ended_at < eval_retry_cutoff,
+                )
+                .limit(10)
+            )
+        ).scalars().all()
+
+    for vc in stuck_evaluated:
+        logger.info(
+            "reconcile: retrying evaluation for voice_call %s (completed but no verdict)",
+            vc.id,
+        )
+        queued = await enqueue("evaluate_voice_call", str(vc.id))
+        if queued:
+            reconciled += 1
 
     return reconciled
 
@@ -748,3 +806,83 @@ async def prune_old_artifacts(ctx: dict[str, Any]) -> int:
                     logger.warning("prune meeting artifact failed key=%s: %s", k, exc)
 
     return deleted
+
+
+# ---------------------------------------------------------------------------
+# Cron: reconcile stuck meetings.
+# Mirrors reconcile_stuck_voice_calls for the meeting pipeline. Two cases:
+# 1. bot_status='done' + transcript saved but no analysis (analyzer crash/timeout)
+# 2. bot_status='in_call' for > 3 hours (bot never reported back)
+# ---------------------------------------------------------------------------
+
+
+async def reconcile_stuck_meetings(ctx: dict[str, Any]) -> int:
+    from src.db.base import MeetingSession
+    from src.db.repositories.meeting_session import mark_failed as meeting_mark_failed
+    from src.db.repositories.audit import log_audit
+    from src.services.queue import enqueue
+
+    settings = get_settings()
+    now = datetime.now(UTC)
+    reconciled = 0
+
+    # Case 1: transcript done, analysis never ran
+    analysis_cutoff = now - timedelta(minutes=10)
+    async with session_scope() as session:
+        stuck_analyzed = (
+            await session.execute(
+                select(MeetingSession).where(
+                    MeetingSession.bot_status == "done",
+                    MeetingSession.transcript_r2_key.isnot(None),
+                    MeetingSession.overall_score.is_(None),
+                    MeetingSession.ended_at < analysis_cutoff,
+                ).limit(10)
+            )
+        ).scalars().all()
+
+    for ms in stuck_analyzed:
+        logger.info(
+            "reconcile meeting: retrying analysis for session=%s (done but no verdict)",
+            ms.id,
+        )
+        queued = await enqueue("analyze_meeting", str(ms.id))
+        if queued:
+            reconciled += 1
+
+    # Case 2: in_call for too long — bot never reported completion
+    in_call_cutoff = now - timedelta(hours=3)
+    async with session_scope() as session:
+        stuck_in_call = (
+            await session.execute(
+                select(MeetingSession).where(
+                    MeetingSession.bot_status == "in_call",
+                    MeetingSession.started_at < in_call_cutoff,
+                ).limit(10)
+            )
+        ).scalars().all()
+
+    for ms in stuck_in_call:
+        logger.warning(
+            "reconcile meeting: session=%s stuck in_call since %s — marking failed",
+            ms.id,
+            ms.started_at,
+        )
+        async with session_scope() as session:
+            await meeting_mark_failed(
+                session,
+                ms.id,
+                error=f"stuck_in_call >3h (reconcile, started={ms.started_at})",
+            )
+            await log_audit(
+                session,
+                application_id=ms.application_id,
+                action="meeting_stuck_in_call_reconcile",
+                actor="agent",
+                details={
+                    "meeting_session_id": str(ms.id),
+                    "started_at": ms.started_at.isoformat() if ms.started_at else None,
+                },
+            )
+        reconciled += 1
+
+    return reconciled

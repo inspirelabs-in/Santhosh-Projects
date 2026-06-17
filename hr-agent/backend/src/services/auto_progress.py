@@ -174,7 +174,7 @@ async def _fire_step(application_id: UUID, step: Any, scheduling: dict[str, Any]
         return await _fire_voice_screen(application_id)
 
     if step.action == "chat_screen":
-        return await _fire_voice_screen(application_id)
+        return await _fire_chat_screen(application_id)
 
     if step.action in {"assessment", "cognitive_test"}:
         return await _fire_assessment(application_id)

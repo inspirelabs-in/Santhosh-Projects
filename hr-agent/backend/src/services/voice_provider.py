@@ -230,6 +230,14 @@ class ElevenLabsConvAIProvider:
             try:
                 resp.raise_for_status()
             except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 404:
+                    logger.error(
+                        "elevenlabs 404 — agent_id=%s phone_number_id=%s likely invalid or deleted. "
+                        "Check ElevenLabs dashboard → Phone Numbers. Response: %s",
+                        self._agent_id,
+                        self._phone_number_id,
+                        exc.response.text[:300],
+                    )
                 if exc.response.status_code in (429, 500, 502, 503, 504):
                     await record_failure(ELEVENLABS, f"HTTP {exc.response.status_code}")
                 else:

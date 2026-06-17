@@ -248,7 +248,9 @@ async def run_score_responses(payload: ScoreResponsesInput) -> ScoreResult:
                 )
 
         composite = int(round((weighted_sum / total_weight) * 100)) if total_weight > 0 else 0
-        cut = role_snapshot["cut_line"]
+        cut = role_snapshot.get("cut_line")
+        if cut is None:
+            cut = 60
         if abs(composite - cut) <= grey_zone_width:
             recommendation = "hr_review"
         elif composite >= cut:

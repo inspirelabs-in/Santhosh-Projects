@@ -14,7 +14,8 @@ from datetime import datetime
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path, Query, status
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import desc, select
 
@@ -36,7 +37,7 @@ from src.db.connection import session_scope
 from src.db.repositories.audit import log_audit
 from src.db.repositories.v1_application import save_admin_review, set_stage
 from src.models.v1 import MeetingRound, PipelineStage
-from src.services.file_storage import presigned_get_url
+from src.services.file_storage import download, presigned_get_url
 from src.services.queue import enqueue
 
 router = APIRouter(prefix="/agentic", tags=["agentic"])
@@ -311,7 +312,7 @@ async def dispatch_generic_voice_call(
             application_id=body.application_id,
             call_kind=kind,
         )
-    return {"ok": True, "voice_call_id": str(body.application_id)}
+    return {"ok": True, "application_id": str(body.application_id)}
 
 
 class StartAssessmentBody(BaseModel):
@@ -743,6 +744,46 @@ async def list_voice_calls(
                 )
             )
         return items
+
+
+@router.get("/voice-calls/{voice_call_id}/transcript")
+async def get_voice_call_transcript(
+    voice_call_id: UUID = Path(...),
+    _: str = Depends(require_viewer),
+) -> dict:
+    async with session_scope() as session:
+        vc = await session.get(VoiceCall, voice_call_id)
+        if not vc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "voice call not found")
+    text: str | None = None
+    if vc.transcript_r2_key:
+        try:
+            bucket = get_settings().r2_bucket_resumes
+            raw = await download(bucket, vc.transcript_r2_key)
+            text = raw.decode("utf-8", errors="replace")
+        except Exception:
+            pass
+    answers = vc.answers if isinstance(vc.answers, list) else []
+    return {"transcript_text": text, "answers": answers}
+
+
+@router.get("/voice-calls/{voice_call_id}/recording")
+async def get_voice_call_recording(
+    voice_call_id: UUID = Path(...),
+    _: str = Depends(require_viewer),
+) -> Response:
+    async with session_scope() as session:
+        vc = await session.get(VoiceCall, voice_call_id)
+        if not vc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "voice call not found")
+    if not vc.recording_r2_key:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no recording available")
+    bucket = get_settings().r2_bucket_resumes
+    try:
+        audio = await download(bucket, vc.recording_r2_key)
+    except Exception:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "recording file not found in storage")
+    return Response(content=audio, media_type="audio/mpeg")
 
 
 class AssessmentListItem(BaseModel):

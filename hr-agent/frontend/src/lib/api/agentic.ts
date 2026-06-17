@@ -75,7 +75,7 @@ export const voiceCalls = {
     );
   },
   dispatchCall(body: { application_id: string; call_kind: CallKind }) {
-    return api.post<{ ok: boolean; voice_call_id: string }>(
+    return api.post<{ ok: boolean; application_id: string }>(
       "/agentic/voice-call/dispatch",
       body,
     );
@@ -88,6 +88,15 @@ export const voiceCalls = {
     if (params.offset) qs.set("offset", String(params.offset));
     const q = qs.toString();
     return api.get<VoiceCallListItem[]>(`/agentic/voice-calls${q ? `?${q}` : ""}`);
+  },
+  transcript(voiceCallId: string) {
+    return api.get<{ transcript_text: string | null; answers: Array<{ question_id?: string; question: string; answer_transcript: string; duration_sec?: number | null }> }>(
+      `/agentic/voice-calls/${voiceCallId}/transcript`,
+    );
+  },
+  recordingUrl(voiceCallId: string) {
+    const base = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
+    return `${base}/agentic/voice-calls/${voiceCallId}/recording`;
   },
 };
 

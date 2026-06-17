@@ -217,11 +217,9 @@ class Settings(BaseSettings):
     voice_agent_noanswer_backoff_seconds: int = 1800  # base; doubles each retry
 
     # Quiet hours -- never dial outside this window in the candidate's tz.
-    # Defaults: 11:00-20:00 IST (Indian business standard, avoids morning rush
-    # and evening dinner). Calls scheduled outside the window are pushed to
-    # the next valid window start. Weekends optional.
-    voice_call_window_start_hour: int = 11
-    voice_call_window_end_hour: int = 20
+    # Set to 0-24 to disable (dev/testing). Production: 11-20 IST.
+    voice_call_window_start_hour: int = 0
+    voice_call_window_end_hour: int = 24
     voice_call_window_tz: str = "Asia/Kolkata"
     voice_call_skip_weekends: bool = False
 

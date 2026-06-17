@@ -50,7 +50,29 @@ async def evaluate_voice_call(
         if voice is None:
             raise ValueError(f"voice_call {voice_call_id} not found")
         if not voice.answers:
-            raise ValueError(f"voice_call {voice_call_id} has no answers to evaluate")
+            # Try to reconstruct answers from the raw transcript file.
+            if voice.transcript_r2_key:
+                logger.warning(
+                    "voice_call %s has no structured answers but has transcript — "
+                    "building single-answer fallback from raw text",
+                    voice_call_id,
+                )
+                try:
+                    from src.services.file_storage import download
+                    bucket = settings.r2_bucket_resumes
+                    raw = await download(bucket, voice.transcript_r2_key)
+                    transcript_text = raw.decode("utf-8", errors="replace").strip()
+                    if transcript_text:
+                        voice.answers = [{
+                            "question_id": "full_transcript",
+                            "question": "Full voice screening conversation",
+                            "answer_transcript": transcript_text,
+                            "duration_sec": voice.duration_sec,
+                        }]
+                except Exception:
+                    logger.exception("failed to load transcript fallback for %s", voice_call_id)
+            if not voice.answers:
+                raise ValueError(f"voice_call {voice_call_id} has no answers to evaluate")
 
         # Quality gate: refuse to score effectively-blank transcripts. A call
         # that the webhook accepted but where the candidate barely spoke is a

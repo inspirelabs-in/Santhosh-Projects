@@ -1,0 +1,16 @@
+{%- import "_macros.html.j2" as ui with context -%}
+{%- set subject = round ~ " interview confirmed · " ~ candidate_name ~ " · " ~ role_title -%}
+{{ ui.page_open() }}
+{% include "_header.html.j2" %}
+{{ ui.card_open() }}
+  {{ ui.eyebrow(round ~ " interview -- panel") }}
+  {{ ui.hero_title("Interview with " ~ (candidate_name or "a candidate") ~ " is confirmed.") }}
+  {{ ui.paragraph("<strong>" ~ (candidate_name or "Candidate") ~ "</strong> has confirmed the <strong>" ~ round ~ " interview</strong> for the <strong>" ~ role_title ~ "</strong> role:") }}
+  {{ ui.highlight_box("<strong>" ~ meeting_time ~ "</strong><br/>Ends at " ~ meeting_end_time, accent="info") }}
+  {{ ui.cta_button(meeting_link, "Join the meeting", accent="info") }}
+  {{ ui.fallback_link(meeting_link) }}
+
+  {{ ui.signoff(name=company_name ~ " Hiring Agent") }}
+{{ ui.card_close() }}
+{% include "_footer.html.j2" %}
+{{ ui.page_close() }}

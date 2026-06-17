@@ -319,7 +319,7 @@ async def _prerender_for_confirm(tool_name: str, args: dict[str, Any]) -> dict[s
         args["_prerendered_brief"] = payload  # reused on execute
         return args
     except Exception as e:  # noqa: BLE001
-        logger.warning("prerender_for_confirm failed for %s: %s", tool_name, e)
+        logger.exception("prerender_for_confirm failed for %s: %s", tool_name, e)
         return args
 
 

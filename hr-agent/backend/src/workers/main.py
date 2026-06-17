@@ -98,6 +98,7 @@ class WorkerSettings:
         jobs.pipeline_sla_monitor,
         jobs.prune_old_artifacts,
         jobs.assignment_deadline_reminders,
+        jobs.reconcile_stuck_meetings,
     ]
 
     cron_jobs = [
@@ -136,6 +137,12 @@ class WorkerSettings:
             jobs.assignment_deadline_reminders,
             name="assignment_deadline_reminders",
             minute={0, 30},  # every 30 minutes
+            run_at_startup=False,
+        ),
+        cron(
+            jobs.reconcile_stuck_meetings,
+            name="reconcile_stuck_meetings",
+            minute={10, 25, 40, 55},  # every 15 minutes, offset from voice reconciler
             run_at_startup=False,
         ),
     ]

@@ -64,6 +64,10 @@ def clamp_to_call_window(
     if when_utc.tzinfo is None:
         when_utc = when_utc.replace(tzinfo=UTC)
 
+    # Window disabled (0-24): allow all hours, no clamping needed.
+    if sh == 0 and eh >= 24 and not skip_we:
+        return when_utc, False
+
     tz = ZoneInfo(tz_name)
     local = when_utc.astimezone(tz)
     is_weekend = skip_we and local.weekday() >= 5

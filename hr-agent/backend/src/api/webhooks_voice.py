@@ -26,11 +26,12 @@ from typing import Any
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from src.activities.v1_evaluate_voice_call import evaluate_voice_call
 from src.activities.v1_dispatch_voice_call import dispatch_voice_call
+from src.api.auth import require_admin
 from src.activities.v1_voice_screening import dispatch_voice_screening
 from src.config import get_settings
 from src.db.base import VoiceCall
@@ -428,6 +429,39 @@ def _zip_answers(
             "answer_transcript": " ".join(user_msgs).strip(),
             "duration_sec": dur,
         }
+
+    # Check if anchor matching produced usable results.
+    matched_count = sum(1 for a in out if a is not None and (a.get("answer_transcript") or "").strip())
+    if matched_count == 0 and qs:
+        # Fallback: positional assignment. Collect user turns between each
+        # pair of agent turns and assign them to questions in order. This
+        # handles the case where the agent rephrased questions heavily.
+        logger.warning(
+            "voice answer matching: anchor match produced 0 answers for %d questions; "
+            "falling back to positional assignment",
+            len(qs),
+        )
+        segments: list[list[str]] = []
+        current_segment: list[str] = []
+        saw_first_agent = False
+        for t in turns:
+            if t.role == "agent":
+                if saw_first_agent and current_segment:
+                    segments.append(current_segment)
+                    current_segment = []
+                saw_first_agent = True
+            elif t.role == "user" and saw_first_agent and (t.message or "").strip():
+                current_segment.append((t.message or "").strip())
+        if current_segment:
+            segments.append(current_segment)
+        for q_idx, q in enumerate(qs):
+            if q_idx < len(segments) and segments[q_idx]:
+                out[q_idx] = {
+                    "question_id": q.get("id") or f"q{q_idx + 1}",
+                    "question": q.get("question", ""),
+                    "answer_transcript": " ".join(segments[q_idx]).strip(),
+                    "duration_sec": None,
+                }
 
     # Fill any unmatched questions with empty answers so length stays stable.
     for q_idx, q in enumerate(qs):
@@ -1100,10 +1134,11 @@ async def elevenlabs_webhook(
         "network error",
         "agent_disconnect",
         "agent disconnect",
-        "error",
         "twilio_error",
         "call_dropped",
         "no_audio",
+        "system_error",
+        "connection_error",
     )
     drop_signal = any(s in term_reason_raw for s in _DROP_SIGNALS)
     answered = sum(
@@ -1190,21 +1225,41 @@ async def elevenlabs_webhook(
                     "retry_at": retry_at.isoformat(),
                 },
             )
-        queued = await enqueue(
-            "dispatch_voice_screening",
-            str(application_id),
-            attempt_no=attempt_no + 1,
-            scheduled_at_iso=retry_at.isoformat(),
-            _defer_until=retry_at,
-            _job_id=f"voice-earlydisc-{voice_call_id}-{attempt_no + 1}",
-        )
-        if not queued:
-            background.add_task(
-                dispatch_voice_screening,
-                application_id=application_id,
+        if call_kind != "screening":
+            queued = await enqueue(
+                "dispatch_voice_call",
+                str(application_id),
+                call_kind=call_kind,
                 attempt_no=attempt_no + 1,
-                scheduled_at=retry_at,
+                scheduled_at_iso=retry_at.isoformat(),
+                _defer_until=retry_at,
+                _job_id=f"voice-earlydisc-{voice_call_id}-{attempt_no + 1}",
             )
+        else:
+            queued = await enqueue(
+                "dispatch_voice_screening",
+                str(application_id),
+                attempt_no=attempt_no + 1,
+                scheduled_at_iso=retry_at.isoformat(),
+                _defer_until=retry_at,
+                _job_id=f"voice-earlydisc-{voice_call_id}-{attempt_no + 1}",
+            )
+        if not queued:
+            if call_kind != "screening":
+                background.add_task(
+                    dispatch_voice_call,
+                    application_id=application_id,
+                    call_kind=call_kind,
+                    attempt_no=attempt_no + 1,
+                    scheduled_at=retry_at,
+                )
+            else:
+                background.add_task(
+                    dispatch_voice_screening,
+                    application_id=application_id,
+                    attempt_no=attempt_no + 1,
+                    scheduled_at=retry_at,
+                )
         await publish_event(
             application_id,
             event="voice_call_disconnected_early",
@@ -1310,6 +1365,7 @@ async def elevenlabs_webhook(
 async def recover_elevenlabs_conversation(
     conversation_id: str,
     background: BackgroundTasks,
+    _admin=Depends(require_admin),
 ) -> dict[str, Any]:
     """Manually recover a voice call by polling ElevenLabs conversation API.
 
@@ -1426,6 +1482,55 @@ async def recover_elevenlabs_conversation(
                 "recovery": True,
             },
         )
+
+    # Early-disconnect guard: mirror the main webhook's checks before
+    # sending a blank transcript to the evaluator.
+    user_turns = sum(
+        1 for t in (payload.data.transcript or []) if t.role == "user"
+    )
+    total_answer_chars = sum(
+        len((a.get("answer_transcript") or "").strip())
+        for a in (answers_jsonable or [])
+    )
+    q_total = len(questions) if isinstance(questions, list) else 0
+    answered = sum(
+        1
+        for a in (answers_jsonable or [])
+        if (a.get("answer_transcript") or "").strip()
+    )
+    answer_ratio = (answered / q_total) if q_total else 0.0
+    early_disconnect = (
+        (user_turns == 0 and (duration_sec or 0) < 25)
+        or (q_total >= 2 and answer_ratio < 0.5 and (duration_sec or 0) < 60)
+        or (total_answer_chars < 40 and (duration_sec or 0) < 90)
+    )
+    if early_disconnect:
+        async with session_scope() as session:
+            await mark_failed(
+                session,
+                voice_call_id,
+                error=f"recovery_early_disconnect dur={duration_sec}s user_turns={user_turns} chars={total_answer_chars}",
+                status=VoiceCallStatus.FAILED,
+            )
+            await log_audit(
+                session,
+                application_id=application_id,
+                action="voice_call_recovery_early_disconnect",
+                actor="system",
+                details={
+                    "voice_call_id": str(voice_call_id),
+                    "conversation_id": conversation_id,
+                    "duration_sec": duration_sec,
+                    "user_turns": user_turns,
+                    "total_answer_chars": total_answer_chars,
+                },
+            )
+        return {
+            "ok": True,
+            "voice_call_id": str(voice_call_id),
+            "recovered": False,
+            "reason": "early_disconnect",
+        }
 
     # Kick evaluator for screening calls
     if not is_confirmation and not is_informational:
