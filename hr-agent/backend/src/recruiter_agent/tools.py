@@ -22,9 +22,7 @@ from src.db.base import (
     AssignmentRow,
     AuditLog,
     Candidate,
-    Conversation,
     Role,
-    ScreeningAnswerRow,
 )
 from src.db.connection import session_scope
 
@@ -107,19 +105,10 @@ async def get_candidate(*, application_id: str) -> dict[str, Any]:
             return {"error": "application_not_found"}
         cand = await session.get(Candidate, app.candidate_id)
         role = await session.get(Role, app.role_id) if app.role_id else None
-        screening = (
-            await session.execute(
-                select(ScreeningAnswerRow).where(ScreeningAnswerRow.application_id == app_id)
-            )
-        ).scalar_one_or_none()
+        screening = None  # screening_answers table dropped (migration 0030)
         assignment = (
             await session.execute(
                 select(AssignmentRow).where(AssignmentRow.application_id == app_id)
-            )
-        ).scalar_one_or_none()
-        conv = (
-            await session.execute(
-                select(Conversation).where(Conversation.application_id == app_id)
             )
         ).scalar_one_or_none()
 
@@ -177,7 +166,6 @@ async def get_candidate(*, application_id: str) -> dict[str, Any]:
             if assignment
             else None
         ),
-        "has_chat_conversation": conv is not None,
         "candidate_detail_url": f"/candidates/{app.candidate_id}",
     }
 

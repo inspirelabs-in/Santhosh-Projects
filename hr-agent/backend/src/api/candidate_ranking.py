@@ -24,7 +24,6 @@ from src.db.base import (
     CandidateProfileRow,
     Interview,
     Role,
-    ScreeningAnswerRow,
     VoiceCall,
 )
 from src.db.connection import session_scope
