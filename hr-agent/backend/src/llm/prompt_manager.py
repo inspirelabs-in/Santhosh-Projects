@@ -94,9 +94,18 @@ def compile_prompt(
     label: str = "production",
     **variables: Any,
 ) -> str:
-    """Fetch prompt from Langfuse and format with variables."""
+    """Fetch prompt from Langfuse and format with variables.
+
+    Uses regex substitution instead of str.format() so that literal JSON
+    braces in the prompt (e.g. output schema examples) never cause KeyError.
+    Only replaces {variable_name} tokens that match a supplied variable.
+    """
+    import re
     template = get_prompt(name, fallback=fallback, label=label)
-    return template.format(**variables)
+    def _replace(match: re.Match) -> str:
+        key = match.group(1)
+        return str(variables[key]) if key in variables else match.group(0)
+    return re.sub(r"\{(\w+)\}", _replace, template)
 
 
 def invalidate_cache(name: str | None = None) -> None:
