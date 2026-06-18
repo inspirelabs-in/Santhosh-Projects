@@ -62,7 +62,7 @@ function Collapsible({
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <Card>
+    <Card className="flex flex-col">
       <button
         type="button"
         onClick={() => setOpen(!open)}
@@ -79,7 +79,7 @@ function Collapsible({
           <ChevronDown className="h-4 w-4 text-muted-foreground" />
         )}
       </button>
-      {open && <CardContent className="border-t pt-4">{children}</CardContent>}
+      {open && <CardContent className="max-h-[60vh] overflow-y-auto border-t pt-4">{children}</CardContent>}
     </Card>
   );
 }
@@ -738,7 +738,10 @@ function MeetingReportsSection({ reports }: { reports: Record<string, any> | nul
 function VoiceScreenSection({ voice }: { voice: any }) {
   if (!voice) return null;
   const [showTranscript, setShowTranscript] = useState(false);
-  const isPass = voice.verdict === "clear_pass";
+  const [showRecording, setShowRecording] = useState(false);
+  const verdict = voice.verdict as string | undefined;
+  const isPass = verdict === "clear_pass";
+  const isHrReview = verdict === "needs_hr_review";
   const transcript: any[] = voice.transcript ?? [];
   const questions: any[] = voice.questions ?? [];
   const perQ: any[] = voice.per_question ?? [];
@@ -761,10 +764,12 @@ function VoiceScreenSection({ voice }: { voice: any }) {
           "rounded-full px-2.5 py-0.5 text-xs font-semibold",
           isPass
             ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+            : isHrReview
+            ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
             : "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"
         )}>
           {voice.overall_score != null && <>{voice.overall_score} · </>}
-          {isPass ? "Pass" : "Rejected"}
+          {isPass ? "Pass" : isHrReview ? "HR Review" : "Rejected"}
         </span>
       }
       defaultOpen={true}
@@ -774,11 +779,15 @@ function VoiceScreenSection({ voice }: { voice: any }) {
         {voice.verdict_rationale && (
           <div className={cn(
             "rounded-lg border p-3",
-            isPass ? "border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/20" : "border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/20"
+            isPass
+              ? "border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/20"
+              : isHrReview
+              ? "border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/20"
+              : "border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/20"
           )}>
             <div className="flex items-center gap-2 text-sm font-semibold">
-              {isPass ? <ThumbsUp className="h-4 w-4 text-emerald-600" /> : <ThumbsDown className="h-4 w-4 text-red-600" />}
-              {isPass ? "Selected" : "Rejected"} — Reason
+              {isPass ? <ThumbsUp className="h-4 w-4 text-emerald-600" /> : isHrReview ? <AlertTriangle className="h-4 w-4 text-amber-600" /> : <ThumbsDown className="h-4 w-4 text-red-600" />}
+              {isPass ? "Selected" : isHrReview ? "Escalated to HR Review" : "Rejected"} — Reason
             </div>
             <p className="mt-1.5 text-sm">{voice.verdict_rationale}</p>
           </div>
@@ -799,7 +808,24 @@ function VoiceScreenSection({ voice }: { voice: any }) {
               })}
             </span>
           )}
+          {voice.recording_url && (
+            <button
+              type="button"
+              onClick={() => setShowRecording(!showRecording)}
+              className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs font-medium hover:bg-muted"
+            >
+              {showRecording ? "Hide" : "Play"} Recording
+            </button>
+          )}
         </div>
+
+        {showRecording && voice.recording_url && (
+          <div className="rounded-lg border bg-muted/20 p-2">
+            <audio controls preload="metadata" className="w-full h-9" src={voice.recording_url}>
+              Your browser does not support the audio element.
+            </audio>
+          </div>
+        )}
 
         {/* Strengths + Red flags */}
         <div className="grid gap-3 sm:grid-cols-2">
@@ -1035,7 +1061,7 @@ function EvidenceAndDecisions({ data }: { data: any }) {
   const { evidence, decisions } = deriveEvidenceAndDecisions(data);
 
   return (
-    <Card>
+    <Card className="flex flex-col">
       <div className="flex border-b">
         <button
           onClick={() => setTab("evidence")}
@@ -1057,7 +1083,7 @@ function EvidenceAndDecisions({ data }: { data: any }) {
         </button>
       </div>
 
-      <CardContent className="p-0">
+      <CardContent className="max-h-[50vh] overflow-y-auto p-0">
         {tab === "evidence" && (
           evidence.length === 0 ? (
             <div className="flex flex-col items-center gap-2 py-10 text-center">
@@ -1310,121 +1336,129 @@ export default function CandidateDetailPage() {
   const isRejected = data.current_stage === "rejected";
 
   return (
-    <>
+    <div className="flex h-full flex-col">
       <Topbar title={cand.name ?? "Candidate"} />
-      <div className="mx-auto max-w-5xl space-y-5 p-6 pb-24">
-        {/* Header */}
-        <div className="flex items-start gap-4">
-          <Button variant="ghost" size="sm" className="mt-0.5" onClick={() => router.back()}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <div className="min-w-0 flex-1">
-            <h1 className="text-xl font-bold">{cand.name}</h1>
-            <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
-              {cand.email && <span className="inline-flex items-center gap-1"><Mail className="h-3 w-3" />{cand.email}</span>}
-              {cand.phone && <span className="inline-flex items-center gap-1"><Phone className="h-3 w-3" />{cand.phone}</span>}
-              {profile.location && <span className="inline-flex items-center gap-1"><MapPin className="h-3 w-3" />{profile.location}</span>}
-              {role.title && <span className="inline-flex items-center gap-1"><Briefcase className="h-3 w-3" />{role.title}</span>}
+      <div className="scrollbar-slim min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-5xl space-y-5 p-6">
+          {/* Header */}
+          <div className="flex items-start gap-4">
+            <Button variant="ghost" size="sm" className="mt-0.5 shrink-0" onClick={() => router.back()}>
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <div className="min-w-0 flex-1">
+              <h1 className="text-xl font-bold">{cand.name}</h1>
+              <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                {cand.email && <span className="inline-flex items-center gap-1"><Mail className="h-3 w-3" />{cand.email}</span>}
+                {cand.phone && <span className="inline-flex items-center gap-1"><Phone className="h-3 w-3" />{cand.phone}</span>}
+                {profile.location && <span className="inline-flex items-center gap-1"><MapPin className="h-3 w-3" />{profile.location}</span>}
+                {role.title && <span className="inline-flex items-center gap-1"><Briefcase className="h-3 w-3" />{role.title}</span>}
+              </div>
             </div>
+            <StatusTag stage={data.current_stage as Stage} />
           </div>
-          <StatusTag stage={data.current_stage as Stage} />
-        </div>
 
-        {isRejected && <RejectionReasonBanner audit={data.audit ?? []} voiceEvaluation={data.voice_evaluation} />}
+          {isRejected && <RejectionReasonBanner audit={data.audit ?? []} voiceEvaluation={data.voice_evaluation} />}
 
-        {/* Admin review panel */}
-        <AdminReviewPanel
-          applicationId={id}
-          currentStage={data.current_stage}
-          meetingReports={data.meeting_reports}
-          adminReview={data.admin_review}
-          onChanged={() => mutate()}
-        />
+          {/* Admin review panel */}
+          <AdminReviewPanel
+            applicationId={id}
+            currentStage={data.current_stage}
+            meetingReports={data.meeting_reports}
+            adminReview={data.admin_review}
+            onChanged={() => mutate()}
+          />
 
-        {/* Score cards */}
-        <div className="grid gap-3 sm:grid-cols-3">
-          {data.fit_score != null && (
-            <Card className="p-4">
-              <div className="text-xs font-medium text-muted-foreground">Fit Score</div>
-              <div className="mt-1 flex items-center gap-2">
-                <span className="text-2xl font-bold">{data.fit_score}</span>
-                <TierBadge tier={data.fit_tier} />
-              </div>
-            </Card>
-          )}
-          {data.screening_evaluation?.composite_score != null && (
-            <Card className="p-4">
-              <div className="text-xs font-medium text-muted-foreground">Screening Score</div>
-              <div className="mt-1">
-                <span className="text-2xl font-bold">{data.screening_evaluation.composite_score}</span>
-              </div>
-            </Card>
-          )}
-          {data.voice_evaluation?.overall_score != null && (
-            <Card className="p-4">
-              <div className="text-xs font-medium text-muted-foreground">Voice Screen</div>
-              <div className="mt-1 flex items-center gap-2">
-                <span className="text-2xl font-bold">{data.voice_evaluation.overall_score}</span>
-                <span className={cn(
-                  "rounded-full px-2 py-0.5 text-xs font-semibold",
-                  data.voice_evaluation.verdict === "clear_pass"
-                    ? "bg-emerald-100 text-emerald-700"
-                    : "bg-red-100 text-red-700"
-                )}>
-                  {data.voice_evaluation.verdict === "clear_pass" ? "Pass" : "Rejected"}
-                </span>
-              </div>
-            </Card>
-          )}
-          {data.resume_download_url && (
-            <Card className="p-4">
-              <div className="text-xs font-medium text-muted-foreground">Resume</div>
-              <div className="mt-1">
-                <a href={data.resume_download_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline">
-                  <Download className="h-3.5 w-3.5" /> {data.resume_filename ?? "Download"}
-                </a>
-              </div>
-            </Card>
-          )}
-        </div>
+          {/* Score cards */}
+          <div className="grid gap-3 sm:grid-cols-3">
+            {data.fit_score != null && (
+              <Card className="p-4">
+                <div className="text-xs font-medium text-muted-foreground">Fit Score</div>
+                <div className="mt-1 flex items-center gap-2">
+                  <span className="text-2xl font-bold">{data.fit_score}</span>
+                  <TierBadge tier={data.fit_tier} />
+                </div>
+              </Card>
+            )}
+            {data.screening_evaluation?.composite_score != null && (
+              <Card className="p-4">
+                <div className="text-xs font-medium text-muted-foreground">Screening Score</div>
+                <div className="mt-1">
+                  <span className="text-2xl font-bold">{data.screening_evaluation.composite_score}</span>
+                </div>
+              </Card>
+            )}
+            {data.voice_evaluation?.overall_score != null && (
+              <Card className="p-4">
+                <div className="text-xs font-medium text-muted-foreground">Voice Screen</div>
+                <div className="mt-1 flex items-center gap-2">
+                  <span className="text-2xl font-bold">{data.voice_evaluation.overall_score}</span>
+                  <span className={cn(
+                    "rounded-full px-2 py-0.5 text-xs font-semibold",
+                    data.voice_evaluation.verdict === "clear_pass"
+                      ? "bg-emerald-100 text-emerald-700"
+                      : data.voice_evaluation.verdict === "needs_hr_review"
+                      ? "bg-amber-100 text-amber-700"
+                      : "bg-red-100 text-red-700"
+                  )}>
+                    {data.voice_evaluation.verdict === "clear_pass"
+                      ? "Pass"
+                      : data.voice_evaluation.verdict === "needs_hr_review"
+                      ? "HR Review"
+                      : "Rejected"}
+                  </span>
+                </div>
+              </Card>
+            )}
+            {data.resume_download_url && (
+              <Card className="p-4">
+                <div className="text-xs font-medium text-muted-foreground">Resume</div>
+                <div className="mt-1">
+                  <a href={data.resume_download_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline">
+                    <Download className="h-3.5 w-3.5" /> {data.resume_filename ?? "Download"}
+                  </a>
+                </div>
+              </Card>
+            )}
+          </div>
 
-        {/* Profile snapshot */}
-        {profile && Object.keys(profile).length > 2 && (
-          <Collapsible title="Candidate Profile" defaultOpen={false}>
-            <ProfileSnapshot profile={profile} />
+          {/* Profile snapshot */}
+          {profile && Object.keys(profile).length > 2 && (
+            <Collapsible title="Candidate Profile" defaultOpen={false}>
+              <ProfileSnapshot profile={profile} />
+            </Collapsible>
+          )}
+
+          {/* Fit breakdown */}
+          <FitBreakdownSection breakdown={data.fit_breakdown} />
+
+          {/* Screening */}
+          <ScreeningSection evaluation={data.screening_evaluation} />
+
+          {/* Voice Screen */}
+          <VoiceScreenSection voice={data.voice_evaluation} />
+
+          {/* Assignment */}
+          <AssignmentSection submission={data.assignment_submission} role={role} />
+
+          {/* Proceed to next round */}
+          <ProceedToNextRound
+            applicationId={id}
+            currentStage={data.current_stage}
+            onChanged={() => mutate()}
+          />
+
+          {/* Meeting reports */}
+          <MeetingReportsSection reports={data.meeting_reports} />
+
+          {/* Evidence & Decisions */}
+          <EvidenceAndDecisions data={data} />
+
+          {/* Activity timeline */}
+          <Collapsible title="Activity Timeline" defaultOpen={true}>
+            <ActivityTimeline entries={data.audit ?? []} />
           </Collapsible>
-        )}
-
-        {/* Fit breakdown */}
-        <FitBreakdownSection breakdown={data.fit_breakdown} />
-
-        {/* Screening */}
-        <ScreeningSection evaluation={data.screening_evaluation} />
-
-        {/* Voice Screen */}
-        <VoiceScreenSection voice={data.voice_evaluation} />
-
-        {/* Assignment */}
-        <AssignmentSection submission={data.assignment_submission} role={role} />
-
-        {/* Proceed to next round */}
-        <ProceedToNextRound
-          applicationId={id}
-          currentStage={data.current_stage}
-          onChanged={() => mutate()}
-        />
-
-        {/* Meeting reports */}
-        <MeetingReportsSection reports={data.meeting_reports} />
-
-        {/* Evidence & Decisions */}
-        <EvidenceAndDecisions data={data} />
-
-        {/* Activity timeline */}
-        <Collapsible title="Activity Timeline" defaultOpen={true}>
-          <ActivityTimeline entries={data.audit ?? []} />
-        </Collapsible>
+        </div>
       </div>
-    </>
+    </div>
   );
 }

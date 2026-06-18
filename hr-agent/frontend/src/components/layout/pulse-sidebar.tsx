@@ -326,22 +326,13 @@ export function PulseSidebar() {
       <AgentStatusBadge />
 
       {/* Chat header */}
-      <div className="flex items-center gap-1.5 px-3 pt-2 pb-1">
-        <div className="flex-1 font-mono text-[9px] uppercase tracking-[0.2em] text-muted-foreground">
+      <div className="px-3 pt-2 pb-1">
+        <div className="font-mono text-[9px] uppercase tracking-[0.2em] text-muted-foreground">
           Chats
         </div>
-        <Button
-          onClick={() => void newConv()}
-          variant="default"
-          size="icon"
-          className="h-6 w-6 rounded-md shadow-sm"
-          title="New chat"
-        >
-          <Plus className="h-3 w-3" />
-        </Button>
       </div>
-      <div className="px-3 pb-2">
-        <div className="relative">
+      <div className="flex items-center gap-1.5 px-3 pb-2">
+        <div className="relative flex-1">
           <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
           <input
             value={q}
@@ -350,6 +341,15 @@ export function PulseSidebar() {
             className="w-full rounded-lg border border-border bg-background py-1 pl-7 pr-2 text-[11px] outline-none placeholder:text-muted-foreground/60 focus:border-primary/40 focus:ring-2 focus:ring-primary/20"
           />
         </div>
+        <Button
+          onClick={() => void newConv()}
+          variant="default"
+          size="icon"
+          className="h-6 w-6 shrink-0 rounded-md shadow-sm"
+          title="New chat"
+        >
+          <Plus className="h-3 w-3" />
+        </Button>
       </div>
 
       {/* Conversation list */}
