@@ -370,6 +370,7 @@ async def candidate_detail(
         voice_evaluation: dict[str, Any] | None = None
         if voice_row and voice_row.evaluation:
             ev = voice_row.evaluation
+            bucket = get_settings().r2_bucket_resumes
             voice_evaluation = {
                 "verdict": ev.get("verdict") or voice_row.verdict,
                 "overall_score": ev.get("overall_score") or voice_row.overall_score,
@@ -383,6 +384,8 @@ async def candidate_detail(
                 "duration_sec": voice_row.duration_sec,
                 "started_at": voice_row.started_at.isoformat() if voice_row.started_at else None,
                 "ended_at": voice_row.ended_at.isoformat() if voice_row.ended_at else None,
+                "recording_url": await presigned_get_url(bucket, voice_row.recording_r2_key, ttl_seconds=3600) if voice_row.recording_r2_key else None,
+                "transcript_url": await presigned_get_url(bucket, voice_row.transcript_r2_key, ttl_seconds=3600) if voice_row.transcript_r2_key else None,
             }
 
         return CandidateDetail(

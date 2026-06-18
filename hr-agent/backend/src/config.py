@@ -272,10 +272,8 @@ class Settings(BaseSettings):
     # MS Graph transcript fallback (uses graph_* creds above)
     graph_transcripts_enabled: bool = False
 
-    # Emotion / paralinguistic model
-    emotion_model_provider: Literal["wav2vec2", "sensevoice", "disabled"] = "wav2vec2"
-    emotion_model_endpoint: str | None = None  # base URL of emotion-service (e.g. http://emotion:8090)
-    emotion_api_key: str | None = None  # bearer token for the emotion service
+    # Gemini audio evaluation
+    gemini_api_key: str | None = None  # GEMINI_API_KEY — enables post-call audio scoring via Gemini 2.0 Flash
 
     # Submission enrichment (GitHub + Loom analysis for assignments)
     github_token: str | None = None

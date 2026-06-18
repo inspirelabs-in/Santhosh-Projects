@@ -27,7 +27,7 @@ from src.activities.v1_voice_screening import dispatch_voice_screening as _dispa
 from src.config import get_settings
 from src.db.base import VoiceCall
 from src.db.connection import session_scope
-from src.models.v1 import CallKind, EmotionFeatures, VoiceCallStatus
+from src.models.v1 import CallKind, VoiceCallStatus
 
 logger = logging.getLogger(__name__)
 
@@ -80,15 +80,9 @@ async def dispatch_voice_call(
 async def evaluate_voice_call(
     ctx: dict[str, Any],
     voice_call_id: str,
-    *,
-    paralinguistic: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    feats = (
-        EmotionFeatures.model_validate(paralinguistic) if paralinguistic else None
-    )
     score = await _evaluate_voice_call(
         voice_call_id=UUID(voice_call_id),
-        paralinguistic=feats,
     )
     return score.model_dump(mode="json")
 

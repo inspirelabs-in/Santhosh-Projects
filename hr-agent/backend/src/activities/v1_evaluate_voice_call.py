@@ -20,6 +20,7 @@ from src.db.repositories.evidence import record_decision, record_evidence_batch_
 from src.db.repositories.policy import resolve_policy
 from src.db.repositories.v1_application import set_stage
 from src.db.repositories.voice_call import get_voice_call, save_evaluation
+from src.activities.rejection import RejectionInput, run_rejection
 from src.services.auto_progress import auto_progress
 from src.llm.client import get_llm_client
 from src.llm.prompt_manager import compile_prompt
@@ -28,7 +29,6 @@ from src.llm.prompts.voice_screening import (
     VOICE_SCREEN_EVAL_VERSION,
 )
 from src.models.v1 import (
-    EmotionFeatures,
     PipelineStage,
     VoiceCallScore,
 )
@@ -42,7 +42,6 @@ from src.classifiers.voicemail import classify_voicemail
 async def evaluate_voice_call(
     *,
     voice_call_id: UUID,
-    paralinguistic: EmotionFeatures | None = None,
 ) -> VoiceCallScore:
     settings = get_settings()
     async with session_scope() as session:
@@ -186,47 +185,67 @@ async def evaluate_voice_call(
         if role is None:
             raise ValueError("role missing for application")
 
-        prompt = compile_prompt(
-            "voice_screen_eval",
-            fallback=VOICE_SCREEN_EVAL_V1,
-            role_title=role.title,
-            jd_text=role.jd_text[:4000],
-            ctc_min_lpa=role.ctc_min_lpa if role.ctc_min_lpa is not None else "n/a",
-            ctc_max_lpa=role.ctc_max_lpa if role.ctc_max_lpa is not None else "n/a",
-            max_notice_days=role.max_notice_days if role.max_notice_days is not None else "n/a",
-            role_location=role.location or "n/a",
-            remote_policy=role.remote_policy or "n/a",
-            answers_json=json.dumps(voice.answers, ensure_ascii=False)[:8000],
-            paralinguistic_json=json.dumps(
-                paralinguistic.model_dump(mode="json") if paralinguistic else {},
-                ensure_ascii=False,
-            ),
-        )
+        recording_r2_key = voice.recording_r2_key
+        trace_id: str | None = None
+        model_used: str = "gemini-2.0-flash"
 
-        client = get_llm_client()
-        result = await client.complete(
-            prompt=prompt,
-            response_model=VoiceCallScore,
-            model=client.smart,
-            trace_name="voice_screen_eval",
-            prompt_version=VOICE_SCREEN_EVAL_VERSION,
-            candidate_id=application.candidate_id,
-            application_id=application.id,
-            system="You evaluate phone-screen transcripts objectively. JSON only.",
-            max_tokens=2000,
-        )
-        score = result.parsed
+        # Primary path: Gemini evaluates audio + transcript in one shot.
+        # Audio is primary signal; transcript is secondary for content verification.
+        score: VoiceCallScore | None = None
+        if recording_r2_key and settings.gemini_api_key:
+            from src.services.gemini_audio_eval import evaluate_voice_call_with_audio
+            score = await evaluate_voice_call_with_audio(
+                recording_r2_key=recording_r2_key,
+                answers=voice.answers or [],
+                role_title=role.title,
+                jd_text=role.jd_text or "",
+                ctc_min_lpa=role.ctc_min_lpa,
+                ctc_max_lpa=role.ctc_max_lpa,
+                max_notice_days=role.max_notice_days,
+                role_location=role.location,
+                remote_policy=role.remote_policy,
+                application_id=application.id,
+            )
+
+        # Fallback: text-only LiteLLM eval (no recording, no API key, or Gemini failed)
+        if score is None:
+            model_used = "litellm"
+            prompt = compile_prompt(
+                "voice_screen_eval",
+                fallback=VOICE_SCREEN_EVAL_V1,
+                role_title=role.title,
+                jd_text=role.jd_text[:4000],
+                ctc_min_lpa=role.ctc_min_lpa if role.ctc_min_lpa is not None else "n/a",
+                ctc_max_lpa=role.ctc_max_lpa if role.ctc_max_lpa is not None else "n/a",
+                max_notice_days=role.max_notice_days if role.max_notice_days is not None else "n/a",
+                role_location=role.location or "n/a",
+                remote_policy=role.remote_policy or "n/a",
+                answers_json=json.dumps(voice.answers, ensure_ascii=False)[:8000],
+            )
+            client = get_llm_client()
+            result = await client.complete(
+                prompt=prompt,
+                response_model=VoiceCallScore,
+                model=client.smart,
+                trace_name="voice_screen_eval",
+                prompt_version=VOICE_SCREEN_EVAL_VERSION,
+                candidate_id=application.candidate_id,
+                application_id=application.id,
+                system="You evaluate phone-screen transcripts objectively. JSON only.",
+                max_tokens=2000,
+            )
+            score = result.parsed
+            trace_id = result.trace_id
+            model_used = result.model
+
         score.evaluated_at = datetime.now(UTC)
         score.prompt_version = VOICE_SCREEN_EVAL_VERSION
-        score.paralinguistic = paralinguistic
 
         await save_evaluation(
             session,
             voice_call_id,
             evaluation=score.model_dump(mode="json"),
-            emotion_features=paralinguistic.model_dump(mode="json")
-            if paralinguistic
-            else None,
+            emotion_features=None,
         )
 
         # Backfill candidate + application from extracted facts. Only writes
@@ -237,6 +256,21 @@ async def evaluate_voice_call(
         if score.verdict == "clear_pass":
             await set_stage(session, application.id, PipelineStage.VOICE_SCREEN_EVALUATED)
             transition = "pass"
+        elif score.verdict == "needs_hr_review":
+            await set_stage(session, application.id, PipelineStage.NEEDS_HR_REVIEW, force=True)
+            transition = "hr_review"
+            await log_audit(
+                session,
+                candidate_id=application.candidate_id,
+                application_id=application.id,
+                action="voice_screen_needs_hr_review",
+                actor="agent",
+                details={
+                    "reason": score.verdict_rationale,
+                    "overall_score": score.overall_score,
+                    "eval_model": model_used,
+                },
+            )
         else:
             await set_stage(session, application.id, PipelineStage.REJECTED, force=True)
             application.status = "rejected"
@@ -265,11 +299,12 @@ async def evaluate_voice_call(
                 "voice_call_id": str(voice_call_id),
                 "verdict": score.verdict,
                 "overall_score": score.overall_score,
-                "trace_id": result.trace_id,
+                "eval_model": model_used,
+                "trace_id": trace_id,
             },
-            model_version=result.model,
+            model_version=model_used,
             prompt_version=VOICE_SCREEN_EVAL_VERSION,
-            langfuse_trace_id=result.trace_id,
+            langfuse_trace_id=trace_id,
         )
 
         if settings.enable_evidence_collection and score.extracted_facts:
@@ -280,8 +315,8 @@ async def evaluate_voice_call(
                 "source_stage": "voice_screening",
                 "source_type": "voice_transcript",
                 "extraction_method": "llm",
-                "langfuse_trace_id": result.trace_id,
-                "model_version": result.model,
+                "langfuse_trace_id": trace_id,
+                "model_version": model_used,
             }
             evidence_rows = []
             for fk, fv in [
@@ -321,8 +356,8 @@ async def evaluate_voice_call(
                 },
                 evidence_ids=[e.id for e in saved_evidence],
                 audit_log_id=audit_row.id,
-                langfuse_trace_id=result.trace_id,
-                model_version=result.model,
+                langfuse_trace_id=trace_id,
+                model_version=model_used,
                 prompt_version=VOICE_SCREEN_EVAL_VERSION,
             )
 
@@ -339,10 +374,10 @@ async def evaluate_voice_call(
             "fit re-score after voice: app=%s score=%d tier=%s",
             application.id, rescore_result.overall_score, rescore_result.tier.value,
         )
-        if transition == "pass" and rescore_result.tier.value == "red":
+        if transition in ("pass", "hr_review") and rescore_result.tier.value == "red":
             logger.warning(
-                "fit re-score RED after voice pass — rejecting: app=%s knockouts=%s",
-                application.id, rescore_result.knock_outs,
+                "fit re-score RED after voice %s — rejecting: app=%s knockouts=%s",
+                transition, application.id, rescore_result.knock_outs,
             )
             async with session_scope() as sess:
                 await set_stage(sess, application.id, PipelineStage.REJECTED, force=True)
@@ -353,8 +388,23 @@ async def evaluate_voice_call(
     except Exception:
         logger.exception("fit re-score after voice failed for app=%s — non-fatal", application.id)
 
+    if transition == "rejected":
+        try:
+            await run_rejection(RejectionInput(
+                candidate_id=application.candidate_id,
+                application_id=application.id,
+                stage="screening",
+                internal_red_flags=list(score.red_flags or [])[:5],
+                internal_knock_outs=[score.verdict_rationale[:200]] if score.verdict_rationale else None,
+            ))
+        except Exception:
+            logger.exception("failed to send rejection email for app=%s", application.id)
+
     if transition == "pass":
         await auto_progress(application_id=application.id)
+
+    # needs_hr_review: HR is notified via Teams/email through the supervisor event
+    # bus; no auto-progress, no rejection email.
     return score
 
 

@@ -45,8 +45,7 @@ from src.db.repositories.voice_call import (
     save_call_completion,
     save_callback_request,
 )
-from src.models.v1 import EmotionFeatures, PipelineStage, VoiceCallStatus
-from src.services.emotion_client import analyze_recording
+from src.models.v1 import PipelineStage, VoiceCallStatus
 from src.services.events import publish_event
 from src.services.file_storage import presigned_get_url, upload_blob
 from src.services.queue import enqueue
@@ -1307,29 +1306,14 @@ async def elevenlabs_webhook(
             },
         )
 
-    # Paralinguistic enrichment via the local emotion service when available.
-    paralinguistic: EmotionFeatures | None = None
-    paralinguistic_payload: dict[str, Any] | None = None
-    if recording_key is not None:
-        try:
-            bucket = get_settings().r2_bucket_resumes
-            audio_url = await presigned_get_url(bucket, recording_key, ttl_seconds=900)
-            paralinguistic = await analyze_recording(audio_url=audio_url)
-            if paralinguistic is not None:
-                paralinguistic_payload = paralinguistic.model_dump(mode="json")
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("emotion enrichment failed: %s", exc)
-
     queued = await enqueue(
         "evaluate_voice_call",
         str(voice_call_id),
-        paralinguistic=paralinguistic_payload,
     )
     if not queued:
         background.add_task(
             evaluate_voice_call,
             voice_call_id=voice_call_id,
-            paralinguistic=paralinguistic,
         )
     await publish_event(
         application_id,

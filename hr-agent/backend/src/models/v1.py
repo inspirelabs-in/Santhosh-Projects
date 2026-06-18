@@ -353,7 +353,7 @@ class VoiceQuestion(BaseModel):
 
     id: str
     question: str
-    type: Literal["logistics", "skill_probe", "depth", "behavioral", "open"]
+    type: Literal["logistics", "skill_probe", "depth", "behavioral", "open", "background", "work_experience", "company_fit"]
     expected_signal: str
     follow_up_hint: str | None = None
 
@@ -414,7 +414,6 @@ class VoiceCallScore(BaseModel):
     verdict: Literal["clear_pass", "needs_hr_review", "clear_reject"]
     verdict_rationale: str
     extracted_facts: ExtractedCandidateFacts | None = None
-    paralinguistic: EmotionFeatures | None = None
     evaluated_at: datetime | None = None
     prompt_version: str | None = None
 

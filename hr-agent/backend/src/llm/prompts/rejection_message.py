@@ -10,7 +10,7 @@ REJECTION_MESSAGE_VERSION = "v1"
 
 REJECTION_MESSAGE_V1 = """Draft a rejection email for a job candidate at GrabOn (InspireLabs Solutions Pvt. Ltd.). Be respectful, specific (but safe), and brief.
 
-Candidate name: {name}
+Candidate name: {candidate_name}
 Role applied for: {role_title}
 Rejection category: {rejection_category}
 Rejection reason template: {reason_template}

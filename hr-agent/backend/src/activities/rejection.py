@@ -84,7 +84,7 @@ async def run_rejection(payload: RejectionInput) -> RejectionResult:
     prompt = compile_prompt(
         "rejection_message",
         fallback=REJECTION_MESSAGE_V1,
-        name=snapshot["candidate_name"] or "there",
+        candidate_name=snapshot["candidate_name"] or "there",
         role_title=snapshot["role_title"],
         rejection_category=category,
         reason_template=reason_template,
