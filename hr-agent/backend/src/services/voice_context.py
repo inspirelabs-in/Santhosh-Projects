@@ -50,6 +50,7 @@ class CandidateCallContext:
     meeting_round: str | None = None
     previous_call_summaries: list[str] = field(default_factory=list)
     extracted_facts: dict[str, Any] = field(default_factory=dict)
+    role_jd_snippet: str | None = None
 
 
 async def build_candidate_context(
@@ -170,6 +171,7 @@ async def build_candidate_context(
         meeting_round=meeting_session.round if meeting_session else None,
         previous_call_summaries=summaries,
         extracted_facts=extracted_facts,
+        role_jd_snippet=(role.jd_text[:500] if role and role.jd_text else None),
     )
 
 
@@ -202,10 +204,18 @@ def format_context_for_prompt(ctx: CandidateCallContext) -> str:
 
     facts = ctx.extracted_facts
     if facts:
-        for key in ("experience_years", "current_ctc", "expected_ctc", "notice_period", "location", "willing_to_relocate"):
+        key_display = {
+            "total_experience_years": "Experience (yrs)",
+            "current_ctc_lpa": "Current CTC (LPA)",
+            "expected_ctc_lpa": "Expected CTC (LPA)",
+            "notice_period_days": "Notice period (days)",
+            "current_location": "Location",
+            "willing_to_relocate": "Willing to relocate",
+        }
+        for key, label in key_display.items():
             val = facts.get(key)
             if val is not None:
-                lines.append(f"{key.replace('_', ' ').title()}: {val}")
+                lines.append(f"{label}: {val}")
 
     lines.append("=== END CONTEXT ===")
     return "\n".join(lines)
