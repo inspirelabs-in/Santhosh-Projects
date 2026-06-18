@@ -13,8 +13,10 @@ later by replaying the cached state.
 
 from __future__ import annotations
 
+import logging
 from collections import Counter
 from typing import Annotated, Any
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -32,6 +34,8 @@ from src.activities.v1_role_drafting import (
 from src.api.auth import require_recruiter
 from src.db.base import Role
 from src.db.connection import session_scope
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/agentic/roles", tags=["agentic-roles"])
 
@@ -55,7 +59,7 @@ async def chat(
 ) -> RoleDraftEnvelope:
     memory = body.memory_override or await _build_role_memory()
     try:
-        return await chat_role_draft(
+        result = await chat_role_draft(
             user_message=body.user_message,
             history=body.history,
             current_draft=body.draft,
@@ -82,6 +86,58 @@ async def chat(
             status.HTTP_502_BAD_GATEWAY,
             f"LLM call failed ({provider}): {msg[:200]}",
         )
+
+    result = await _maybe_generate_assignment(result, body.draft)
+    return result
+
+
+async def _maybe_generate_assignment(
+    result: RoleDraftEnvelope,
+    prev_draft: dict[str, Any],
+) -> RoleDraftEnvelope:
+    """Auto-generate assignment problems when JD first appears in draft.
+
+    Runs once: when the response draft has jd_text + title but the
+    previous draft did not have a generated assignment yet. The result
+    is injected into both ``result.assignment`` (for the frontend card)
+    and ``result.draft`` (so it round-trips on subsequent turns).
+    """
+    draft = result.draft or {}
+    jd_text = (draft.get("jd_text") or "").strip()
+    title = (draft.get("title") or "").strip()
+
+    if not jd_text or not title:
+        return result
+
+    if prev_draft.get("_assignment_generated"):
+        result.assignment = prev_draft.get("_assignment_data")
+        draft["_assignment_generated"] = True
+        draft["_assignment_data"] = prev_draft.get("_assignment_data")
+        return result
+
+    try:
+        from src.agent.generators import gen_assignment
+
+        synthetic_id = uuid4()
+        brief = await gen_assignment(
+            role_title=title,
+            jd_text=jd_text,
+            candidate_profile={},
+            screening_answers=None,
+            time_budget_hours=int(draft.get("assignment_deadline_days") or 6),
+            deadline_days=int(draft.get("assignment_deadline_days") or 7),
+            application_id=synthetic_id,
+            candidate_id=synthetic_id,
+        )
+        payload = brief.model_dump()
+        result.assignment = payload
+        draft["_assignment_generated"] = True
+        draft["_assignment_data"] = payload
+        draft["assignment_brief"] = payload.get("brief_md")
+    except Exception:
+        logger.warning("auto assignment generation failed", exc_info=True)
+
+    return result
 
 
 # ---------------------------------------------------------------------------

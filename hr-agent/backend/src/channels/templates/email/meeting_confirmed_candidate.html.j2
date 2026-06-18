@@ -1,0 +1,21 @@
+{%- import "_macros.html.j2" as ui with context -%}
+{%- set subject = round ~ " interview confirmed · " ~ role_title ~ " at " ~ company_name -%}
+{{ ui.page_open() }}
+{% include "_header.html.j2" %}
+{{ ui.card_open() }}
+  {{ ui.eyebrow(round ~ " interview confirmed") }}
+  {{ ui.hero_title("Hi " ~ (candidate_name or "there") ~ ", you're all set.") }}
+  {{ ui.paragraph("Your <strong>" ~ round ~ " interview</strong> for the <strong>" ~ role_title ~ "</strong> role at " ~ company_name ~ " is confirmed:") }}
+  {{ ui.highlight_box("<strong>" ~ meeting_time ~ "</strong><br/>Ends at " ~ meeting_end_time, accent="primary") }}
+  {{ ui.cta_button(meeting_link, "Join the meeting", accent="primary") }}
+  {{ ui.fallback_link(meeting_link) }}
+
+  <p style="margin:18px 0 0 0;font-family:{{ brand.font_stack }};font-size:13px;color:{{ brand.muted_text }};line-height:1.5;">
+    Please join a few minutes early. If you need to reschedule, reply to this
+    email and we will find a new time.
+  </p>
+
+  {{ ui.signoff(name=company_name ~ " Talent Acquisition") }}
+{{ ui.card_close() }}
+{% include "_footer.html.j2" %}
+{{ ui.page_close() }}

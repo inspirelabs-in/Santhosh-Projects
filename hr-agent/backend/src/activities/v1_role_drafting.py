@@ -42,9 +42,10 @@ class RoleDraftEnvelope(BaseModel):
     missing: list[str] = Field(default_factory=list)
     quick_replies: list[str] = Field(default_factory=list)
     ready_to_save: bool = False
+    assignment: dict[str, Any] | None = None
 
 
-def _format_conversation(messages: list[ChatMessage], *, max_msgs: int = 6, per_msg_cap: int = 600) -> str:
+def _format_conversation(messages: list[ChatMessage], *, max_msgs: int = 14, per_msg_cap: int = 1500) -> str:
     if not messages:
         return "(no prior messages)"
     return "\n".join(
@@ -59,18 +60,11 @@ async def chat_role_draft(
     current_draft: dict[str, Any],
     memory: dict[str, Any] | None = None,
 ) -> RoleDraftEnvelope:
-    """Run one conversational turn. Returns the next assistant message + draft.
-
-    Inputs are aggressively trimmed to fit Groq free-tier per-request token caps
-    (~6k tokens). Bump these caps after upgrading to a paid Groq tier or
-    switching to a larger model.
-    """
-
     prompt = ROLE_DRAFT_TURN_TEMPLATE.format(
-        memory_json=json.dumps(memory or {}, ensure_ascii=False)[:1200],
-        draft_json=json.dumps(current_draft or {}, ensure_ascii=False)[:2500],
+        memory_json=json.dumps(memory or {}, ensure_ascii=False)[:3000],
+        draft_json=json.dumps(current_draft or {}, ensure_ascii=False)[:12000],
         conversation=_format_conversation(history),
-        user_message=user_message[:1200],
+        user_message=user_message[:3000],
     )
     client = get_llm_client()
     result = await client.complete(

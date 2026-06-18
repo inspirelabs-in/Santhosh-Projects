@@ -173,6 +173,9 @@ async def _fire_step(application_id: UUID, step: Any, scheduling: dict[str, Any]
     if step.action == "voice_screen":
         return await _fire_voice_screen(application_id)
 
+    if step.action == "chat_screen":
+        return await _fire_chat_screen(application_id)
+
     if step.action in {"assessment", "cognitive_test"}:
         return await _fire_assessment(application_id)
 
@@ -209,6 +212,18 @@ async def _fire_manual_step(application_id: UUID, step_name: str) -> str:
     )
     return f"fired:awaiting_{step_name}"
 
+async def _fire_chat_screen(application_id: UUID) -> str:
+    """Dispatch chat-based screening for the application."""
+    queued = await enqueue("run_apply_to_chat", str(application_id))
+    if queued:
+        return "fired:chat_screen"
+    try:
+        from src.pipeline.v1 import run_apply_to_chat
+        await run_apply_to_chat(application_id=application_id)
+        return "fired:chat_screen_inline"
+    except Exception as exc:
+        logger.warning("auto chat screen failed for %s: %s", application_id, exc)
+        return f"fallback:chat_screen_failed:{exc}"[:80]
 
 # ── Legacy hardcoded flow ─────────────────────────────────────────────
 

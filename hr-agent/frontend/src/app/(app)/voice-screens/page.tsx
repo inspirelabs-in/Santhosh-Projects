@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import useSWR from "swr";
 import {
@@ -17,6 +17,10 @@ import {
   PhoneOutgoing,
   Voicemail,
   Tag,
+  FileText,
+  ChevronDown,
+  ChevronUp,
+  Volume2,
 } from "lucide-react";
 
 import { Topbar } from "@/components/layout/topbar";
@@ -305,6 +309,32 @@ function CallCard({
   const kindLabel = CALL_KIND_LABELS[callKind] || callKind;
   const isInbound = callKind === "general_query";
 
+  const [showTranscript, setShowTranscript] = useState(false);
+  const [transcript, setTranscript] = useState<{
+    text: string | null;
+    answers: Array<{ question_id?: string; question: string; answer_transcript: string; duration_sec?: number | null }>;
+  } | null>(null);
+  const [loadingTranscript, setLoadingTranscript] = useState(false);
+  const [showRecording, setShowRecording] = useState(false);
+
+  const loadTranscript = useCallback(async () => {
+    if (transcript) {
+      setShowTranscript((v) => !v);
+      return;
+    }
+    setLoadingTranscript(true);
+    try {
+      const data = await voiceCalls.transcript(row.voice_call_id);
+      setTranscript({ text: data.transcript_text, answers: data.answers });
+      setShowTranscript(true);
+    } catch {
+      setTranscript({ text: "Failed to load transcript.", answers: [] });
+      setShowTranscript(true);
+    } finally {
+      setLoadingTranscript(false);
+    }
+  }, [transcript, row.voice_call_id]);
+
   return (
     <Card className="overflow-hidden">
       <CardContent className="space-y-2 p-4">
@@ -408,24 +438,32 @@ function CallCard({
         {/* Footer: actions + meta */}
         <div className="flex flex-wrap items-center gap-2 pt-1">
           {row.recording_url ? (
-            <a
-              href={row.recording_url}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              onClick={() => setShowRecording((v) => !v)}
               className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[11px] hover:bg-muted"
             >
-              <Play className="h-3 w-3" /> Recording
-            </a>
+              <Volume2 className="h-3 w-3" />
+              {showRecording ? "Hide" : "Play"} Recording
+            </button>
           ) : null}
           {row.transcript_url ? (
-            <a
-              href={row.transcript_url}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              onClick={loadTranscript}
+              disabled={loadingTranscript}
               className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[11px] hover:bg-muted"
             >
-              Transcript <ExternalLink className="h-3 w-3" />
-            </a>
+              {loadingTranscript ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <FileText className="h-3 w-3" />
+              )}
+              Transcript
+              {showTranscript ? (
+                <ChevronUp className="h-3 w-3" />
+              ) : (
+                <ChevronDown className="h-3 w-3" />
+              )}
+            </button>
           ) : null}
           {canRedial ? (
             <Button
@@ -447,6 +485,56 @@ function CallCard({
             {fmtRelative(row.created_at)}
           </span>
         </div>
+
+        {/* Inline audio player */}
+        {showRecording && row.recording_url ? (
+          <div className="rounded-md border border-border bg-muted/30 p-2">
+            <audio
+              controls
+              preload="metadata"
+              className="w-full h-8"
+              src={row.recording_url}
+            />
+          </div>
+        ) : null}
+
+        {/* Inline transcript */}
+        {showTranscript && transcript ? (
+          <div className="space-y-2 rounded-md border border-border bg-muted/20 p-3">
+            {transcript.answers.length > 0 ? (
+              <div className="space-y-3">
+                {transcript.answers.map((a, i) => (
+                  <div key={a.question_id || i} className="space-y-1">
+                    <p className="text-[11px] font-semibold text-primary">
+                      Q{i + 1}: {a.question}
+                    </p>
+                    <p className="text-[11px] text-foreground leading-relaxed">
+                      {a.answer_transcript || <span className="italic text-muted-foreground">No response</span>}
+                    </p>
+                    {a.duration_sec != null ? (
+                      <p className="font-mono text-[10px] text-muted-foreground">
+                        {Math.round(a.duration_sec)}s
+                      </p>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            {transcript.text ? (
+              <div className={transcript.answers.length > 0 ? "border-t border-border pt-2" : ""}>
+                <p className="mb-1 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+                  Full transcript
+                </p>
+                <pre className="whitespace-pre-wrap text-[11px] leading-relaxed text-foreground max-h-60 overflow-y-auto">
+                  {transcript.text}
+                </pre>
+              </div>
+            ) : null}
+            {!transcript.text && transcript.answers.length === 0 ? (
+              <p className="text-[11px] italic text-muted-foreground">No transcript available</p>
+            ) : null}
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   );

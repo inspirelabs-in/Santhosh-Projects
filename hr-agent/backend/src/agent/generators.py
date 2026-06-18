@@ -81,9 +81,9 @@ async def gen_assignment(
         "assignment_gen",
         fallback=ASSIGNMENT_GEN_V1,
         role_title=role_title,
-        jd_text=_truncate(jd_text, 4000),
+        jd_text=_truncate(jd_text, 8000),
         candidate_profile_json=json.dumps(candidate_profile, ensure_ascii=False)[:4000],
-        screening_answers_json=json.dumps(screening_answers or {}, ensure_ascii=False)[:2000],
+        screening_answers_json=json.dumps(screening_answers or {}, ensure_ascii=False)[:3000],
         time_budget_hours=time_budget_hours,
         deadline_days=deadline_days,
     )
@@ -99,8 +99,8 @@ async def gen_assignment(
         prompt_version=ASSIGNMENT_GEN_VERSION,
         candidate_id=candidate_id,
         application_id=application_id,
-        temperature=0.4,
-        max_tokens=4000,
+        temperature=0.7,
+        max_tokens=5000,
         max_attempts=2,
     )
     return result.parsed

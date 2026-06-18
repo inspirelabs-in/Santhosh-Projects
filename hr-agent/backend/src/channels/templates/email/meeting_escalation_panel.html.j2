@@ -1,0 +1,19 @@
+{%- import "_macros.html.j2" as ui with context -%}
+{%- set subject = "Action needed: " ~ round ~ " interview scheduling · " ~ candidate_name -%}
+{{ ui.page_open() }}
+{% include "_header.html.j2" %}
+{{ ui.card_open() }}
+  {{ ui.eyebrow("Scheduling escalation") }}
+  {{ ui.hero_title("We need your availability.") }}
+  {{ ui.paragraph("The automated scheduler could not find a slot for the <strong>" ~ round ~ " interview</strong> with <strong>" ~ candidate_name ~ "</strong> for the <strong>" ~ role_title ~ "</strong> role.") }}
+  {{ ui.highlight_box("<strong>Reason:</strong> " ~ (reason or "No overlapping availability found."), accent="primary") }}
+
+  <p style="margin:18px 0 0 0;font-family:{{ brand.font_stack }};font-size:14px;color:{{ brand.ink }};line-height:1.6;">
+    Please reply with 2-3 time slots that work for you in the next few days
+    so we can get this interview scheduled.
+  </p>
+
+  {{ ui.signoff(name=company_name ~ " Hiring Agent") }}
+{{ ui.card_close() }}
+{% include "_footer.html.j2" %}
+{{ ui.page_close() }}
