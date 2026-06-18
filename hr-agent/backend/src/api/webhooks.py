@@ -78,15 +78,20 @@ async def careers_form(
                     detail=f"This role is no longer accepting applications (status: {role.status}).",
                 )
 
+    if resume is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Resume is required. Please upload a resume.",
+        )
+
     files: list[dict[str, str | None]] = []
-    if resume is not None:
-        content = await resume.read()
-        if not content:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Uploaded resume is empty.",
-            )
-        files.append(
+    content = await resume.read()
+    if not content:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded resume is empty.",
+        )
+    files.append(
             {
                 "filename": resume.filename or "resume.bin",
                 "content_b64": base64.b64encode(content).decode("ascii"),
