@@ -145,6 +145,10 @@ async def run_parse_resume(payload: ParseResumeInput) -> ParseResumeResult:
         profile.phone = normalise_phone(profile.phone) or profile.phone
     if profile.linkedin_url:
         profile.linkedin_url = normalise_linkedin(profile.linkedin_url) or profile.linkedin_url
+    if profile.github_url and not profile.github_url.lower().startswith("http"):
+        profile.github_url = f"https://{profile.github_url}"
+    if profile.portfolio_url and not profile.portfolio_url.lower().startswith("http"):
+        profile.portfolio_url = f"https://{profile.portfolio_url}"
 
     # 5. Downgrade confidence for OCR-derived text.
     if extraction.method == "ocr_pdf":

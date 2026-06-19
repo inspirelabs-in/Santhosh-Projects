@@ -119,6 +119,14 @@ function hydrate(detail: ConversationDetailRaw): RecruiterMessage[] {
         attachments: m.attachments || undefined,
         createdAt: new Date(m.created_at).getTime(),
       });
+    } else if (m.role === "system") {
+      out.push({
+        id: `srv-${m.sequence}`,
+        role: "system",
+        content: m.content || "",
+        attachments: m.attachments || undefined,
+        createdAt: new Date(m.created_at).getTime(),
+      });
     }
   }
   return out;

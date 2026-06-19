@@ -35,7 +35,7 @@ from sqlalchemy import select
 
 from src.channels.email import send_email
 from src.config import get_settings
-from src.db.base import Application, Candidate, Role, VoiceCall
+from src.db.base import Application, Candidate, MeetingSession, Role, VoiceCall
 from src.db.connection import session_scope
 from src.db.repositories.audit import log_audit
 from src.db.repositories.meeting_session import create_session, attach_bot
@@ -124,6 +124,26 @@ async def schedule_meeting(
         role = await session.get(Role, app.role_id) if app.role_id else None
         if role is None:
             raise ValueError("role missing")
+
+        # Idempotency: skip if a non-terminal meeting already exists for this round.
+        existing = (
+            await session.execute(
+                select(MeetingSession)
+                .where(
+                    MeetingSession.application_id == application_id,
+                    MeetingSession.round == round,
+                    MeetingSession.bot_status.in_(("pending", "scheduled", "in_call")),
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            logger.info(
+                "schedule_meeting skipped: active %s meeting already exists (id=%s)",
+                round,
+                existing.id,
+            )
+            return existing.id
 
         cfg = RoleScheduling.from_role_rubric(role.scoring_rubric)
         if not cfg.enabled:

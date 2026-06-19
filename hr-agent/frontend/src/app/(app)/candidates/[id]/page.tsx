@@ -181,7 +181,7 @@ function ProfileSnapshot({ profile }: { profile: any }) {
           </a>
         )}
         {profile.portfolio_url && (
-          <a href={profile.portfolio_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 hover:text-primary">
+          <a href={profile.portfolio_url.startsWith("http") ? profile.portfolio_url : `https://${profile.portfolio_url}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 hover:text-primary">
             <ExternalLink className="h-3 w-3" /> Portfolio
           </a>
         )}
