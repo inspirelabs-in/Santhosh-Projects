@@ -464,53 +464,87 @@ async def _fire_assessment(application_id: UUID) -> str:
 
 
 async def _fire_meeting(application_id: UUID, round: str) -> str:
-    """Dispatch meeting scheduling via panel availability confirmation flow.
+    """Meeting scheduling is now CHAT-DRIVEN — the recruiter books meetings via
+    Pulse (``schedule_meeting`` tool) with the panel + time they choose.
 
-    Primary: emails panel members a confirmation link, auto-books once all respond.
-    Fallback: smart scheduler (if Graph API configured), then legacy direct booking.
+    The legacy auto panel-availability / smart-scheduler / direct-booking chain
+    was fragile (slot-finding, dead GMeet stubs, confirmation calls, panel
+    email ping-pong) and is intentionally disabled — see the commented block
+    below for the previous behaviour. Instead we park the candidate for manual
+    scheduling and nudge the recruiter in chat so they pick it up.
     """
+    async with session_scope() as session:
+        await set_stage(
+            session, application_id, PipelineStage.NEEDS_HR_REVIEW, force=True
+        )
+        await log_audit(
+            session,
+            application_id=application_id,
+            action=f"meeting_{round}_awaiting_chat_scheduling",
+            actor="agent",
+            details={
+                "round": round,
+                "note": "auto-scheduling disabled; recruiter schedules via Pulse chat",
+            },
+        )
     try:
-        from src.services.panel_availability import initiate_panel_availability
+        from src.services.events import publish_event
 
-        queued = await enqueue(
-            "panel_availability_request", str(application_id), round=round
+        await publish_event(
+            application_id,
+            event="meeting_scheduling_needed",
+            data={"round": round},
         )
-        if queued:
-            return f"fired:panel_availability_{round}"
-
-        await initiate_panel_availability(application_id=application_id, round=round)
-        return f"fired:panel_availability_{round}_inline"
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         logger.warning(
-            "panel availability %s failed for %s: %s, falling back to smart scheduler",
-            round, application_id, exc,
+            "meeting_scheduling_needed publish failed (best-effort): %s", exc
         )
-        try:
-            from src.services.smart_scheduler import initiate_smart_schedule
-            await initiate_smart_schedule(application_id=application_id, round=round)
-            return f"fired:smart_meeting_{round}_fallback"
-        except Exception as exc2:
-            logger.warning("smart schedule also failed for %s: %s, trying legacy", application_id, exc2)
-            try:
-                from src.activities.v1_schedule_meeting import schedule_meeting
-                await schedule_meeting(application_id=application_id, round=round)
-                return f"fired:meeting_{round}_legacy_fallback"
-            except Exception as exc3:
-                logger.warning("all scheduling failed for %s: %s", application_id, exc3)
-                async with session_scope() as session:
-                    await set_stage(session, application_id, PipelineStage.NEEDS_HR_REVIEW, force=True)
-                    await log_audit(
-                        session,
-                        application_id=application_id,
-                        action=f"meeting_{round}_schedule_failed",
-                        actor="agent",
-                        details={
-                            "panel_avail_error": str(exc)[:200],
-                            "smart_error": str(exc2)[:200],
-                            "legacy_error": str(exc3)[:200],
-                        },
-                    )
-                return f"fallback:meeting_{round}_parked"
+    return f"parked:meeting_{round}_awaiting_chat"
+
+    # ── LEGACY AUTO-SCHEDULER (disabled — kept for reference) ──────────────────
+    # Primary: emails panel members a confirmation link, auto-books once all
+    # respond. Fallback: smart scheduler (Graph), then legacy direct booking.
+    #
+    # try:
+    #     from src.services.panel_availability import initiate_panel_availability
+    #     queued = await enqueue(
+    #         "panel_availability_request", str(application_id), round=round
+    #     )
+    #     if queued:
+    #         return f"fired:panel_availability_{round}"
+    #     await initiate_panel_availability(application_id=application_id, round=round)
+    #     return f"fired:panel_availability_{round}_inline"
+    # except Exception as exc:
+    #     logger.warning(
+    #         "panel availability %s failed for %s: %s, falling back to smart scheduler",
+    #         round, application_id, exc,
+    #     )
+    #     try:
+    #         from src.services.smart_scheduler import initiate_smart_schedule
+    #         await initiate_smart_schedule(application_id=application_id, round=round)
+    #         return f"fired:smart_meeting_{round}_fallback"
+    #     except Exception as exc2:
+    #         logger.warning("smart schedule also failed for %s: %s, trying legacy", application_id, exc2)
+    #         try:
+    #             from src.activities.v1_schedule_meeting import schedule_meeting
+    #             await schedule_meeting(application_id=application_id, round=round)
+    #             return f"fired:meeting_{round}_legacy_fallback"
+    #         except Exception as exc3:
+    #             logger.warning("all scheduling failed for %s: %s", application_id, exc3)
+    #             async with session_scope() as session:
+    #                 await set_stage(session, application_id, PipelineStage.NEEDS_HR_REVIEW, force=True)
+    #                 await log_audit(
+    #                     session,
+    #                     application_id=application_id,
+    #                     action=f"meeting_{round}_schedule_failed",
+    #                     actor="agent",
+    #                     details={
+    #                         "panel_avail_error": str(exc)[:200],
+    #                         "smart_error": str(exc2)[:200],
+    #                         "legacy_error": str(exc3)[:200],
+    #                     },
+    #                 )
+    #             return f"fallback:meeting_{round}_parked"
 
 
 async def _fire_confirmation_call(application_id: UUID, stage: PipelineStage) -> str:
