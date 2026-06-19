@@ -46,6 +46,9 @@ class Candidate(Base):
     __tablename__ = "candidates"
 
     id: Mapped[UUID] = _uuid_pk()
+    org_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="SET NULL"), index=True
+    )
     email: Mapped[str | None] = mapped_column(String(255), unique=True, index=True)
     phone: Mapped[str | None] = mapped_column(String(20), index=True)
     name: Mapped[str | None] = mapped_column(String(255))
@@ -76,6 +79,9 @@ class Role(Base):
     __tablename__ = "roles"
 
     id: Mapped[UUID] = _uuid_pk()
+    org_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="SET NULL"), index=True
+    )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     jd_text: Mapped[str] = mapped_column(Text, nullable=False)
     screening_questions: Mapped[list | dict] = mapped_column(JSONB, default=list)
@@ -100,7 +106,18 @@ class Role(Base):
         String(16), default="voice", server_default="voice", index=True
     )
     pipeline_template: Mapped[list | None] = mapped_column(JSONB)
+    # Revamp: persona-derived, role-specific scoring criteria (EvaluationSpec).
+    # Generated at JD time, user-approved, consumed by every scoring stage.
+    # Legacy pipeline_template/scoring_rubric kept for back-compat; the relational
+    # role_pipeline_stages rows are the source of truth going forward.
+    evaluation_spec: Mapped[dict | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    pipeline_stages: Mapped[list["RolePipelineStage"]] = relationship(
+        back_populates="role",
+        cascade="all, delete-orphan",
+        order_by="RolePipelineStage.position",
+    )
 
 
 class Application(Base):
@@ -115,6 +132,9 @@ class Application(Base):
     role_id: Mapped[UUID | None] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("roles.id", ondelete="SET NULL"), index=True
     )
+    org_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="SET NULL"), index=True
+    )
     status: Mapped[str] = mapped_column(String(50), default="active", server_default="active")
     fit_score: Mapped[int | None] = mapped_column(Integer)
     fit_tier: Mapped[str | None] = mapped_column(String(10))
@@ -128,6 +148,12 @@ class Application(Base):
     current_stage: Mapped[str] = mapped_column(
         String(50), default="applied", server_default="applied", index=True
     )
+    # Revamp: position in the role's configurable pipeline. ``current_stage_key``
+    # references role_pipeline_stages.stage_key; ``stage_status`` is the
+    # within-stage lifecycle (StageStatus). Legacy ``current_stage`` stays
+    # authoritative until the runtime cut-over, so nothing breaks.
+    current_stage_key: Mapped[str | None] = mapped_column(String(64), index=True)
+    stage_status: Mapped[str | None] = mapped_column(String(20))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -396,7 +422,11 @@ class MeetingSession(Base):
     interview_id: Mapped[UUID | None] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("interviews.id", ondelete="SET NULL"), index=True
     )
-    round: Mapped[str] = mapped_column(String(16), nullable=False)  # technical | ceo
+    round: Mapped[str] = mapped_column(String(16), nullable=False)  # technical | ceo (legacy)
+    # Revamp: references the role_pipeline_stages.stage_key this meeting belongs
+    # to, so multiple interview rounds (technical_1, technical_2, ...) are
+    # distinguishable. ``round`` kept for back-compat.
+    stage_key: Mapped[str | None] = mapped_column(String(64), index=True)
     teams_join_url: Mapped[str | None] = mapped_column(String(1000))
 
     bot_provider: Mapped[str] = mapped_column(
@@ -450,6 +480,9 @@ class PanelMember(Base):
     __tablename__ = "panel_members"
 
     id: Mapped[UUID] = _uuid_pk()
+    org_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="SET NULL"), index=True
+    )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
     role_type: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
@@ -902,4 +935,181 @@ class SupervisorAction(Base):
     decision_record_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 0 (revamp): org/tenancy, identity, configurable pipelines, work backbone
+#
+# All additive. Existing tables keep their columns; new columns are nullable.
+# The supervisor_* tables above are superseded by domain_events below and will
+# be retired in a later contract migration (not dropped here).
+# ---------------------------------------------------------------------------
+
+
+class Organization(Base):
+    """Tenant anchor. One row today (GrabOn); tenant-ready for multi-org later.
+
+    ``hiring_persona`` holds the org's worldview (models.persona.HiringPersona)
+    that seeds per-role evaluation specs. Static but editable in Settings.
+    """
+
+    __tablename__ = "organizations"
+
+    id: Mapped[UUID] = _uuid_pk()
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    slug: Mapped[str] = mapped_column(String(120), nullable=False, unique=True, index=True)
+    hiring_persona: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    settings: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class User(Base):
+    """Identity + seat. Schema only this pass — auth wiring (Firebase) is
+    deferred and the existing dashboard-key auth is untouched. Adding this table
+    breaks nothing; it is simply unused until SP1.
+    """
+
+    __tablename__ = "users"
+
+    id: Mapped[UUID] = _uuid_pk()
+    org_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), index=True
+    )
+    email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
+    name: Mapped[str | None] = mapped_column(String(255))
+    google_sub: Mapped[str | None] = mapped_column(String(255), index=True)
+    avatar_url: Mapped[str | None] = mapped_column(String(500))
+    role: Mapped[str] = mapped_column(String(16), default="member", server_default="member")
+    seat_status: Mapped[str] = mapped_column(
+        String(16), default="active", server_default="active"
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class RolePipelineStage(Base):
+    """One stage in a role's configurable pipeline. Ordered by ``position``.
+
+    Relational shell + JSONB content: the row gives queryable structure (type,
+    order, mode, enabled), while ``config`` and ``eval_spec`` carry the flexible
+    per-stage bits (see models/pipeline.py). Remove a stage = delete/disable the
+    row; add a second interview = insert another row with stage_type='interview'.
+    """
+
+    __tablename__ = "role_pipeline_stages"
+
+    id: Mapped[UUID] = _uuid_pk()
+    role_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("roles.id", ondelete="CASCADE"), index=True
+    )
+    org_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="SET NULL"), index=True
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    stage_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    stage_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    label: Mapped[str] = mapped_column(String(255), nullable=False)
+    mode: Mapped[str] = mapped_column(String(16), default="manual", server_default="manual")
+    is_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    config: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    eval_spec: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    role: Mapped["Role"] = relationship(back_populates="pipeline_stages")
+
+    __table_args__ = (
+        UniqueConstraint("role_id", "stage_key", name="uq_role_pipeline_stage_key"),
+        Index("ix_role_pipeline_stages_role_pos", "role_id", "position"),
+    )
+
+
+class DomainEvent(Base):
+    """Durable, typed event log — the work backbone. Replaces the never-working
+    supervisor engine and the ephemeral Redis-only events; Redis stays as the
+    realtime push only.
+
+    The derived inbox reads the actionable subset:
+    ``requires_action = true AND resolved_at IS NULL``.
+    """
+
+    __tablename__ = "domain_events"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    org_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), index=True)
+    application_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), index=True)
+    role_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True))
+    type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    payload: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    actor: Mapped[str] = mapped_column(String(255), default="system", server_default="system")
+    requires_action: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false"
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolved_by: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+
+    __table_args__ = (
+        Index("ix_domain_events_inbox", "org_id", "requires_action", "resolved_at"),
+        Index("ix_domain_events_app_created", "application_id", "created_at"),
+    )
+
+
+class ActionOverlay(Base):
+    """Mutable human state over *derived* inbox items (snooze / assign / dismiss).
+
+    The inbox itself is derived (a query over domain_events + application state),
+    so this table only holds what derivation can't: the human overlay. Keyed by a
+    stable ``action_key`` (e.g. 'app:{id}:assessment_review' or 'event:{id}').
+    """
+
+    __tablename__ = "action_overlay"
+
+    id: Mapped[UUID] = _uuid_pk()
+    org_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), index=True)
+    action_key: Mapped[str] = mapped_column(String(160), nullable=False, unique=True, index=True)
+    snoozed_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    assigned_to: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+    dismissed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class Notification(Base):
+    """FYI feed (the 🔔 bell). Informational counterpart to action items;
+    read/unread, no resolution. Derived from informational domain_events.
+    """
+
+    __tablename__ = "notifications"
+
+    id: Mapped[UUID] = _uuid_pk()
+    org_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), index=True)
+    user_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    type: Mapped[str] = mapped_column(String(48), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    body: Mapped[str | None] = mapped_column(Text)
+    link: Mapped[str | None] = mapped_column(String(500))
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+
+    __table_args__ = (
+        Index("ix_notifications_org_read", "org_id", "read_at"),
+        Index("ix_notifications_user_read", "user_id", "read_at"),
     )
