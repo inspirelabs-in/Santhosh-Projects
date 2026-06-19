@@ -16,6 +16,23 @@ from app.events import subscribe, unsubscribe, get_recent
 router = APIRouter(prefix="/api")
 log = logging.getLogger("geo.api")
 
+_boot_time = __import__("time").time()
+
+
+@router.get("/health")
+async def health_check():
+    """Lightweight liveness probe — DB ping + uptime."""
+    try:
+        row = await run_db("SELECT 1 AS ok", fetchone=True)
+        db_ok = row and row.get("ok") == 1
+    except Exception:
+        db_ok = False
+    import time
+    uptime = int(time.time() - _boot_time)
+    if not db_ok:
+        return JSONResponse({"status": "unhealthy", "db": False, "uptime_s": uptime}, status_code=503)
+    return {"status": "healthy", "db": True, "uptime_s": uptime}
+
 
 def _valid_uuid(val: str) -> bool:
     try:

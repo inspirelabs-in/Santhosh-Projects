@@ -2,6 +2,8 @@ import subprocess
 import sys
 import asyncio
 import concurrent.futures
+import os
+import time
 import warnings
 
 if sys.platform == "win32":
@@ -31,6 +33,9 @@ logging.basicConfig(
 )
 log = logging.getLogger("geo.main")
 
+_CRASH_MARKER = "/tmp/geo_last_crash"
+_BOOT_TIME = time.time()
+
 def _kill_orphan_browsers():
     """Kill leftover Camoufox browser processes from previous runs."""
     killed = 0
@@ -59,6 +64,73 @@ def _kill_orphan_browsers():
         log.info("Orphan browser cleanup: no leftover processes found")
 
 
+async def _detect_crash_recovery():
+    """Check if previous instance crashed and send alert."""
+    try:
+        if os.path.exists(_CRASH_MARKER):
+            with open(_CRASH_MARKER) as f:
+                crash_ts = f.read().strip()
+            os.remove(_CRASH_MARKER)
+            from app.notifications import send_alert
+            await send_alert(
+                "GEO Agent Auto-Recovered",
+                f"Application crashed at {crash_ts} and has been automatically restarted by Docker. "
+                f"Previous crash was likely caused by browser memory corruption (malloc/tcache).",
+                severity="critical",
+                ntype="system",
+            )
+            log.warning(f"Crash recovery detected — previous crash at {crash_ts}")
+    except Exception as e:
+        log.error(f"Crash recovery detection failed: {e}")
+
+
+def _write_crash_marker():
+    """Write crash timestamp so next boot knows we crashed."""
+    try:
+        from datetime import datetime
+        with open(_CRASH_MARKER, "w") as f:
+            f.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    except Exception:
+        pass
+
+
+def _remove_crash_marker():
+    """Remove crash marker on clean shutdown."""
+    try:
+        if os.path.exists(_CRASH_MARKER):
+            os.remove(_CRASH_MARKER)
+    except Exception:
+        pass
+
+
+async def _watchdog_loop():
+    """Periodic self-check: verify DB connectivity and event loop responsiveness."""
+    await asyncio.sleep(60)
+    while True:
+        try:
+            from app.database import run_db
+            t0 = time.time()
+            await asyncio.wait_for(
+                run_db("SELECT 1", fetchone=True),
+                timeout=15,
+            )
+            elapsed = time.time() - t0
+            if elapsed > 5:
+                log.warning(f"Watchdog: DB ping slow ({elapsed:.1f}s)")
+        except asyncio.TimeoutError:
+            log.error("Watchdog: DB ping timed out (15s) — event loop may be stuck")
+            from app.notifications import send_alert
+            await send_alert(
+                "GEO Agent Watchdog Alert",
+                "Database ping timed out after 15s. Event loop may be stuck or DB unreachable.",
+                severity="critical",
+                ntype="system",
+            )
+        except Exception as e:
+            log.error(f"Watchdog check failed: {e}")
+        await asyncio.sleep(60)
+
+
 def _handle_unhandled_exception(loop, context):
     msg = context.get("message", "")
     exc = context.get("exception")
@@ -82,11 +154,16 @@ async def lifespan(app: FastAPI):
     loop.set_exception_handler(_handle_unhandled_exception)
     loop.set_default_executor(concurrent.futures.ThreadPoolExecutor(max_workers=20))
     await init_schema()
+    await _detect_crash_recovery()
+    _write_crash_marker()
     from app.agent.account_pool import init_all_pools
     await init_all_pools()
     init_scheduler()
     asyncio.create_task(_warmup_camoufox())
+    watchdog_task = asyncio.create_task(_watchdog_loop())
     yield
+    watchdog_task.cancel()
+    _remove_crash_marker()
     shutdown_scheduler()
     await cleanup_browsers()
     await close_pool()
