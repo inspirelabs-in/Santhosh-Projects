@@ -16,7 +16,7 @@ from enum import StrEnum
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class PipelineStage(StrEnum):
@@ -461,6 +461,30 @@ class MeetingAnalysis(BaseModel):
     confidence_score: int | None = None
     overall_score: int
     strengths: list[str] = Field(default_factory=list)
+
+    @field_validator(
+        "technical_score",
+        "communication_score",
+        "confidence_score",
+        "overall_score",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_score_to_int(cls, v: object) -> object:
+        # LLMs often return scores as floats (e.g. 8.5) or numeric strings.
+        # Pydantic v2 rejects a fractional float -> int, which previously made
+        # the whole meeting analysis fail validation. Round to the nearest int.
+        if isinstance(v, bool) or v is None:
+            return v
+        if isinstance(v, float):
+            return round(v)
+        if isinstance(v, str):
+            s = v.strip()
+            try:
+                return round(float(s))
+            except ValueError:
+                return v
+        return v
     red_flags: list[str] = Field(default_factory=list)
     highlights: list[str] = Field(default_factory=list)
     candidate_emotion_timeline: list[EmotionTimelineEntry] = Field(default_factory=list)

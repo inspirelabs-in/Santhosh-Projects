@@ -36,7 +36,7 @@ async def notify_round_complete(
         if app is None:
             return
         candidate = await session.get(Candidate, app.candidate_id)
-        candidate_name = candidate.full_name if candidate else "Candidate"
+        candidate_name = (candidate.name if candidate else None) or "Candidate"
 
     review_url = (
         f"{settings.frontend_base_url.rstrip('/')}/candidates/{application_id}"
