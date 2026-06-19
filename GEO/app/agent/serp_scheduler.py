@@ -180,8 +180,14 @@ async def _scrape_serp_browser(query: str) -> str | None:
 
         return html, html, []
 
-    raw_text, raw_html, _ = await _run_browser_scrape(camo_kwargs, _page_fn, use_google_cookies=True)
-    return raw_html if raw_html and len(raw_html) > 200 else None
+    for attempt in range(2):
+        raw_text, raw_html, _ = await _run_browser_scrape(camo_kwargs, _page_fn, use_google_cookies=True)
+        if raw_html and len(raw_html) > 200:
+            return raw_html
+        if attempt == 0:
+            log.info(f"SERP browser attempt 1 failed, retrying: {query[:40]}")
+            await asyncio.sleep(3)
+    return None
 
 
 async def _commit_serp_to_db(prompt_id: str, serp_data):

@@ -13,6 +13,7 @@ class CouponStatus(str, Enum):
     ACTIVE = "Active-Valid"
     EXPIRED = "Expired-On-Site"
     HALLUCINATED = "Hallucinated"
+    AI_MENTIONED = "AI-Mentioned"
 
 
 class PromptItem(BaseModel):

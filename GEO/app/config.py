@@ -5,14 +5,11 @@ from functools import lru_cache
 class Settings(BaseSettings):
     database_url: str = "postgresql://postgres:postgres@localhost:5432/grabon_geo"
     openai_api_key: str = ""
-    groq_api_key: str = ""
-    gemini_api_key: str = ""
-    parser_provider: str = "groq"
     cloudproxy_url: str = ""
     teams_webhook_url: str = ""
     cron_hour: int = 0
     cron_minute: int = 0
-    continuous_batch_size: int = 200
+    continuous_batch_size: int = 350
     continuous_concurrency: int = 8
     keywords_excel_path: str = "Public/Rankings Agent Keywords.xlsx"
     credentials_key: str = "grabon-geo-agent-creds-key-2025"

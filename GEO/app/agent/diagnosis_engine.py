@@ -6,6 +6,7 @@ builds structured LLM prompt, returns specific root causes and action items.
 Answers: "WHY does AI rank competitor above you, WHAT to fix."
 """
 import asyncio
+import hashlib
 import json
 import logging
 
@@ -56,10 +57,18 @@ CRITICAL RULES (violation = invalid output):
 ## TARGET BRAND: {target_domain}
 Target brand current status: {target_status}
 
+## PREVIOUS DIAGNOSIS (from last analysis cycle — use as context, update if evidence changed)
+{previous_diagnosis}
+
 ## EVIDENCE COMPLETENESS
 {evidence_completeness}
 
 ---
+
+INSTRUCTIONS FOR RETURNING RESULTS:
+- If previous diagnosis exists, compare current evidence against it. Note what CHANGED (new competitors, rank shifts, new citations).
+- Keep root causes that still hold. Drop ones contradicted by new evidence. Add new ones found.
+- Mark action_items as "recurring" in evidence_basis if they appeared in previous diagnosis and remain unresolved.
 
 Return JSON only:
 {{
@@ -84,6 +93,72 @@ Return JSON only:
   "summary": "one sentence, referencing actual data",
   "data_gaps": ["list any evidence sources that were empty or insufficient"]
 }}"""
+
+
+def _compute_evidence_hash(prompt_id: str, ai_evidence: str, serp_evidence: str) -> str:
+    """Hash structured signals (brand+rank+sentiment tuples, SERP domains) — NOT raw text.
+    Raw AI response wording drifts between scrapes even when rankings are identical,
+    so we hash only the structured data that actually drives diagnosis decisions."""
+    lines = []
+    for line in ai_evidence.split("\n"):
+        line = line.strip()
+        if line.startswith("#") and any(c.isalpha() for c in line):
+            parts = line.split(" - ")
+            lines.append(parts[0].strip())
+    for line in serp_evidence.split("\n"):
+        line = line.strip()
+        if line.startswith("#") and any(c.isdigit() for c in line):
+            domain_part = line.split(" - ")[0].strip() if " - " in line else line
+            lines.append(domain_part)
+    payload = f"{prompt_id}|" + "|".join(sorted(lines))
+    return hashlib.sha256(payload.encode()).hexdigest()[:32]
+
+
+async def evidence_hash_changed(prompt_id: str, engine_name: str, new_hash: str) -> bool:
+    """Compare new evidence hash against last active diagnosis. True = needs re-diagnosis."""
+    row = await run_db(lambda conn: conn.execute(
+        """SELECT evidence_hash FROM diagnoses
+           WHERE prompt_id = %s::uuid AND engine_name = %s AND status = 'active'
+           ORDER BY created_at DESC LIMIT 1""",
+        (prompt_id, engine_name),
+    ).fetchone())
+    if not row or not row.get("evidence_hash"):
+        return True
+    return row["evidence_hash"] != new_hash
+
+
+async def _gather_previous_diagnosis(prompt_id: str, engine_name: str = "all") -> str:
+    """Fetch last active diagnosis for this keyword to provide continuity context."""
+    row = await run_db(lambda conn: conn.execute(
+        """SELECT summary, root_causes, action_items, confidence, created_at::text as diagnosed_at
+           FROM diagnoses
+           WHERE prompt_id = %s::uuid AND engine_name = %s AND status = 'active'
+           ORDER BY created_at DESC LIMIT 1""",
+        (prompt_id, engine_name),
+    ).fetchone())
+
+    if not row:
+        return "No previous diagnosis exists for this keyword."
+
+    causes = row["root_causes"]
+    if isinstance(causes, str):
+        causes = json.loads(causes)
+    actions = row["action_items"]
+    if isinstance(actions, str):
+        actions = json.loads(actions)
+
+    lines = [f"Last diagnosed: {row['diagnosed_at'][:16]} (confidence: {row['confidence']})"]
+    lines.append(f"Summary: {row['summary']}")
+    if causes:
+        lines.append("Root causes found:")
+        for c in causes[:5]:
+            lines.append(f"  - [{c.get('category', '?')}] {c.get('description', '')[:150]}")
+    if actions:
+        lines.append("Action items:")
+        for a in actions[:5]:
+            lines.append(f"  - {a.get('action', '')[:150]} (impact: {a.get('expected_impact', '?')})")
+
+    return "\n".join(lines)
 
 
 async def _log_diagnosis_cost(model: str, input_tokens: int, output_tokens: int) -> float:
@@ -298,29 +373,29 @@ async def _gather_content_evidence(prompt_id: str, keyword: str) -> str:
 
 
 async def _gather_coupon_evidence(prompt_id: str) -> str:
-    """Pull hallucinated/valid coupon data from DB -- another data source we already have."""
+    """Pull coupon codes mentioned by AI engines from DB."""
     rows = await run_db(lambda conn: conn.execute(
-        """SELECT hc.coupon_code, hc.associated_merchant, hc.status_flag,
-                  el.engine_name
+        """SELECT hc.coupon_code, hc.associated_merchant, el.engine_name,
+                  COUNT(*) OVER (PARTITION BY hc.coupon_code) as mention_count
            FROM ai_hallucinated_coupons hc
            JOIN execution_logs el ON hc.log_id = el.id
            WHERE el.prompt_id = %s::uuid
              AND el.captured_at >= NOW() - INTERVAL '7 days'
-           ORDER BY el.engine_name, hc.status_flag""",
+           ORDER BY el.engine_name, hc.coupon_code""",
         (prompt_id,),
     ).fetchall())
 
     if not rows:
         return "No coupon data available for this keyword."
 
-    lines = ["Coupons mentioned by AI engines:"]
+    lines = ["Coupon codes AI engines mentioned for this query:"]
     for r in rows:
-        status_color = "VALID" if "Valid" in (r["status_flag"] or "") else "HALLUCINATED" if "Hallucinated" in (r["status_flag"] or "") else r["status_flag"]
-        lines.append(f"  [{r['engine_name']}] {r['coupon_code']} for {r['associated_merchant']} -- {status_color}")
+        freq = f"({r['mention_count']}x)" if r["mention_count"] > 1 else ""
+        lines.append(f"  [{r['engine_name']}] {r['coupon_code']} for {r['associated_merchant']} {freq}")
 
-    valid = sum(1 for r in rows if "Valid" in (r["status_flag"] or ""))
-    hallucinated = sum(1 for r in rows if "Hallucinated" in (r["status_flag"] or ""))
-    lines.append(f"\nSummary: {valid} valid, {hallucinated} hallucinated out of {len(rows)} total")
+    unique_codes = len({r["coupon_code"] for r in rows})
+    unique_merchants = len({r["associated_merchant"] for r in rows})
+    lines.append(f"\nSummary: {unique_codes} unique codes for {unique_merchants} brands across {len(rows)} mentions")
 
     return "\n".join(lines)
 
@@ -337,7 +412,7 @@ async def _gather_comparison_evidence(prompt_id: str, keyword: str) -> str:
         return "No competitor pages available for structured comparison."
 
     lines = []
-    for i, c in enumerate(comparisons[:3], 1):
+    for i, c in enumerate(comparisons[:5], 1):
         lines.append(f"\n### Competitor {i}: {c.competitor_url}")
         lines.append(f"  Engine: {c.engine_name} | Confidence: {c.confidence:.0%}")
         if c.content_gaps:
@@ -452,7 +527,7 @@ async def generate_diagnosis(prompt_id: str, keyword: str, engine_name: str | No
 
     (ai_evidence, raw_ai_evidence, coupon_evidence,
      serp_evidence, overlap_evidence, content_evidence,
-     comparison_evidence) = await asyncio.gather(
+     comparison_evidence, previous_diagnosis) = await asyncio.gather(
         _safe_gather(_gather_ai_evidence(prompt_id), "No AI engine data available.", "ai_evidence"),
         _safe_gather(_gather_raw_ai_responses(prompt_id), "No raw AI responses available.", "raw_ai_evidence"),
         _safe_gather(_gather_coupon_evidence(prompt_id), "No coupon data available.", "coupon_evidence"),
@@ -460,10 +535,16 @@ async def generate_diagnosis(prompt_id: str, keyword: str, engine_name: str | No
         _safe_gather(_gather_overlap_evidence(prompt_id), "No citation-SERP overlaps detected.", "overlap_evidence"),
         _safe_gather(_gather_content_evidence(prompt_id, keyword), "No content data available.", "content_evidence"),
         _safe_gather(_gather_comparison_evidence(prompt_id, keyword), "No competitor pages available.", "comparison_evidence"),
+        _safe_gather(_gather_previous_diagnosis(prompt_id, engine_name or "all"), "No previous diagnosis exists.", "previous_diagnosis"),
     )
 
     settings = get_settings()
     target_status = _determine_target_status(ai_evidence, settings.target_domain)
+
+    current_hash = _compute_evidence_hash(prompt_id, ai_evidence, serp_evidence)
+    if not await evidence_hash_changed(prompt_id, engine_name or "all", current_hash):
+        log.info(f"Evidence unchanged for {keyword} — skipping diagnosis (hash={current_hash[:8]})")
+        return {"skipped": True, "reason": "evidence_unchanged", "evidence_hash": current_hash}
 
     evidence_sources = {
         "ai_engine_data": ai_evidence,
@@ -501,6 +582,7 @@ async def generate_diagnosis(prompt_id: str, keyword: str, engine_name: str | No
         overlap_evidence=overlap_evidence,
         content_evidence=content_evidence,
         comparison_evidence=comparison_evidence,
+        previous_diagnosis=previous_diagnosis,
         target_domain=settings.target_domain,
         target_status=target_status,
         evidence_completeness=evidence_completeness,
@@ -586,6 +668,7 @@ async def generate_diagnosis(prompt_id: str, keyword: str, engine_name: str | No
             evidence_snapshot=evidence_snapshot,
             model=model,
             cost=cost,
+            evidence_hash=current_hash,
         )
 
         return diagnosis_row
@@ -605,21 +688,33 @@ async def _save_diagnosis(
     evidence_snapshot: dict,
     model: str,
     cost: float,
+    evidence_hash: str = "",
 ) -> dict:
-    """Persist diagnosis to DB. Supersedes previous diagnosis for same prompt+engine."""
+    """Persist diagnosis to DB. Supersedes previous active diagnosis, tracks revision count."""
     def _insert(conn):
-        conn.execute(
-            """UPDATE diagnoses SET status = 'superseded'
-               WHERE prompt_id = %s::uuid AND engine_name = %s AND status = 'active'""",
+        prev = conn.execute(
+            """SELECT id, COALESCE(revision_count, 0) as rev
+               FROM diagnoses
+               WHERE prompt_id = %s::uuid AND engine_name = %s AND status = 'active'
+               ORDER BY created_at DESC LIMIT 1""",
             (prompt_id, engine_name),
-        )
+        ).fetchone()
+
+        revision = (prev["rev"] + 1) if prev else 0
+
+        if prev:
+            conn.execute(
+                """UPDATE diagnoses SET status = 'superseded'
+                   WHERE prompt_id = %s::uuid AND engine_name = %s AND status = 'active'""",
+                (prompt_id, engine_name),
+            )
 
         cur = conn.execute(
             """INSERT INTO diagnoses
                (prompt_id, engine_name, root_causes, action_items,
                 priority, confidence, summary, evidence_snapshot,
-                llm_model, cost_usd)
-               VALUES (%s::uuid, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                llm_model, cost_usd, revision_count, evidence_hash)
+               VALUES (%s::uuid, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                RETURNING id, created_at""",
             (
                 prompt_id,
@@ -632,17 +727,20 @@ async def _save_diagnosis(
                 json.dumps(evidence_snapshot),
                 model,
                 cost,
+                revision,
+                evidence_hash,
             ),
         )
         row = cur.fetchone()
         conn.commit()
-        return row
+        return {**dict(row), "revision_count": revision}
 
     row = await run_db(_insert)
     if not row:
         log.error("Diagnosis INSERT returned no row")
         return {"error": "Save failed"}
-    log.info(f"Diagnosis saved: id={row['id']}, priority={result.get('priority')}")
+    rev = row.get("revision_count", 0)
+    log.info(f"Diagnosis saved: id={row['id']}, priority={result.get('priority')}, revision={rev}")
 
     return {
         "id": str(row["id"]),
@@ -661,6 +759,7 @@ async def get_diagnosis_priority_queue() -> list[dict]:
     """
     Get keywords ranked by diagnosis priority.
     Higher priority: target absent from AI, low rank, negative sentiment.
+    Skips keywords diagnosed within last 6h unless new scrape data exists.
     """
     rows = await run_db(lambda conn: conn.execute(
         """WITH ai_stats AS (
@@ -696,8 +795,14 @@ async def get_diagnosis_priority_queue() -> list[dict]:
             END as priority_score
         FROM ai_stats a
         LEFT JOIN diag_stats d ON a.prompt_id = d.prompt_id
-        ORDER BY priority_score DESC, a.last_scraped DESC
-        LIMIT 200""",
+        WHERE d.last_diagnosed IS NULL
+           OR d.last_diagnosed < NOW() - INTERVAL '6 hours'
+           OR a.last_scraped > d.last_diagnosed
+        ORDER BY
+            (d.last_diagnosed IS NULL) DESC,
+            priority_score DESC,
+            a.last_scraped DESC
+        LIMIT 500""",
     ).fetchall())
 
     return [dict(r) for r in rows]

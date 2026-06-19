@@ -53,6 +53,7 @@ POSITIVE_WORDS = {
 }
 
 COUPON_PATTERN = re.compile(r'\b([A-Z][A-Z0-9]{2,14})\b')
+_COUPON_MUST_HAVE_DIGIT = True
 COUPON_CONTEXT_PATTERN = re.compile(
     r'(?:code|coupon|promo|voucher|offer|discount code|use|apply|enter)[:\s\-]*["\']?([A-Z][A-Z0-9]{2,14})["\']?\b',
     re.IGNORECASE,
@@ -142,7 +143,7 @@ class _RegexBrain:
                 rows = conn.execute(
                     """SELECT coupon_code, associated_merchant
                        FROM ai_hallucinated_coupons
-                       WHERE status_flag = 'Active-Valid'
+                       WHERE status_flag IN ('Active-Valid', 'AI-Mentioned')
                          AND created_at >= NOW() - INTERVAL '30 days'
                        GROUP BY coupon_code, associated_merchant
                        ORDER BY MAX(created_at) DESC LIMIT 500"""
@@ -212,6 +213,14 @@ class _RegexBrain:
 
         if new_brands:
             log.info(f"[regex-brain] Learned {new_brands} new brands from LLM parse")
+
+    def is_confident(self, text: str) -> bool:
+        """Return True if regex brain has enough learned brands to parse this text reliably."""
+        if len(self.learned_brands) < 20:
+            return False
+        text_lower = text.lower()
+        hits = sum(1 for _, brand in self.brand_patterns if brand.lower() in text_lower)
+        return hits >= 2
 
     async def ensure_ready(self):
         self._build_base_patterns()
@@ -308,16 +317,17 @@ def _parse_with_regex(engine_name: str, prompt_text: str, raw_text: str) -> Extr
             continue
         seen_codes.add(code)
         merchant = _find_merchant_for_coupon(raw_text, code, match.start())
-        is_known = code in _brain.learned_coupons
         coupons.append({
             "coupon_code": code,
             "associated_merchant": merchant,
-            "status_flag": "Active-Valid" if is_known else "Hallucinated",
+            "status_flag": "AI-Mentioned",
         })
 
     for match in COUPON_PATTERN.finditer(raw_text):
         code = match.group(1)
         if code in SKIP_CODES or code in seen_codes or len(code) < 4:
+            continue
+        if _COUPON_MUST_HAVE_DIGIT and not any(c.isdigit() for c in code):
             continue
 
         if code in _brain.learned_coupons:
@@ -326,7 +336,7 @@ def _parse_with_regex(engine_name: str, prompt_text: str, raw_text: str) -> Extr
             coupons.append({
                 "coupon_code": code,
                 "associated_merchant": merchant,
-                "status_flag": "Active-Valid",
+                "status_flag": "AI-Mentioned",
             })
             continue
 
@@ -344,7 +354,7 @@ def _parse_with_regex(engine_name: str, prompt_text: str, raw_text: str) -> Extr
         coupons.append({
             "coupon_code": code,
             "associated_merchant": merchant,
-            "status_flag": "Hallucinated",
+            "status_flag": "AI-Mentioned",
         })
 
     log.info(f"[regex] Parsed {len(mentions)} brands, {len(coupons)} coupons "
@@ -387,10 +397,7 @@ Analyze the provided conversational/search response text from a Generative AI en
    Assign rank placement order (1-indexed based on first appearance).
    Identify sentiment and pull exact context snippets.
 
-2. Any coupon/promo codes mentioned, matching them with their merchant, classifying status:
-   - 'Active-Valid': marked as working, active, or verified
-   - 'Expired-On-Site': marked as expired or old
-   - 'Hallucinated': fabricated, unrecognized, or no evidence of validity
+2. Any coupon/promo codes mentioned, matching them with their merchant. Set status_flag to 'AI-Mentioned' for all codes (we track what AI engines say, not validity).
 
 Always output valid JSON conforming to the requested schema.
 
@@ -400,7 +407,7 @@ JSON schema:
     {"rank_position": int, "brand_name": str, "sentiment": "Positive"|"Neutral"|"Negative", "context_snippet": str, "cited_url": str|null}
   ],
   "ai_hallucinated_coupons": [
-    {"coupon_code": str, "associated_merchant": str, "status_flag": "Active-Valid"|"Expired-On-Site"|"Hallucinated"}
+    {"coupon_code": str, "associated_merchant": str, "status_flag": "AI-Mentioned"}
   ]
 }"""
 
@@ -432,34 +439,55 @@ def _parse_json_result(text: str) -> ExtractedData | None:
 
 
 async def _parse_with_openai(user_content: str, api_key: str) -> ExtractedData | None:
-    from openai import OpenAI
+    from openai import OpenAI, RateLimitError, APIStatusError
 
     model = "gpt-4o-mini"
     client = OpenAI(api_key=api_key)
-    try:
-        def _sync():
-            return client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": user_content},
-                ],
-                response_format={"type": "json_object"},
-                temperature=0.1,
-                max_tokens=4096,
-            )
+    max_retries = 3
+    backoff = 2
 
-        response = await asyncio.to_thread(_sync)
-        usage = response.usage
-        if usage:
-            await _log_cost("openai", model, usage.prompt_tokens, usage.completion_tokens)
-        text = response.choices[0].message.content
-        if not text:
+    for attempt in range(max_retries):
+        try:
+            def _sync():
+                return client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": user_content},
+                    ],
+                    response_format={"type": "json_object"},
+                    temperature=0.1,
+                    max_tokens=4096,
+                )
+
+            response = await asyncio.to_thread(_sync)
+            usage = response.usage
+            if usage:
+                await _log_cost("openai", model, usage.prompt_tokens, usage.completion_tokens)
+            text = response.choices[0].message.content
+            if not text:
+                return None
+            return _parse_json_result(text)
+        except RateLimitError as e:
+            wait = backoff ** (attempt + 1)
+            log.warning(f"OpenAI rate limit (attempt {attempt+1}/{max_retries}), retrying in {wait}s: {e}")
+            if attempt < max_retries - 1:
+                await asyncio.sleep(wait)
+        except APIStatusError as e:
+            if e.status_code >= 500:
+                wait = backoff ** (attempt + 1)
+                log.warning(f"OpenAI server error {e.status_code} (attempt {attempt+1}/{max_retries}), retrying in {wait}s")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(wait)
+            else:
+                log.warning(f"OpenAI parse failed (non-retryable): {e}")
+                return None
+        except Exception as e:
+            log.warning(f"OpenAI parse failed: {e}")
             return None
-        return _parse_json_result(text)
-    except Exception as e:
-        log.warning(f"OpenAI parse failed: {e}")
-        return None
+
+    log.error("OpenAI parse failed after all retries")
+    return None
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -482,7 +510,11 @@ def _pre_clean_for_parser(raw_text: str) -> str:
             continue
         seen.add(stripped)
         cleaned.append(stripped)
-    return "\n".join(cleaned)
+    result = "\n".join(cleaned)
+    # Cap input size — avg is ~5k chars; 8k covers 99th percentile without waste
+    if len(result) > 8000:
+        result = result[:8000]
+    return result
 
 
 async def parse_response(engine_name: str, prompt_text: str, raw_text: str) -> ExtractedData | None:
@@ -494,7 +526,14 @@ async def parse_response(engine_name: str, prompt_text: str, raw_text: str) -> E
         log.warning(f"[{engine_name}] Text too short after pre-clean ({len(cleaned_text)} chars), skipping parse")
         return ExtractedData(brand_mentions=[], ai_hallucinated_coupons=[])
 
-    # Try OpenAI first
+    # Try regex brain first when confident (saves LLM call entirely)
+    if _brain.is_confident(cleaned_text):
+        regex_result = _parse_with_regex(engine_name, prompt_text, cleaned_text)
+        if regex_result and regex_result.brand_mentions:
+            log.info(f"[{engine_name}] Regex brain confident — skipped LLM")
+            return regex_result
+
+    # OpenAI for full extraction
     if settings.openai_api_key:
         try:
             user_content = _build_user_content(engine_name, prompt_text, cleaned_text)

@@ -3,6 +3,7 @@ from pathlib import Path
 from fastapi import APIRouter, Request, Query
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from app.config import get_settings
 from app.database import run_db
 from app.agent.scraper import VISIBLE_ENGINES
 
@@ -260,27 +261,24 @@ async def system_docs_page(request: Request):
 @router.get("/red-flags", response_class=HTMLResponse)
 async def red_flags_page(
     request: Request,
-    status: str = Query("All"),
     engine: str = Query("All"),
-    merchant: str = Query("All"),
+    brand: str = Query("All"),
     search: str = Query(""),
     page: int = Query(1, ge=1),
 ):
     per_page = 50
+    target_domain = get_settings().target_domain
 
     def _fetch(conn):
         where_clauses = []
         params: list = []
 
-        if status != "All":
-            where_clauses.append("hc.status_flag = %s")
-            params.append(status)
         if engine != "All":
             where_clauses.append("el.engine_name = %s")
             params.append(engine)
-        if merchant != "All":
+        if brand != "All":
             where_clauses.append("hc.associated_merchant = %s")
-            params.append(merchant)
+            params.append(brand)
         if search:
             where_clauses.append("(hc.coupon_code ILIKE %s OR hc.associated_merchant ILIKE %s OR p.text ILIKE %s)")
             like = f"%{search}%"
@@ -299,7 +297,8 @@ async def red_flags_page(
 
         offset = (page - 1) * per_page
         coupons = conn.execute(f"""
-            SELECT hc.*, el.engine_name, el.captured_at::text as captured_at,
+            SELECT hc.coupon_code, hc.associated_merchant,
+                   el.engine_name, el.captured_at::text as captured_at,
                    p.text as prompt_text, p.merchant_category
             FROM ai_hallucinated_coupons hc
             JOIN execution_logs el ON el.id = hc.log_id
@@ -309,61 +308,110 @@ async def red_flags_page(
             LIMIT %s OFFSET %s
         """, params + [per_page, offset]).fetchall()
 
-        stats = conn.execute("""
-            SELECT hc.status_flag, COUNT(*) as count
+        total_row = conn.execute("SELECT COUNT(*) as cnt FROM ai_hallucinated_coupons").fetchone()
+        total_codes = total_row["cnt"]
+
+        unique_codes = conn.execute(
+            "SELECT COUNT(DISTINCT coupon_code) as cnt FROM ai_hallucinated_coupons"
+        ).fetchone()["cnt"]
+
+        unique_brands = conn.execute(
+            "SELECT COUNT(DISTINCT associated_merchant) as cnt FROM ai_hallucinated_coupons WHERE associated_merchant != 'Unknown'"
+        ).fetchone()["cnt"]
+
+        target_mentions = conn.execute(
+            "SELECT COUNT(*) as cnt FROM ai_hallucinated_coupons WHERE LOWER(associated_merchant) ILIKE %s",
+            (f"%{target_domain.split('.')[0]}%",),
+        ).fetchone()["cnt"]
+
+        top_codes = conn.execute("""
+            SELECT hc.coupon_code, hc.associated_merchant,
+                   COUNT(*) as mention_count,
+                   COUNT(DISTINCT el.engine_name) as engine_count,
+                   MIN(hc.created_at)::text as first_seen,
+                   MAX(hc.created_at)::text as last_seen
             FROM ai_hallucinated_coupons hc
-            GROUP BY hc.status_flag
+            JOIN execution_logs el ON el.id = hc.log_id
+            GROUP BY hc.coupon_code, hc.associated_merchant
+            ORDER BY mention_count DESC
+            LIMIT 15
         """).fetchall()
 
         engine_stats = conn.execute("""
-            SELECT el.engine_name, COUNT(*) as count
+            SELECT el.engine_name,
+                   COUNT(*) as total_mentions,
+                   COUNT(DISTINCT hc.coupon_code) as unique_codes,
+                   COUNT(DISTINCT hc.associated_merchant) as unique_brands
             FROM ai_hallucinated_coupons hc
             JOIN execution_logs el ON el.id = hc.log_id
             GROUP BY el.engine_name
-            ORDER BY count DESC
+            ORDER BY total_mentions DESC
         """).fetchall()
 
-        merchant_list = conn.execute("""
+        top_brands = conn.execute("""
+            SELECT hc.associated_merchant as brand,
+                   COUNT(*) as total_mentions,
+                   COUNT(DISTINCT hc.coupon_code) as unique_codes,
+                   COUNT(DISTINCT el.engine_name) as engine_count,
+                   BOOL_OR(LOWER(hc.associated_merchant) ILIKE %s) as is_target
+            FROM ai_hallucinated_coupons hc
+            JOIN execution_logs el ON el.id = hc.log_id
+            WHERE hc.associated_merchant != 'Unknown'
+            GROUP BY hc.associated_merchant
+            ORDER BY total_mentions DESC
+            LIMIT 20
+        """, (f"%{target_domain.split('.')[0]}%",)).fetchall()
+
+        brand_list = conn.execute("""
             SELECT DISTINCT associated_merchant
             FROM ai_hallucinated_coupons
+            WHERE associated_merchant != 'Unknown'
             ORDER BY associated_merchant
         """).fetchall()
 
-        top_merchants = conn.execute("""
-            SELECT hc.associated_merchant,
-                   COUNT(*) as total,
-                   COUNT(*) FILTER (WHERE hc.status_flag = 'Hallucinated') as hallucinated,
-                   COUNT(*) FILTER (WHERE hc.status_flag = 'Active-Valid') as active,
-                   COUNT(*) FILTER (WHERE hc.status_flag = 'Expired-On-Site') as expired
+        competitor_codes = conn.execute("""
+            SELECT hc.coupon_code, hc.associated_merchant,
+                   COUNT(*) as mentions,
+                   COUNT(DISTINCT el.engine_name) as engines,
+                   array_agg(DISTINCT el.engine_name) as engine_list
             FROM ai_hallucinated_coupons hc
             JOIN execution_logs el ON el.id = hc.log_id
-            GROUP BY hc.associated_merchant
-            ORDER BY total DESC
-            LIMIT 10
-        """).fetchall()
+            WHERE LOWER(hc.associated_merchant) NOT ILIKE %s
+              AND hc.associated_merchant != 'Unknown'
+            GROUP BY hc.coupon_code, hc.associated_merchant
+            ORDER BY engines DESC, mentions DESC
+            LIMIT 15
+        """, (f"%{target_domain.split('.')[0]}%",)).fetchall()
 
-        return (coupons, {r["status_flag"]: r["count"] for r in stats},
-                engine_stats, merchant_list, top_merchants, filtered_total)
+        return {
+            "coupons": coupons,
+            "filtered_total": filtered_total,
+            "total_codes": total_codes,
+            "unique_codes": unique_codes,
+            "unique_brands": unique_brands,
+            "target_mentions": target_mentions,
+            "top_codes": top_codes,
+            "engine_stats": engine_stats,
+            "top_brands": top_brands,
+            "brand_list": brand_list,
+            "competitor_codes": competitor_codes,
+        }
 
-    coupons, stat_map, engine_stats, merchant_list, top_merchants, filtered_total = await run_db(_fetch)
-    total = sum(stat_map.values())
-    total_pages = max(1, (filtered_total + per_page - 1) // per_page)
+    data = await run_db(_fetch)
+    total_pages = max(1, (data["filtered_total"] + per_page - 1) // per_page)
 
     return templates.TemplateResponse(request, "red_flags.html", {
-        "coupons": coupons,
-        "total_active": stat_map.get("Active-Valid", 0),
-        "total_expired": stat_map.get("Expired-On-Site", 0),
-        "total_hallucinated": stat_map.get("Hallucinated", 0),
-        "total_coupons": total,
-        "engine_stats": [dict(r) for r in engine_stats],
-        "merchants": [r["associated_merchant"] for r in merchant_list],
-        "top_merchants": [dict(r) for r in top_merchants],
-        "active_status": status,
+        **data,
+        "brands": [r["associated_merchant"] for r in data["brand_list"]],
+        "top_codes": [dict(r) for r in data["top_codes"]],
+        "engine_stats": [dict(r) for r in data["engine_stats"]],
+        "top_brands": [dict(r) for r in data["top_brands"]],
+        "competitor_codes": [dict(r) for r in data["competitor_codes"]],
         "active_engine": engine,
-        "active_merchant": merchant,
+        "active_brand": brand,
         "search_query": search,
         "all_engines": VISIBLE_ENGINES,
         "page": page,
         "total_pages": total_pages,
-        "filtered_total": filtered_total,
+        "target_domain": target_domain,
     })

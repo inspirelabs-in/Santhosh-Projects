@@ -37,7 +37,8 @@ async def dashboard_page(
         engine_placeholders = ",".join(["%s"] * engine_count)
 
         where_parts = [
-            f"EXISTS (SELECT 1 FROM execution_logs el WHERE el.prompt_id = p.id AND el.engine_name IN ({engine_placeholders}))"
+            f"""(SELECT COUNT(DISTINCT el.engine_name) FROM execution_logs el
+                 WHERE el.prompt_id = p.id AND el.engine_name IN ({engine_placeholders})) = {engine_count}"""
         ]
         prompt_params: list = list(active_engines)
         if tier > 0:
@@ -602,14 +603,7 @@ async def diagnosis_page(request: Request):
             FROM diagnoses d
             JOIN prompts p ON d.prompt_id = p.id
             WHERE {where_sql}
-            ORDER BY
-                CASE d.priority
-                    WHEN 'critical' THEN 1
-                    WHEN 'high' THEN 2
-                    WHEN 'medium' THEN 3
-                    ELSE 4
-                END,
-                d.created_at DESC
+            ORDER BY d.created_at DESC
             LIMIT {per_page} OFFSET {(page - 1) * per_page}
         """).fetchall()
 
@@ -784,3 +778,106 @@ async def verification_page(request: Request):
 
     data = await run_db(_fetch)
     return templates.TemplateResponse(request, "verification.html", data)
+
+
+def _decimal_to_float(obj):
+    """Recursively convert Decimal values to float for JSON serialization."""
+    from decimal import Decimal
+    if isinstance(obj, dict):
+        return {k: _decimal_to_float(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_decimal_to_float(v) for v in obj]
+    if isinstance(obj, Decimal):
+        return float(obj)
+    return obj
+
+
+@router.get("/api-spending", response_class=HTMLResponse)
+async def api_spending_page(request: Request):
+    def _fetch(conn):
+        total = conn.execute("""
+            SELECT COALESCE(SUM(cost_usd), 0) as total_cost,
+                   COALESCE(SUM(input_tokens), 0) as total_input,
+                   COALESCE(SUM(output_tokens), 0) as total_output,
+                   COUNT(*) as total_calls,
+                   MIN(created_at)::text as first_call,
+                   MAX(created_at)::text as last_call
+            FROM api_costs
+        """).fetchone()
+
+        today = conn.execute("""
+            SELECT COALESCE(SUM(cost_usd), 0) as cost, COUNT(*) as calls
+            FROM api_costs WHERE created_at::date = CURRENT_DATE
+        """).fetchone()
+
+        this_week = conn.execute("""
+            SELECT COALESCE(SUM(cost_usd), 0) as cost, COUNT(*) as calls
+            FROM api_costs WHERE created_at >= DATE_TRUNC('week', CURRENT_DATE)
+        """).fetchone()
+
+        this_month = conn.execute("""
+            SELECT COALESCE(SUM(cost_usd), 0) as cost, COUNT(*) as calls
+            FROM api_costs WHERE created_at >= DATE_TRUNC('month', CURRENT_DATE)
+        """).fetchone()
+
+        by_purpose = conn.execute("""
+            SELECT purpose, model, COUNT(*) as calls,
+                   SUM(input_tokens) as input_tokens,
+                   SUM(output_tokens) as output_tokens,
+                   SUM(cost_usd) as cost,
+                   AVG(cost_usd) as avg_cost
+            FROM api_costs GROUP BY purpose, model ORDER BY cost DESC
+        """).fetchall()
+
+        by_day = conn.execute("""
+            SELECT created_at::date::text as date,
+                   SUM(cost_usd) as cost, COUNT(*) as calls,
+                   SUM(input_tokens) as input_tokens,
+                   SUM(output_tokens) as output_tokens
+            FROM api_costs
+            GROUP BY created_at::date
+            ORDER BY date DESC LIMIT 30
+        """).fetchall()
+
+        hourly_today = conn.execute("""
+            SELECT EXTRACT(HOUR FROM created_at)::int as hour,
+                   SUM(cost_usd) as cost, COUNT(*) as calls,
+                   purpose
+            FROM api_costs
+            WHERE created_at::date = CURRENT_DATE
+            GROUP BY EXTRACT(HOUR FROM created_at), purpose
+            ORDER BY hour
+        """).fetchall()
+
+        by_purpose_daily = conn.execute("""
+            SELECT created_at::date::text as date, purpose,
+                   SUM(cost_usd) as cost, COUNT(*) as calls
+            FROM api_costs
+            WHERE created_at >= CURRENT_DATE - INTERVAL '14 days'
+            GROUP BY created_at::date, purpose
+            ORDER BY date DESC
+        """).fetchall()
+
+        avg_per_call = conn.execute("""
+            SELECT purpose,
+                   ROUND(AVG(input_tokens)) as avg_input,
+                   ROUND(AVG(output_tokens)) as avg_output,
+                   AVG(cost_usd) as avg_cost,
+                   COUNT(*) as total_calls
+            FROM api_costs GROUP BY purpose ORDER BY avg_cost DESC
+        """).fetchall()
+
+        return {
+            "total": dict(total),
+            "today": dict(today),
+            "this_week": dict(this_week),
+            "this_month": dict(this_month),
+            "by_purpose": [dict(r) for r in by_purpose],
+            "by_day": [dict(r) for r in by_day],
+            "hourly_today": [dict(r) for r in hourly_today],
+            "by_purpose_daily": [dict(r) for r in by_purpose_daily],
+            "avg_per_call": [dict(r) for r in avg_per_call],
+        }
+
+    data = _decimal_to_float(await run_db(_fetch))
+    return templates.TemplateResponse(request, "api_spending.html", data)

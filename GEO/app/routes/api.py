@@ -1130,6 +1130,20 @@ async def api_costs():
             GROUP BY created_at::date
             ORDER BY date DESC LIMIT 30
         """).fetchall()
+        by_purpose = conn.execute("""
+            SELECT purpose, provider, COUNT(*) as calls,
+                   SUM(input_tokens) as input_tokens,
+                   SUM(output_tokens) as output_tokens,
+                   SUM(cost_usd) as cost
+            FROM api_costs GROUP BY purpose, provider ORDER BY cost DESC
+        """).fetchall()
+        avg_tokens = conn.execute("""
+            SELECT purpose,
+                   ROUND(AVG(input_tokens)) as avg_input,
+                   ROUND(AVG(output_tokens)) as avg_output,
+                   AVG(cost_usd) as avg_cost
+            FROM api_costs GROUP BY purpose
+        """).fetchall()
         return {
             "total_cost_usd": float(total["total_cost"]),
             "total_input_tokens": total["total_input"],
@@ -1139,6 +1153,8 @@ async def api_costs():
             "today_calls": today["calls"],
             "by_model": [dict(r) for r in by_model],
             "by_day": [dict(r) for r in by_day],
+            "by_purpose": [dict(r) for r in by_purpose],
+            "avg_per_call": [dict(r) for r in avg_tokens],
         }
     return await run_db(_costs)
 
@@ -2539,7 +2555,7 @@ async def list_diagnoses(
         if priority:
             base += " AND d.priority = %s"
             params.append(priority)
-        base += " ORDER BY d.created_at DESC LIMIT %s"
+        base += " ORDER BY d.created_at DESC, d.priority LIMIT %s"
         params.append(limit)
         return conn.execute(base, params).fetchall()
     rows = await run_db(_q)

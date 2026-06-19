@@ -1,8 +1,88 @@
-# GrabOn GEO Agent - System Architecture Documentation
+# GrabOn GEO Agent - Technical Documentation
 
 > **Generative Engine Optimization (GEO)** rank tracking system for monitoring brand visibility across AI engines.
-> Built with FastAPI + PostgreSQL + Playwright/Camoufox + LLM Parsing.
-> Includes SERP tracking, AI citation analysis, diagnosis engine, and verification loop.
+> Built with FastAPI + PostgreSQL + Camoufox browser automation + OpenAI gpt-4o-mini parsing.
+> Tracks rankings across ChatGPT, Claude, Gemini, Perplexity, Google AIO, and Google AI Mode.
+
+---
+
+## Quick Start (New Developer)
+
+```bash
+# 1. Clone and setup
+git clone <repo-url> && cd GEO
+cp .env.example .env
+# Edit .env — set OPENAI_API_KEY (required), CLOUDPROXY_URL (recommended)
+
+# 2. Run with Docker
+docker compose up -d --build
+
+# 3. Access
+# Dashboard: http://localhost:8000
+# First: login to each engine via sidebar auth links
+# Pipeline starts automatically after first engine login
+```
+
+### Key Files to Read First
+
+| File | What it does |
+|------|-------------|
+| `app/agent/pipeline.py` | Core scraping orchestration — start here |
+| `app/agent/scraper.py` | 6 engine scrapers (Camoufox browser automation) |
+| `app/agent/parser.py` | Regex brain + OpenAI LLM response parsing |
+| `app/agent/diagnosis_engine.py` | Root cause analysis (the core product differentiator) |
+| `app/database.py` | Schema, migrations, connection pool |
+| `app/config.py` | All configuration (Pydantic BaseSettings) |
+| `app/routes/api.py` | 80+ REST endpoints |
+| `app/routes/dashboard.py` | Page routes + data aggregation |
+
+### Project Structure
+
+```
+GEO/
+├── app/
+│   ├── main.py                  # FastAPI app, lifespan, middleware
+│   ├── config.py                # Pydantic settings (env vars)
+│   ├── database.py              # psycopg3 pool, schema, migrations
+│   ├── models.py                # Pydantic models (207 lines)
+│   ├── events.py                # SSE broadcast system
+│   ├── scheduler.py             # APScheduler + async loop launchers
+│   ├── notifications.py         # Teams webhook alerts
+│   ├── agent/
+│   │   ├── pipeline.py          # Batch orchestration, engine cooldowns
+│   │   ├── scraper.py           # 6 engine drivers (Camoufox)
+│   │   ├── parser.py            # Regex brain + OpenAI parsing
+│   │   ├── diagnosis_engine.py  # 7-source evidence → LLM root cause
+│   │   ├── diagnosis_scheduler.py # Continuous diagnosis loop
+│   │   ├── verification.py      # Before/after metric comparison
+│   │   ├── content_comparator.py # LLM page gap analysis
+│   │   ├── content_fetcher.py   # httpx page fetcher + 24h cache
+│   │   ├── smart_extract.py     # DOM diff extraction helpers
+│   │   ├── dedup_cache.py       # Brand-level response dedup
+│   │   ├── serp_scheduler.py    # Google SERP crawler (curl + browser)
+│   │   ├── serp_parser.py       # BeautifulSoup SERP HTML parser
+│   │   └── account_pool.py      # Multi-account cookie rotation
+│   ├── routes/
+│   │   ├── api.py               # REST API (80+ endpoints, 154KB)
+│   │   ├── dashboard.py         # Page routes (dashboard, SERP, diagnosis, etc.)
+│   │   ├── auth.py              # Browser auth flows, cookie management
+│   │   ├── logs.py              # Logs, responses, coupon intel pages
+│   │   └── verification.py      # Fix CRUD endpoints
+│   ├── templates/               # 14 Jinja2 templates (Tailwind CSS)
+│   └── static/                  # CSS, JS, engine logo SVGs
+├── scripts/
+│   ├── import_keywords.py       # Excel → DB keyword importer
+│   ├── reparse.py               # Re-parse execution logs
+│   ├── check_db.py              # DB stats checker
+│   └── check_conns.py           # Connection pool checker
+├── docker-compose.yml           # Dev: postgres + web
+├── docker-compose.prod.yml      # Production config
+├── Dockerfile                   # python:3.12-slim + Camoufox + xvfb
+├── requirements.txt             # 20 packages
+├── run.py                       # Uvicorn entry point
+├── schema.sql                   # Reference SQL schema
+└── system_docs.md               # This file
+```
 
 ---
 
@@ -51,8 +131,8 @@ GEO Agent monitors how AI search engines (ChatGPT, Claude, Gemini, Perplexity, G
            +--------+----------+    +-----------+---------+
            |   LLM PARSER      |    |   SERP CRAWLER      |
            |                   |    |                     |
-           | OpenAI / Groq /   |    | Google organic      |
-           | Gemini fallback   |    | curl + browser      |
+           | Regex brain first |    | Google organic      |
+           | OpenAI gpt-4o-mini|    | curl + browser      |
            | Brand extraction  |    | BeautifulSoup parse |
            | Sentiment + rank  |    | Feature detection   |
            +--------+----------+    +-----------+---------+
@@ -83,12 +163,12 @@ GEO Agent monitors how AI search engines (ChatGPT, Claude, Gemini, Perplexity, G
                     +------------+----------+
                     |   FASTAPI             |
                     |                       |
-                    | REST API (50+         |
+                    | REST API (80+         |
                     |   endpoints)          |
                     | SSE streaming         |
                     | Server-side TTL cache |
                     | Jinja2 dashboard      |
-                    | (8 pages)             |
+                    | (11 pages)            |
                     +-----------------------+
 ```
 
@@ -274,8 +354,8 @@ Extract response text + cited URLs
 | WebRTC blocking | `block_webrtc: True` - prevents real IP leakage |
 | OS spoofing | `os: "windows"` - consistent fingerprint |
 | Typing simulation | Character-by-character with 15-45ms random delays |
-| Request spacing | 5-15s between engines, 3-10s between keywords |
-| Batch cooldown | 30-90s pause between batch cycles |
+| Request spacing | 1-3s between keywords (8-15s for Google engines) |
+| Batch cooldown | 3-6s pause between batch cycles |
 
 ---
 
@@ -326,17 +406,26 @@ The `app/agent/smart_extract.py` module provides universal extraction helpers th
 
 ## LLM Response Parsing
 
-### Provider Fallback Chain
+### Parser Architecture
 
 ```
 [Raw Response Text]
     |
     v
-[Primary: Groq] (llama-3.3-70b-versatile, free tier)
-    |-- If fail:
+[Pre-clean] Remove tool_calls, search_web, thinking tags. Dedup lines. Cap at 8000 chars.
+    |
     v
-[Fallback: OpenAI] (gpt-4o-mini)
+[Regex Brain] Self-learning pattern matcher (40+ known brands)
+    |-- If confident (brand patterns match): return immediately (zero API cost)
+    |-- If not confident: fall through to LLM
+    |
+    v
+[OpenAI gpt-4o-mini] JSON mode, 0.1 temperature
+    |-- 3-attempt retry with exponential backoff (2s/4s) on rate limits + 5xx
+    |-- Every successful parse trains the regex brain for future queries
 ```
+
+**Provider**: OpenAI only (gpt-4o-mini). Groq/Gemini removed from pipeline.
 
 ### Extraction Schema
 
@@ -357,7 +446,7 @@ The LLM receives the raw engine response and extracts structured data:
     {
       "coupon_code": "AJIO50OFF",
       "associated_merchant": "AJIO",
-      "status_flag": "Active-Valid"
+      "status_flag": "AI-Mentioned"
     }
   ]
 }
@@ -365,15 +454,26 @@ The LLM receives the raw engine response and extracts structured data:
 
 ### Regex Brain (Learned Patterns)
 
-The parser maintains a learned brand dictionary built from LLM parses. When the LLM identifies a brand name, the regex brain remembers it. On subsequent parses, known brands are detected via fast regex before falling back to LLM, reducing API costs.
+The parser maintains a learned brand dictionary built from LLM parses. When the LLM identifies a brand name, the regex brain remembers it. On subsequent parses, known brands are detected via fast regex before falling back to LLM, reducing API costs by ~70%.
 
-### Coupon Status Classification
+### Coupon Classification
 
 | Status | Meaning |
 |--------|---------|
-| `Active-Valid` | Code confirmed working on merchant site |
-| `Expired-On-Site` | Code listed on merchant site but expired |
-| `Hallucinated` | Code fabricated by the AI, not found anywhere |
+| `AI-Mentioned` | Coupon code mentioned by an AI engine (default for all new codes) |
+| `Active-Valid` | Legacy: code previously classified as valid |
+| `Expired-On-Site` | Legacy: code listed on merchant site but expired |
+| `Hallucinated` | Legacy: code previously classified as fabricated |
+
+**Note**: All new coupon codes are tagged `AI-Mentioned`. No validity classification is performed — the system uses frequency (how many engines mention a code) and engine spread as natural confidence signals. Codes requiring digit in broad regex pattern to prevent word fragment pollution.
+
+### API Cost Per Parse
+
+| Operation | Model | Cost/call |
+|-----------|-------|-----------|
+| Parser | gpt-4o-mini | ~$0.000215 |
+| Diagnosis | gpt-4o-mini | ~$0.000732 |
+| Comparison | gpt-4o-mini | ~$0.000319 |
 
 ---
 
@@ -406,7 +506,7 @@ run_pipeline(prompt, engine, country)
 [4] SSE broadcast results to connected clients
 ```
 
-### Continuous Loop (Oldest-First Processing)
+### Continuous Loop (Tier-Priority Processing)
 
 ```
 run_continuous_loop()
@@ -414,23 +514,28 @@ run_continuous_loop()
     [forever]
     |
     v
-Fetch batch of keywords, ordered by last_run_at ASC NULLS FIRST
-    |-- Batch size: configurable (default 150)
-    |-- Never-scraped keywords processed first
-    |-- No tier weighting or priority classes
+Fetch batch of canonical keywords with tier priority:
+    |-- Batch size: 350 (configurable via CONTINUOUS_BATCH_SIZE)
+    |-- Priority order:
+    |     1. Tier 1-2, partially scraped (some engines done, not all)
+    |     2. Tier 1-2, never scraped
+    |     3. Tier 1-2, oldest last_run_at
+    |     4. Tier 3+, partially scraped
+    |     5. Tier 3+, never scraped
+    |     6. Tier 3+, oldest last_run_at
+    |-- Only is_canonical=TRUE keywords are fetched
     |-- Shuffled within batch for anti-detection
     |
     v
-For each prompt in batch:
-    |-- For each available engine:
-    |       |-- Skip if engine is in cooldown
-    |       |-- Run pipeline (parallel per engine, semaphore-limited)
-    |       |-- Skip if fresh data exists (within freshness_hours)
-    |       |-- Dedup cache prevents re-scraping identical responses
-    |-- Delay between engines for anti-detection
+run_parallel_engines() — all available engines simultaneously
+    |-- Per-engine semaphore limits concurrency
+    |-- Skip if engine in cooldown
+    |-- Skip if fresh data exists (within 24h)
+    |-- Dedup cache skips variant queries for same brand+engine
+    |-- last_run_at updated only when ALL engines cover the keyword
     |
     v
-Batch cooldown: 30-90s
+Batch cooldown: 3-6s
     |
     v
 [Loop back]
@@ -438,20 +543,20 @@ Batch cooldown: 30-90s
 
 ### Parallel Engine Execution
 
-Engines run concurrently per keyword (not sequentially). `run_parallel_engines()` launches all 6 engines simultaneously with per-engine concurrency limits:
+`run_parallel_engines()` launches all 6 engines simultaneously via `asyncio.gather`. Each engine processes the full batch independently:
 
 ```
-Keyword "ajio coupons"
+Batch of 350 keywords
     |
-    +---> [ChatGPT worker pool]    (4 concurrent)
-    +---> [Gemini worker pool]     (4 concurrent)
-    +---> [Perplexity worker pool] (4 concurrent)
-    +---> [Claude worker pool]     (4 concurrent)
-    +---> [Google AIO worker pool] (4 concurrent)
-    +---> [AI Mode worker pool]    (4 concurrent)
+    +---> [Google AIO pipeline]    (3 concurrent, 8-15s delay)
+    +---> [AI Mode pipeline]      (3 concurrent, 8-15s delay)
+    +---> [Gemini pipeline]       (2 concurrent, 1-3s delay)
+    +---> [ChatGPT pipeline]      (2 concurrent, 1-3s delay)
+    +---> [Claude pipeline]       (2 concurrent, 1-3s delay)
+    +---> [Perplexity pipeline]   (2 concurrent, 1-3s delay)
     |
-    v (all engines complete)
-Next keyword
+    v (all engines complete for this batch)
+Mark fully-covered keywords, start next batch
 ```
 
 ### Engine Cooldown & Auto-Heal
@@ -772,10 +877,12 @@ Anti-fabrication rules enforced in comparator prompts:
 ### Diagnosis Scheduler
 
 Background loop in `app/agent/diagnosis_scheduler.py`:
-- Runs daily, processes up to 20 keywords per cycle
+- Runs continuously (24/7), processes batches of 50 keywords
 - Priority scoring: ABSENT (100), Negative sentiment (80), Low rank (60), Moderate (40), Good (20)
-- Keywords with no prior diagnosis or high priority score processed first
-- 5s delay between diagnoses to respect LLM API rate limits
+- Keywords with no prior diagnosis or priority score >= 40 processed first
+- 2s delay between diagnoses, 5min sleep between batches, 30min sleep when queue empty
+- Evidence hash guard: skips re-diagnosis if brand ranks + SERP data unchanged (saves ~$564/month)
+- Runs `verify_all_monitoring_fixes()` every 6 batches (~30min) to check applied fix impact
 - Cost tracked per diagnosis in `api_costs` table
 
 ### Diagnosis Lifecycle
@@ -898,7 +1005,7 @@ CREATE TABLE prompts (
     text TEXT NOT NULL UNIQUE,
     merchant_category VARCHAR(50) NOT NULL,
     intent_type VARCHAR(30) NOT NULL,
-    tier INTEGER DEFAULT 2,           -- metadata only, not used for processing
+    tier INTEGER DEFAULT 2,           -- 1=high priority, 2=normal, 3=long-tail (pipeline processes 1-2 first)
     keyword_group VARCHAR(200),
     is_canonical BOOLEAN DEFAULT TRUE,
     last_run_at TIMESTAMPTZ,          -- last AI engine scrape
@@ -1184,14 +1291,17 @@ broadcast(event_type, **data)
 
 | Path | Template | Description |
 |------|----------|-------------|
-| `/` | `dashboard.html` | Main dashboard with KPIs, rankings, live activity feed |
-| `/serp` | `serp.html` | SERP rankings, AI-SERP overlap, movement analysis |
-| `/analytics` | `analytics.html` | Visibility trends, competitor analysis, heatmaps |
-| `/diagnosis` | `diagnosis.html` | Root cause analysis cards, action items |
-| `/verification` | `verification.html` | Fix tracking, before/after timelines |
-| `/keywords` | `keywords.html` | Keyword management, import/export |
-| `/logs` | `logs.html` | Execution logs, response viewer |
-| `/red-flags` | `red_flags.html` | Hallucinated coupons, negative sentiment alerts |
+| `/` | `dashboard.html` | Main dashboard with KPIs, rankings matrix, engine health, live activity |
+| `/serp` | `serp.html` | SERP rankings, AI-SERP overlap, movement analysis, competitor domains |
+| `/analytics` | `analytics.html` | Visibility trends, competitor analysis, heatmaps, sentiment |
+| `/diagnosis` | `diagnosis.html` | Root cause analysis cards, action items, priority queue |
+| `/verification` | `verification.html` | Fix tracking, before/after timelines, metric comparison |
+| `/keywords` | `keywords.html` | Keyword management, import/export, tier/category editing |
+| `/logs` | `logs.html` | Execution logs, raw response viewer |
+| `/responses` | `responses.html` | AI response browser with search |
+| `/red-flags` | `red_flags.html` | AI Coupon Intelligence — frequency-based code tracking, engine behavior, competitor intel |
+| `/api-spending` | `api_spending.html` | API cost tracker — daily/hourly charts, per-purpose breakdown, projections |
+| `/system-docs` | `system_docs.html` | This architecture documentation rendered in-app |
 
 ### Control Endpoints
 
@@ -1352,11 +1462,11 @@ Support for multiple account slots per engine (`max_account_slots = 5`). Account
 | Content fetch fail | httpx error | Log warning, skip comparison |
 | Diagnosis LLM error | Invalid JSON / API error | Log error, return None |
 
-### Slack Alerts
+### Teams Alerts
 
-Database commit failures trigger Slack notifications via webhook:
+Database commit failures trigger Microsoft Teams notifications via webhook:
 - Message includes: error details, engine, keyword
-- Configured via `SLACK_WEBHOOK_URL` environment variable
+- Configured via `TEAMS_WEBHOOK_URL` environment variable
 
 ---
 
@@ -1369,33 +1479,32 @@ All settings managed via `app/config.py` using Pydantic BaseSettings (environmen
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DATABASE_URL` | `postgresql://postgres:postgres@localhost:5432/grabon_geo` | PostgreSQL connection |
-| `OPENAI_API_KEY` | `""` | OpenAI API key (parser + diagnosis + comparison) |
-| `GROQ_API_KEY` | `""` | Groq API key (parser, free) |
-| `CLOUDPROXY_URL` | `""` | CloudProxy API endpoint |
-| `SLACK_WEBHOOK_URL` | `""` | Slack webhook for alerts |
+| `OPENAI_API_KEY` | `""` | OpenAI API key (parser + diagnosis + comparison). **Only LLM provider used.** |
+| `CLOUDPROXY_URL` | `""` | CloudProxy API endpoint for proxy rotation |
+| `TEAMS_WEBHOOK_URL` | `""` | Microsoft Teams webhook for critical alerts |
 | `TARGET_DOMAIN` | `grabon.in` | Target brand domain for SERP tracking |
 
 ### Pipeline Settings
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CONTINUOUS_BATCH_SIZE` | `150` | Keywords per loop cycle |
-| `CONTINUOUS_CONCURRENCY` | `6` | Max parallel keyword processing |
+| `CONTINUOUS_BATCH_SIZE` | `350` | Keywords per loop cycle |
+| `CONTINUOUS_CONCURRENCY` | `8` | Max parallel keyword processing |
 | `PARALLEL_ENGINES` | `true` | Run all engines concurrently per keyword |
 | `CONCURRENCY_PER_ENGINE` | `4` | Max concurrent scrapes per engine |
 | `SKIP_FRESH_DATA` | `true` | Skip keywords scraped within freshness window |
 | `FRESHNESS_HOURS` | `24` | Hours before data is considered stale |
-| `USE_DEDUP_CACHE` | `true` | Skip duplicate responses |
+| `USE_DEDUP_CACHE` | `true` | Skip duplicate responses for same brand+engine |
 
 ### SERP Crawler Settings
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SERP_BATCH_SIZE` | `100` | Keywords per SERP crawl cycle |
-| `SERP_INTERVAL_HOURS` | `12` | Hours between full SERP cycles |
-| `SERP_CONCURRENCY` | `3` | Parallel SERP crawls |
-| `SERP_DELAY_MIN` | `5.0` | Min seconds between SERP requests |
-| `SERP_DELAY_MAX` | `12.0` | Max seconds between SERP requests |
+| `SERP_BATCH_SIZE` | `300` | Keywords per SERP crawl cycle |
+| `SERP_INTERVAL_HOURS` | `4` | Hours between full SERP cycles |
+| `SERP_CONCURRENCY` | `4` | Parallel SERP crawls |
+| `SERP_DELAY_MIN` | `3.0` | Min seconds between SERP requests |
+| `SERP_DELAY_MAX` | `7.0` | Max seconds between SERP requests |
 | `SERP_USE_CURL` | `true` | Use curl before browser fallback |
 
 ### Other Settings
@@ -1426,12 +1535,18 @@ services:
   web:
     build: .
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/grabon_geo
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - GROQ_API_KEY=${GROQ_API_KEY}
-      - TARGET_DOMAIN=grabon.in
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/grabon_geo
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      CLOUDPROXY_URL: ${CLOUDPROXY_URL}
+      TEAMS_WEBHOOK_URL: ${TEAMS_WEBHOOK_URL}
+      TZ: Asia/Kolkata
+    deploy:
+      resources:
+        limits:
+          cpus: "6.0"
+          memory: 8G
     depends_on:
       db:
         condition: service_healthy
@@ -1441,59 +1556,80 @@ services:
     environment:
       POSTGRES_DB: grabon_geo
       POSTGRES_PASSWORD: postgres
+      TZ: Asia/Kolkata
+    ports:
+      - "127.0.0.1:5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d grabon_geo"]
       interval: 5s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
 volumes:
-  pgdata:
+  postgres_data:
 ```
 
 ### Startup Sequence
 
 ```
-1. FastAPI app initializes
-2. Database schema created/migrated (init_schema) -- 14 tables, 20+ indexes
-3. Account pools and dedup cache initialized
-4. APScheduler starts
-5. Continuous GEO pipeline loop begins (oldest-first, all keywords)
-6. SERP crawl loop begins (batch + interval based)
-7. Diagnosis loop begins (daily, priority-scored)
-8. Camoufox browser pre-warmed
-9. Cookie refresh jobs scheduled (every 3-6h per engine)
-10. Cookie health checks scheduled (every 15m)
-11. Verification checks scheduled (every 6h)
-12. SSE stream ready for client connections
+1. FastAPI app initializes (lifespan handler)
+2. Kill orphan Camoufox processes from prior runs
+3. Database schema created/migrated (init_schema) -- 15 tables, 24+ indexes
+4. Account pools initialized + dedup cache loaded from DB
+5. APScheduler starts
+6. Continuous GEO pipeline loop begins (tier-prioritized, canonical keywords)
+7. SERP crawl loop begins (continuous, 4h cycle target)
+8. Diagnosis loop begins (continuous, 50/batch, hash-guarded)
+9. Camoufox browser pre-warmed
+10. Cookie refresh jobs scheduled (every 3-6h per engine)
+11. Cookie health checks scheduled (every 15m)
+12. Verification runs every ~6 diagnosis batches (~30min)
+13. SSE stream ready for client connections
 ```
 
 ### Background Loops
 
 | Loop | File | Cadence | Description |
 |------|------|---------|-------------|
-| Continuous pipeline | `pipeline.py` | Continuous | GEO scraping, oldest-first batches |
-| SERP crawler | `serp_scheduler.py` | Continuous (12h cycle) | Google organic rankings |
-| Diagnosis | `diagnosis_scheduler.py` | Daily (20 keywords) | Root cause analysis |
-| Verification | `verification.py` | Every 6h | Fix impact assessment |
-| Cookie refresh | `auth.py` | Every 3-6h | Per-engine session maintenance |
+| Continuous pipeline | `pipeline.py` | Continuous (3-6s between batches) | GEO scraping, tier-prioritized batches of 350 |
+| SERP crawler | `serp_scheduler.py` | Continuous (4h cycle target) | Google organic rankings via curl + browser fallback |
+| Diagnosis | `diagnosis_scheduler.py` | Continuous (2s between, 5min between batches) | Root cause analysis, 50 keywords/batch, hash-guarded |
+| Verification | `diagnosis_scheduler.py` | Every ~6 diagnosis batches (~30min) | Fix impact re-assessment |
+| Cookie refresh | `auth.py` | Every 3-6h per engine | Per-engine session maintenance |
 | Cookie health | `auth.py` | Every 15m | Validate all sessions |
 
 ### Critical Thresholds
 
 | Parameter | Value | Impact |
 |-----------|-------|--------|
-| Max retries per engine | 3 | Higher = more resilient, slower |
-| Engine delay | 5-15s | Lower = faster, higher ban risk |
-| Prompt delay | 3-10s | Lower = faster, higher ban risk |
-| Batch cooldown | 30-90s | Prevents sustained high load |
+| Engine delay (Google) | 8-15s per keyword | Slower but avoids 429 rate limits |
+| Engine delay (others) | 1-3s per keyword | Fast, low ban risk |
+| Batch cooldown | 3-6s | Minimal pause between batches |
+| Engine cooldown base | 120s (exponential to 1800s max) | Auto-backoff on failures |
+| Consecutive fail threshold | 10 | Triggers auto-heal (cookie refresh + relogin) |
 | Proxy sticky TTL | 1 hour (engines), 30min (SERP) | Balance session vs rotation |
 | Cookie refresh | 3-6 hours | More frequent = fewer auth failures |
 | Health check | 15 minutes | Detect expired sessions early |
 | Concurrent browsers | 4+ | Limited by RAM (~1GB each) |
-| Diagnosis daily limit | 20 | LLM API cost control |
+| Diagnosis batch size | 50 | Continuous, not daily-limited |
+| Evidence hash guard | MD5 of brand ranks + SERP domains | Skips redundant LLM calls |
 | Verification min datapoints | 3 | Ensures statistical significance |
-| Cache TTL (API) | 10-60s | Balance freshness vs DB load |
+| Comparison fan-out cap | 5 pages per diagnosis | Controls LLM cost per diagnosis |
+| Cache TTL (API response) | 10-60s | Balance freshness vs DB load |
+| Cache TTL (comparison) | 24h | Avoids re-comparing same URLs |
+
+### Projected Monthly Cost (24/7 operation)
+
+| Component | Estimated Cost |
+|-----------|---------------|
+| Parser (gpt-4o-mini) | ~$45/month |
+| Diagnosis (gpt-4o-mini) | ~$35/month |
+| Comparison (gpt-4o-mini) | ~$15/month |
+| **Total** | **~$95/month** |
 
 ---
 

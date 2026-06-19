@@ -3,8 +3,10 @@ Compare cited competitor pages vs target brand pages.
 Uses LLM API (OpenAI/Groq) for structured content gap analysis.
 """
 import asyncio
+import hashlib
 import json
 import logging
+import time
 
 from app.agent.content_fetcher import fetch_page_content, get_cached_page
 from app.config import get_settings
@@ -12,6 +14,23 @@ from app.database import run_db
 from app.models import ComparisonResult, PageContent
 
 log = logging.getLogger("geo.comparator")
+
+_comparison_cache: dict[str, tuple[float, dict]] = {}
+_COMPARISON_CACHE_TTL = 86400  # 24h
+
+
+def _comparison_cache_key(keyword: str, competitor_url: str, target_url: str) -> str:
+    raw = f"{keyword}|{competitor_url}|{target_url}"
+    return hashlib.md5(raw.encode()).hexdigest()
+
+
+def _get_cached_comparison(key: str) -> dict | None:
+    entry = _comparison_cache.get(key)
+    if entry and (time.time() - entry[0]) < _COMPARISON_CACHE_TTL:
+        return entry[1]
+    if entry:
+        del _comparison_cache[key]
+    return None
 
 COST_PER_MILLION = {
     "gpt-4o-mini": {"input": 0.15, "output": 0.60},
@@ -210,9 +229,16 @@ async def compare_pages(
             target_domain=settings.target_domain,
         )
 
-    result = await _call_llm(prompt)
-    if not result:
-        return None
+    cache_key = _comparison_cache_key(keyword, competitor_url, target_url or "")
+    cached = _get_cached_comparison(cache_key)
+    if cached:
+        log.debug(f"Comparison cache hit: {keyword} / {competitor_url[:50]}")
+        result = cached
+    else:
+        result = await _call_llm(prompt)
+        if not result:
+            return None
+        _comparison_cache[cache_key] = (time.time(), result)
 
     return ComparisonResult(
         keyword=keyword,
@@ -264,12 +290,16 @@ async def analyze_citations_for_prompt(prompt_id: str, keyword: str) -> list[Com
     target_url = target_row["url"] if target_row else None
 
     results = []
+    compared = 0
     for row in cited_rows:
         url = row["cited_url"]
         engine = row["engine_name"]
 
         if target_domain.lower() in url.lower():
             continue
+
+        if compared >= 5:
+            break
 
         comparison = await compare_pages(
             keyword=keyword,
@@ -279,6 +309,7 @@ async def analyze_citations_for_prompt(prompt_id: str, keyword: str) -> list[Com
         )
         if comparison:
             results.append(comparison)
+            compared += 1
 
     return results
 

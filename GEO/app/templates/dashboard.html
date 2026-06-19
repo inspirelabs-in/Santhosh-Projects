@@ -597,7 +597,7 @@
                         {% set brands = r.get('top_brands', []) %}
                         <td class="px-3 py-2.5 text-center rank-cell {% if r.log_id %}cursor-pointer hover:bg-slate-800/40{% endif %}" {% if r.log_id %}onclick="showResponse('{{ r.log_id }}')"{% endif %}>
                             {% if r.status == "pending" %}
-                                <span class="text-slate-700/60 text-[8px]">queued</span>
+                                <span class="text-slate-700/50 text-[8px] italic">--</span>
                             {% elif r.status == "limit_exhausted" %}
                                 <span class="px-1.5 py-0.5 rounded bg-amber-950/20 text-amber-500/70 text-[10px] font-medium" title="Engine rate limit hit - will retry automatically">Limit</span>
                             {% elif r.status == "no_aio" %}
@@ -1338,7 +1338,7 @@ function refreshRankings() {
                         return `<td class="px-2 py-2 text-center rank-cell"${clickAttr}><div><span class="text-red-500/80 text-[9px]">Out</span>${leaderLine}</div>${ladderHtml}</td>`;
                     }
                     const badges = {
-                        pending: '<span class="text-slate-700/60 text-[8px]">queued</span>',
+                        pending: '<span class="text-slate-700/50 text-[8px] italic">--</span>',
                         limit_exhausted: '<span class="text-amber-500/70 text-[9px]">Limit</span>',
                         error: '<span class="text-rose-400/60 text-[9px]">ERR</span>',
                         no_mention: '<span class="text-slate-600 text-[9px]">No mention</span>',

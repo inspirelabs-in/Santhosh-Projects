@@ -369,6 +369,9 @@ def _init_schema_sync():
                 llm_model VARCHAR(60),
                 cost_usd NUMERIC(10,6) DEFAULT 0,
                 status VARCHAR(20) DEFAULT 'active',
+                revision_count INTEGER DEFAULT 0,
+                evidence_hash VARCHAR(32) DEFAULT '',
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
                 created_at TIMESTAMPTZ DEFAULT NOW()
             )
         """)
@@ -382,6 +385,22 @@ def _init_schema_sync():
             CREATE INDEX IF NOT EXISTS idx_diagnoses_priority
             ON diagnoses (priority, status, created_at DESC)
         """)
+
+        # Migration: add revision_count + updated_at to diagnoses
+        for col, defn in [
+            ("revision_count", "INTEGER DEFAULT 0"),
+            ("evidence_hash", "VARCHAR(32) DEFAULT ''"),
+            ("updated_at", "TIMESTAMPTZ DEFAULT NOW()"),
+        ]:
+            col_exists = conn.execute(
+                """SELECT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'diagnoses' AND column_name = %s
+                )""", (col,)
+            ).fetchone()
+            if col_exists and not col_exists["exists"]:
+                conn.execute(f"ALTER TABLE diagnoses ADD COLUMN {col} {defn}")
+                log.info(f"Added diagnoses.{col} column")
 
         # --- Applied fixes table ---
 

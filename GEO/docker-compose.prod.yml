@@ -31,9 +31,7 @@ services:
       - "127.0.0.1:8000:8000"
     environment:
       DATABASE_URL: postgresql://postgres:${DB_PASSWORD:-postgres}@db:5432/grabon_geo
-      GROQ_API_KEY: ${GROQ_API_KEY}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
-      PARSER_PROVIDER: ${PARSER_PROVIDER:-groq}
       CLOUDPROXY_URL: ${CLOUDPROXY_URL}
       TEAMS_WEBHOOK_URL: ${TEAMS_WEBHOOK_URL}
       TZ: Asia/Kolkata

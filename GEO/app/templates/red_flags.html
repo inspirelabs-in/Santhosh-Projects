@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Coupon Auditor{% endblock %}
+{% block title %}Coupon Intelligence{% endblock %}
 
 {% block content %}
 <div class="space-y-5 max-w-[1440px] mx-auto">
@@ -7,101 +7,195 @@
     <div class="flex items-center justify-between pb-4 border-b border-slate-800/60">
       <div>
         <h2 class="text-2xl font-bold text-slate-100 tracking-tight flex items-center gap-2">
-            Coupon Hallucination Auditor
+            AI Coupon Intelligence
             <span class="info-btn ml-1">
                 <svg class="w-3.5 h-3.5 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                <span class="info-tip"><strong class="text-slate-200">Coupon Hallucination Auditor</strong><br>Detects coupon codes mentioned by AI engines and classifies them. Hallucinated = codes that AI invented and don't actually exist. Critical for brand trust.</span>
+                <span class="info-tip"><strong class="text-slate-200">AI Coupon Intelligence</strong><br>Every coupon code AI engines mention across all keywords. Track which brands and codes get the most AI visibility. Codes appearing across multiple engines are high-confidence real codes.</span>
             </span>
-            <svg class="w-5 h-5 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg>
+            <svg class="w-5 h-5 text-cyan-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z"/></svg>
         </h2>
-        <p class="text-xs text-slate-500 mt-0.5">Coupon codes AI engines mention - classified as valid, expired, or hallucinated</p>
+        <p class="text-xs text-slate-500 mt-0.5">Raw coupon data from AI engines -- what they recommend, which brands, how often</p>
       </div>
     </div>
 
     <!-- Stats Row -->
     <div class="grid grid-cols-4 gap-3">
         <div class="glass-card rounded-xl px-4 py-3">
-            <div class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Total Codes <span class="info-btn ml-0.5"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Total Codes</strong><br>Total coupon codes extracted from all AI engine responses across all keywords.</span></span></div>
-            <div class="text-2xl font-bold text-slate-200">{{ total_coupons }}</div>
-            <p class="text-[10px] text-slate-600 mt-0.5">Across all engines</p>
+            <div class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Total Mentions</div>
+            <div class="text-2xl font-bold text-slate-200">{{ total_codes }}</div>
+            <p class="text-[10px] text-slate-600 mt-0.5">Coupon codes spotted in AI responses</p>
         </div>
-        <a href="/red-flags?status=Active-Valid" class="glass-card rounded-xl px-4 py-3 hover:border-emerald-500/30 transition-colors">
-            <div class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Active Valid <span class="info-btn ml-0.5"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Active Valid</strong><br>Coupon codes confirmed to be real and currently working on the merchant's site.</span></span></div>
-            <div class="text-2xl font-bold text-emerald-400">{{ total_active }}</div>
-            <p class="text-[10px] text-slate-600 mt-0.5">Confirmed working</p>
-        </a>
-        <a href="/red-flags?status=Expired-On-Site" class="glass-card rounded-xl px-4 py-3 hover:border-amber-500/30 transition-colors">
-            <div class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Expired On-Site <span class="info-btn ml-0.5"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Expired On-Site</strong><br>Real coupon codes that exist on the site but have passed their expiration date. AI is citing outdated information.</span></span></div>
-            <div class="text-2xl font-bold text-amber-400">{{ total_expired }}</div>
-            <p class="text-[10px] text-slate-600 mt-0.5">Listed but no longer valid</p>
-        </a>
-        <a href="/red-flags?status=Hallucinated" class="glass-card rounded-xl px-4 py-3 hover:border-rose-500/30 transition-colors">
-            <div class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Hallucinated <span class="info-btn ml-0.5"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Hallucinated</strong><br>Coupon codes fabricated by AI — they don't exist and never did. A trust risk: users who try these get frustrated.</span></span></div>
-            <div class="text-2xl font-bold text-rose-400">{{ total_hallucinated }}</div>
-            <p class="text-[10px] text-slate-600 mt-0.5">AI-fabricated codes</p>
-        </a>
+        <div class="glass-card rounded-xl px-4 py-3">
+            <div class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Unique Codes</div>
+            <div class="text-2xl font-bold text-cyan-400">{{ unique_codes }}</div>
+            <p class="text-[10px] text-slate-600 mt-0.5">Distinct coupon codes</p>
+        </div>
+        <div class="glass-card rounded-xl px-4 py-3">
+            <div class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Brands Mentioned</div>
+            <div class="text-2xl font-bold text-violet-400">{{ unique_brands }}</div>
+            <p class="text-[10px] text-slate-600 mt-0.5">Brands with coupon visibility</p>
+        </div>
+        <div class="glass-card rounded-xl px-4 py-3">
+            <div class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">{{ target_domain.split('.')[0] | title }} Codes</div>
+            <div class="text-2xl font-bold {% if target_mentions > 0 %}text-emerald-400{% else %}text-rose-400{% endif %}">{{ target_mentions }}</div>
+            <p class="text-[10px] text-slate-600 mt-0.5">Your brand's coupon mentions</p>
+        </div>
     </div>
 
-    {% if total_coupons > 0 %}
-    <!-- Engine + Merchant panels -->
+    {% if total_codes > 0 %}
+    <!-- Top Codes + Engine Breakdown -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        <!-- Per-Engine Breakdown -->
-        <div class="glass-panel border border-slate-800/60 rounded-xl overflow-hidden flex flex-col" style="max-height: 320px;">
+        <!-- Most Mentioned Codes -->
+        <div class="glass-panel border border-slate-800/60 rounded-xl overflow-hidden flex flex-col" style="max-height: 380px;">
             <div class="px-5 py-3 border-b border-slate-900/60 bg-slate-950/40 shrink-0">
-                <h3 class="text-sm font-semibold text-slate-200">Coupons by Engine
+                <h3 class="text-sm font-semibold text-slate-200">Most Mentioned Codes
                     <span class="info-btn ml-1">
                         <svg class="w-3.5 h-3.5 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                        <span class="info-tip"><strong class="text-slate-200">Coupons by Engine</strong><br>Shows which AI engines mention the most coupon codes. Helps identify which engines are most prone to hallucination.</span>
+                        <span class="info-tip"><strong class="text-slate-200">Most Mentioned Codes</strong><br>Coupon codes AI engines recommend most. Higher engine count = more likely a real, working code. Codes in 3+ engines have very high confidence.</span>
                     </span>
                 </h3>
-                <p class="text-[10px] text-slate-600 mt-0.5">Which engines produce most coupon codes</p>
-            </div>
-            <div class="p-4 space-y-2.5 overflow-y-auto flex-1">
-                {% for es in engine_stats %}
-                <div class="flex items-center gap-3">
-                    <span class="flex items-center gap-1.5 text-xs text-slate-400 w-28 shrink-0 truncate">
-                        <img src="/static/logos/{{ es.engine_name }}.svg" alt="{{ es.engine_name }}" class="w-3.5 h-3.5 shrink-0" loading="lazy">
-                        {{ es.engine_name.replace('_', ' ') | title }}
-                    </span>
-                    <div class="flex-1 h-2 bg-slate-900 rounded-full overflow-hidden">
-                        <div class="h-full bg-cyan-500/70 rounded-full" style="width: {{ (es.count / total_coupons * 100) | round(1) }}%"></div>
-                    </div>
-                    <span class="text-xs font-semibold text-slate-300 w-10 text-right shrink-0">{{ es.count }}</span>
-                </div>
-                {% endfor %}
-            </div>
-        </div>
-
-        <!-- Top Merchants -->
-        <div class="glass-panel border border-slate-800/60 rounded-xl overflow-hidden flex flex-col" style="max-height: 320px;">
-            <div class="px-5 py-3 border-b border-slate-900/60 bg-slate-950/40 shrink-0">
-                <h3 class="text-sm font-semibold text-slate-200">Top Merchants
-                    <span class="info-btn ml-1">
-                        <svg class="w-3.5 h-3.5 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                        <span class="info-tip"><strong class="text-slate-200">Top Merchants</strong><br>Merchants with the most AI-mentioned coupon codes. Check hallucination rates per merchant to identify trust risks.</span>
-                    </span>
-                </h3>
-                <p class="text-[10px] text-slate-600 mt-0.5">Merchants with most coupon mentions</p>
+                <p class="text-[10px] text-slate-600 mt-0.5">Frequency = AI visibility strength</p>
             </div>
             <div class="overflow-y-auto flex-1">
                 <table class="w-full text-xs">
                     <thead class="sticky top-0 bg-slate-950/90 backdrop-blur-sm z-10">
                         <tr class="border-b border-slate-900/50 text-[10px] text-slate-500 uppercase tracking-wider">
-                            <th class="text-left px-4 py-2">Merchant</th>
-                            <th class="text-center px-2 py-2">Total</th>
-                            <th class="text-center px-2 py-2">Valid</th>
-                            <th class="text-center px-2 py-2">Expired</th>
-                            <th class="text-center px-2 py-2">Fake</th>
+                            <th class="text-left px-4 py-2">Code</th>
+                            <th class="text-left px-3 py-2">Brand</th>
+                            <th class="text-center px-2 py-2">Mentions</th>
+                            <th class="text-center px-2 py-2">Engines</th>
+                            <th class="text-left px-3 py-2">Last Seen</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-900/30">
-                        {% for m in top_merchants %}
+                        {% for c in top_codes %}
                         <tr class="hover:bg-slate-900/20 transition-colors">
-                            <td class="px-4 py-2 text-slate-300 font-medium">{{ m.associated_merchant }}</td>
-                            <td class="text-center px-2 py-2 text-slate-400">{{ m.total }}</td>
-                            <td class="text-center px-2 py-2 text-emerald-400">{{ m.active }}</td>
-                            <td class="text-center px-2 py-2 text-amber-400">{{ m.expired }}</td>
-                            <td class="text-center px-2 py-2 text-rose-400 font-semibold">{{ m.hallucinated }}</td>
+                            <td class="px-4 py-2"><code class="px-2 py-0.5 rounded bg-slate-900 text-amber-400 font-mono text-xs">{{ c.coupon_code }}</code></td>
+                            <td class="px-3 py-2 text-slate-300 font-medium">{{ c.associated_merchant }}</td>
+                            <td class="text-center px-2 py-2 text-slate-200 font-semibold">{{ c.mention_count }}</td>
+                            <td class="text-center px-2 py-2">
+                                <span class="px-1.5 py-0.5 rounded text-[10px] font-bold {% if c.engine_count >= 3 %}bg-emerald-500/15 text-emerald-400{% elif c.engine_count >= 2 %}bg-cyan-500/15 text-cyan-400{% else %}bg-slate-800 text-slate-400{% endif %}">{{ c.engine_count }}</span>
+                            </td>
+                            <td class="px-3 py-2 text-slate-600 text-[10px]">{{ c.last_seen[:10] }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Engine Breakdown -->
+        <div class="glass-panel border border-slate-800/60 rounded-xl overflow-hidden flex flex-col" style="max-height: 380px;">
+            <div class="px-5 py-3 border-b border-slate-900/60 bg-slate-950/40 shrink-0">
+                <h3 class="text-sm font-semibold text-slate-200">Engine Coupon Behavior
+                    <span class="info-btn ml-1">
+                        <svg class="w-3.5 h-3.5 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                        <span class="info-tip"><strong class="text-slate-200">Engine Coupon Behavior</strong><br>Which AI engines mention coupons most, and how diverse their code/brand coverage is. Engines with many unique codes serve more detailed responses.</span>
+                    </span>
+                </h3>
+                <p class="text-[10px] text-slate-600 mt-0.5">Which engines surface coupon codes</p>
+            </div>
+            <div class="overflow-y-auto flex-1 p-4 space-y-3">
+                {% for es in engine_stats %}
+                <div class="space-y-1.5">
+                    <div class="flex items-center justify-between">
+                        <span class="flex items-center gap-1.5 text-xs text-slate-300 font-medium">
+                            <img src="/static/logos/{{ es.engine_name }}.svg" alt="{{ es.engine_name }}" class="w-3.5 h-3.5 shrink-0" loading="lazy">
+                            {{ es.engine_name.replace('_', ' ') | title }}
+                        </span>
+                        <span class="text-xs font-semibold text-slate-200">{{ es.total_mentions }} mentions</span>
+                    </div>
+                    <div class="flex-1 h-2 bg-slate-900 rounded-full overflow-hidden">
+                        <div class="h-full bg-cyan-500/70 rounded-full" style="width: {{ (es.total_mentions / total_codes * 100) | round(1) }}%"></div>
+                    </div>
+                    <div class="flex gap-4 text-[10px] text-slate-500">
+                        <span>{{ es.unique_codes }} unique codes</span>
+                        <span>{{ es.unique_brands }} brands</span>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Brand Intelligence + Competitor Codes -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <!-- Top Brands -->
+        <div class="glass-panel border border-slate-800/60 rounded-xl overflow-hidden flex flex-col" style="max-height: 380px;">
+            <div class="px-5 py-3 border-b border-slate-900/60 bg-slate-950/40 shrink-0">
+                <h3 class="text-sm font-semibold text-slate-200">Brand Coupon Visibility
+                    <span class="info-btn ml-1">
+                        <svg class="w-3.5 h-3.5 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                        <span class="info-tip"><strong class="text-slate-200">Brand Coupon Visibility</strong><br>Which brands get their coupons mentioned by AI engines. Your brand highlighted in green. Competitors in default color.</span>
+                    </span>
+                </h3>
+                <p class="text-[10px] text-slate-600 mt-0.5">Who owns AI coupon mindshare</p>
+            </div>
+            <div class="overflow-y-auto flex-1">
+                <table class="w-full text-xs">
+                    <thead class="sticky top-0 bg-slate-950/90 backdrop-blur-sm z-10">
+                        <tr class="border-b border-slate-900/50 text-[10px] text-slate-500 uppercase tracking-wider">
+                            <th class="text-left px-4 py-2">Brand</th>
+                            <th class="text-center px-2 py-2">Mentions</th>
+                            <th class="text-center px-2 py-2">Codes</th>
+                            <th class="text-center px-2 py-2">Engines</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-900/30">
+                        {% for b in top_brands %}
+                        <tr class="hover:bg-slate-900/20 transition-colors {% if b.is_target %}bg-emerald-500/5 border-l-2 border-emerald-500/40{% endif %}">
+                            <td class="px-4 py-2 font-medium {% if b.is_target %}text-emerald-400{% else %}text-slate-300{% endif %}">
+                                {{ b.brand }}
+                                {% if b.is_target %}<span class="ml-1 text-[9px] bg-emerald-500/15 text-emerald-400 px-1.5 py-0.5 rounded font-bold">YOU</span>{% endif %}
+                            </td>
+                            <td class="text-center px-2 py-2 text-slate-200 font-semibold">{{ b.total_mentions }}</td>
+                            <td class="text-center px-2 py-2 text-slate-400">{{ b.unique_codes }}</td>
+                            <td class="text-center px-2 py-2">
+                                <span class="px-1.5 py-0.5 rounded text-[10px] font-bold {% if b.engine_count >= 4 %}bg-emerald-500/15 text-emerald-400{% elif b.engine_count >= 2 %}bg-cyan-500/15 text-cyan-400{% else %}bg-slate-800 text-slate-400{% endif %}">{{ b.engine_count }}</span>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Top Competitor Codes -->
+        <div class="glass-panel border border-slate-800/60 rounded-xl overflow-hidden flex flex-col" style="max-height: 380px;">
+            <div class="px-5 py-3 border-b border-slate-900/60 bg-slate-950/40 shrink-0">
+                <h3 class="text-sm font-semibold text-slate-200">Competitor Coupon Codes
+                    <span class="info-btn ml-1">
+                        <svg class="w-3.5 h-3.5 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                        <span class="info-tip"><strong class="text-slate-200">Competitor Coupon Codes</strong><br>Coupon codes AI engines recommend for your competitors. Sorted by engine spread -- codes in many engines are most visible to users.</span>
+                    </span>
+                </h3>
+                <p class="text-[10px] text-slate-600 mt-0.5">What AI recommends for competitors</p>
+            </div>
+            <div class="overflow-y-auto flex-1">
+                <table class="w-full text-xs">
+                    <thead class="sticky top-0 bg-slate-950/90 backdrop-blur-sm z-10">
+                        <tr class="border-b border-slate-900/50 text-[10px] text-slate-500 uppercase tracking-wider">
+                            <th class="text-left px-4 py-2">Code</th>
+                            <th class="text-left px-3 py-2">Brand</th>
+                            <th class="text-center px-2 py-2">Mentions</th>
+                            <th class="text-left px-3 py-2">Engines</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-900/30">
+                        {% for c in competitor_codes %}
+                        <tr class="hover:bg-slate-900/20 transition-colors">
+                            <td class="px-4 py-2"><code class="px-2 py-0.5 rounded bg-slate-900 text-rose-400 font-mono text-xs">{{ c.coupon_code }}</code></td>
+                            <td class="px-3 py-2 text-slate-300 font-medium">{{ c.associated_merchant }}</td>
+                            <td class="text-center px-2 py-2 text-slate-200 font-semibold">{{ c.mentions }}</td>
+                            <td class="px-3 py-2">
+                                <div class="flex flex-wrap gap-1">
+                                    {% for eng in c.engine_list %}
+                                    <span class="flex items-center gap-0.5 px-1 py-0.5 rounded bg-slate-900/80 text-[8px] text-slate-500">
+                                        <img src="/static/logos/{{ eng }}.svg" alt="{{ eng }}" class="w-2.5 h-2.5 shrink-0" loading="lazy">
+                                    </span>
+                                    {% endfor %}
+                                </div>
+                            </td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -113,46 +207,36 @@
 
     <!-- Filters -->
     <div class="flex flex-wrap items-center gap-3">
-        <div class="flex gap-1.5">
-            {% for s in ['All', 'Active-Valid', 'Expired-On-Site', 'Hallucinated'] %}
-            <a href="/red-flags?status={{ s }}&engine={{ active_engine }}&merchant={{ active_merchant }}&search={{ search_query }}"
-               class="px-2.5 py-1 rounded-md text-xs font-medium transition-all {% if active_status == s %}bg-amber-500/15 text-amber-400 border border-amber-500/30{% else %}bg-slate-950 text-slate-500 border border-slate-900 hover:text-slate-300{% endif %}">
-                {{ s.replace('-', ' ') }}
-            </a>
-            {% endfor %}
-        </div>
-        <div class="h-4 w-px bg-slate-800"></div>
-        <select onchange="window.location='/red-flags?status={{ active_status }}&engine='+this.value+'&merchant={{ active_merchant }}&search={{ search_query }}'"
+        <select onchange="window.location='/red-flags?engine='+this.value+'&brand={{ active_brand }}&search={{ search_query }}'"
                 class="text-xs px-2 py-1 bg-slate-950 border border-slate-900 rounded-md text-slate-400 outline-none">
             <option value="All" {% if active_engine == 'All' %}selected{% endif %}>All Engines</option>
             {% for eng in all_engines %}
             <option value="{{ eng }}" {% if active_engine == eng %}selected{% endif %}>{{ eng.replace('_', ' ') | title }}</option>
             {% endfor %}
         </select>
-        <select onchange="window.location='/red-flags?status={{ active_status }}&engine={{ active_engine }}&merchant='+encodeURIComponent(this.value)+'&search={{ search_query }}'"
+        <select onchange="window.location='/red-flags?engine={{ active_engine }}&brand='+encodeURIComponent(this.value)+'&search={{ search_query }}'"
                 class="text-xs px-2 py-1 bg-slate-950 border border-slate-900 rounded-md text-slate-400 outline-none">
-            <option value="All" {% if active_merchant == 'All' %}selected{% endif %}>All Merchants</option>
-            {% for m in merchants %}
-            <option value="{{ m }}" {% if active_merchant == m %}selected{% endif %}>{{ m }}</option>
+            <option value="All" {% if active_brand == 'All' %}selected{% endif %}>All Brands</option>
+            {% for b in brands %}
+            <option value="{{ b }}" {% if active_brand == b %}selected{% endif %}>{{ b }}</option>
             {% endfor %}
         </select>
         <form action="/red-flags" method="GET" class="ml-auto flex gap-1.5">
-            <input type="hidden" name="status" value="{{ active_status }}">
             <input type="hidden" name="engine" value="{{ active_engine }}">
-            <input type="hidden" name="merchant" value="{{ active_merchant }}">
-            <input name="search" value="{{ search_query }}" placeholder="Search codes or merchants..."
-                   class="text-xs px-2.5 py-1 bg-slate-950 border border-slate-900 rounded-md text-slate-300 placeholder-slate-600 outline-none focus:border-amber-500/60 w-48">
+            <input type="hidden" name="brand" value="{{ active_brand }}">
+            <input name="search" value="{{ search_query }}" placeholder="Search codes, brands, or queries..."
+                   class="text-xs px-2.5 py-1 bg-slate-950 border border-slate-900 rounded-md text-slate-300 placeholder-slate-600 outline-none focus:border-cyan-500/60 w-48">
             <button type="submit" class="px-2.5 py-1 bg-slate-900 text-slate-400 border border-slate-800 rounded-md text-xs hover:text-slate-200 cursor-pointer">Search</button>
         </form>
     </div>
 
     {% if not coupons %}
     <div class="glass-panel border border-slate-800/60 p-10 rounded-xl text-center">
-        {% if total_coupons == 0 %}
+        {% if total_codes == 0 %}
         <div class="w-14 h-14 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-600 mx-auto mb-4">
-            <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg>
+            <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z"/></svg>
         </div>
-        <h3 class="text-lg font-bold text-slate-100 mb-1">No Coupon Codes Detected</h3>
+        <h3 class="text-lg font-bold text-slate-100 mb-1">No Coupon Codes Detected Yet</h3>
         <p class="text-xs text-slate-500">Run a scrape sweep first. Parser automatically extracts coupon codes from AI responses.</p>
         {% else %}
         <p class="text-sm text-slate-400">No coupons match current filters.</p>
@@ -160,15 +244,19 @@
         {% endif %}
     </div>
     {% else %}
+    <!-- Full Feed Table -->
     <div class="glass-panel border border-slate-800/60 rounded-xl overflow-hidden">
+        <div class="px-5 py-3 border-b border-slate-900/60 bg-slate-950/40">
+            <h3 class="text-sm font-semibold text-slate-200">Coupon Feed</h3>
+            <p class="text-[10px] text-slate-600 mt-0.5">Every coupon code AI engines mentioned, newest first</p>
+        </div>
         <table class="w-full text-left border-collapse">
             <thead>
                 <tr class="border-b border-slate-900/60 bg-slate-950/40 text-slate-500 text-[10px] uppercase tracking-wider font-semibold">
-                    <th class="px-4 py-2.5">Coupon Code</th>
-                    <th class="px-4 py-2.5">Merchant</th>
-                    <th class="px-4 py-2.5">Status</th>
+                    <th class="px-4 py-2.5">Code</th>
+                    <th class="px-4 py-2.5">Brand</th>
                     <th class="px-4 py-2.5">Engine</th>
-                    <th class="px-4 py-2.5">Search Query</th>
+                    <th class="px-4 py-2.5">Query</th>
                     <th class="px-4 py-2.5">Captured</th>
                 </tr>
             </thead>
@@ -180,21 +268,12 @@
                     </td>
                     <td class="px-4 py-2.5 text-slate-300 font-medium">{{ c.associated_merchant }}</td>
                     <td class="px-4 py-2.5">
-                        {% if c.status_flag == 'Active-Valid' %}
-                        <span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-bold">Valid</span>
-                        {% elif c.status_flag == 'Expired-On-Site' %}
-                        <span class="px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] font-bold">Expired</span>
-                        {% else %}
-                        <span class="px-2 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20 text-[10px] font-bold">Hallucinated</span>
-                        {% endif %}
-                    </td>
-                    <td class="px-4 py-2.5">
                         <span class="flex items-center gap-1 px-2 py-0.5 rounded bg-slate-900 text-[9px] font-bold text-slate-400 uppercase w-fit">
                             <img src="/static/logos/{{ c.engine_name }}.svg" alt="{{ c.engine_name }}" class="w-3 h-3 shrink-0" loading="lazy">
                             {{ c.engine_name.replace('_', ' ') }}
                         </span>
                     </td>
-                    <td class="px-4 py-2.5 text-slate-500 max-w-[200px] truncate" title="{{ c.prompt_text }}">{{ c.prompt_text }}</td>
+                    <td class="px-4 py-2.5 text-slate-500 max-w-[220px] truncate" title="{{ c.prompt_text }}">{{ c.prompt_text }}</td>
                     <td class="px-4 py-2.5 text-slate-600 text-[10px] whitespace-nowrap">{{ c.captured_at[:16] }}</td>
                 </tr>
                 {% endfor %}
@@ -208,7 +287,7 @@
         {% if total_pages > 1 %}
         <div class="flex items-center gap-1">
             {% if page > 1 %}
-            <a href="/red-flags?status={{ active_status }}&engine={{ active_engine }}&merchant={{ active_merchant }}&search={{ search_query }}&page={{ page - 1 }}"
+            <a href="/red-flags?engine={{ active_engine }}&brand={{ active_brand }}&search={{ search_query }}&page={{ page - 1 }}"
                class="px-2.5 py-1 rounded-md text-xs bg-slate-950 text-slate-400 border border-slate-900 hover:text-slate-200 transition-all">&laquo; Prev</a>
             {% endif %}
 
@@ -216,24 +295,24 @@
             {% set end_page = [total_pages, page + 2] | min %}
 
             {% if start_page > 1 %}
-            <a href="/red-flags?status={{ active_status }}&engine={{ active_engine }}&merchant={{ active_merchant }}&search={{ search_query }}&page=1"
+            <a href="/red-flags?engine={{ active_engine }}&brand={{ active_brand }}&search={{ search_query }}&page=1"
                class="px-2 py-1 rounded-md text-xs bg-slate-950 text-slate-400 border border-slate-900 hover:text-slate-200">1</a>
             {% if start_page > 2 %}<span class="text-slate-600 text-[10px] px-1">...</span>{% endif %}
             {% endif %}
 
             {% for p in range(start_page, end_page + 1) %}
-            <a href="/red-flags?status={{ active_status }}&engine={{ active_engine }}&merchant={{ active_merchant }}&search={{ search_query }}&page={{ p }}"
-               class="px-2 py-1 rounded-md text-xs transition-all {% if p == page %}bg-amber-500/15 text-amber-400 border border-amber-500/30 font-bold{% else %}bg-slate-950 text-slate-400 border border-slate-900 hover:text-slate-200{% endif %}">{{ p }}</a>
+            <a href="/red-flags?engine={{ active_engine }}&brand={{ active_brand }}&search={{ search_query }}&page={{ p }}"
+               class="px-2 py-1 rounded-md text-xs transition-all {% if p == page %}bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 font-bold{% else %}bg-slate-950 text-slate-400 border border-slate-900 hover:text-slate-200{% endif %}">{{ p }}</a>
             {% endfor %}
 
             {% if end_page < total_pages %}
             {% if end_page < total_pages - 1 %}<span class="text-slate-600 text-[10px] px-1">...</span>{% endif %}
-            <a href="/red-flags?status={{ active_status }}&engine={{ active_engine }}&merchant={{ active_merchant }}&search={{ search_query }}&page={{ total_pages }}"
+            <a href="/red-flags?engine={{ active_engine }}&brand={{ active_brand }}&search={{ search_query }}&page={{ total_pages }}"
                class="px-2 py-1 rounded-md text-xs bg-slate-950 text-slate-400 border border-slate-900 hover:text-slate-200">{{ total_pages }}</a>
             {% endif %}
 
             {% if page < total_pages %}
-            <a href="/red-flags?status={{ active_status }}&engine={{ active_engine }}&merchant={{ active_merchant }}&search={{ search_query }}&page={{ page + 1 }}"
+            <a href="/red-flags?engine={{ active_engine }}&brand={{ active_brand }}&search={{ search_query }}&page={{ page + 1 }}"
                class="px-2.5 py-1 rounded-md text-xs bg-slate-950 text-slate-400 border border-slate-900 hover:text-slate-200 transition-all">Next &raquo;</a>
             {% endif %}
         </div>
@@ -247,7 +326,7 @@
     const loadTime = Date.now();
     const banner = document.createElement('div');
     banner.id = 'liveBanner';
-    banner.className = 'fixed top-2 left-1/2 -translate-x-1/2 z-50 hidden px-4 py-2 rounded-lg bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-xs font-semibold backdrop-blur-sm cursor-pointer transition-all hover:bg-emerald-500/30';
+    banner.className = 'fixed top-2 left-1/2 -translate-x-1/2 z-50 hidden px-4 py-2 rounded-lg bg-cyan-500/20 border border-cyan-500/30 text-cyan-400 text-xs font-semibold backdrop-blur-sm cursor-pointer transition-all hover:bg-cyan-500/30';
     banner.onclick = () => location.reload();
     document.body.appendChild(banner);
 

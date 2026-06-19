@@ -562,11 +562,18 @@ def _get_available_engines() -> list[str]:
 
 
 async def _fetch_oldest_first_batch(batch_size: int) -> list:
-    """Fetch next batch prioritizing partially-scraped keywords, then oldest-run-first.
+    """Fetch next batch with tier priority and partial-coverage completion.
 
-    Keywords with some (but not all) engine results come first so they get
-    completed before new keywords start. Prevents dashboard from showing
-    rows with 'queued' cells for missing engines.
+    Order:
+      1. Partially-scraped tier 1-2 keywords (some engines done, not all)
+      2. Never-scraped tier 1-2 keywords
+      3. Remaining tier 1-2 keywords (oldest first)
+      4. Partially-scraped tier 3+
+      5. Never-scraped tier 3+
+      6. Remaining tier 3+
+
+    Tier 1-2 keywords (canonical high-priority) always fill first.
+    Only when tier 1-2 has no work left does tier 3 get batch slots.
     """
     engine_count = len(VISIBLE_ENGINES)
     engine_list = list(VISIBLE_ENGINES)
@@ -577,8 +584,10 @@ async def _fetch_oldest_first_batch(batch_size: int) -> list:
                   ) AS covered_engines
            FROM prompts p
            LEFT JOIN execution_logs el ON el.prompt_id = p.id
-           GROUP BY p.id, p.text, p.merchant_category, p.intent_type
+           WHERE p.is_canonical = TRUE
+           GROUP BY p.id, p.text, p.merchant_category, p.intent_type, p.tier
            ORDER BY
+               CASE WHEN p.tier <= 2 THEN 0 ELSE 1 END,
                CASE
                    WHEN COUNT(DISTINCT el.engine_name) FILTER (
                        WHERE el.engine_name = ANY(%s)
