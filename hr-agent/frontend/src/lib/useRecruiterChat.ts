@@ -307,6 +307,22 @@ export function useRecruiterChat(): UseRecruiterChatReturn {
               data: payload.data,
               raw: payload.raw,
             };
+            // Proactive nudges carry their own text body (e.g. reschedule
+            // request + suggested slots). Render them as a standalone system
+            // message so the recruiter sees the message AND the card.
+            if (payload._nudge) {
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: uid(),
+                  role: "system",
+                  content: (payload.content as string) || "",
+                  attachments: [att],
+                  createdAt: Date.now(),
+                },
+              ]);
+              break;
+            }
             // Attach to the most recent tool message if it has the same kind family,
             // otherwise add a standalone tool message.
             setMessages((prev) => {

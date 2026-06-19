@@ -26,6 +26,7 @@ from src.api import (
     recruiter_chat,
     hr_dashboard,
     events as events_router,
+    meeting_reschedule,
     meetings,
     panel_availability,
     panels,
@@ -156,6 +157,7 @@ app.include_router(webhooks_whatsapp.router)
 app.include_router(webhooks_sms.router)
 app.include_router(webhooks_email.router)
 app.include_router(meetings.router)
+app.include_router(meeting_reschedule.router)
 app.include_router(apply.router)
 app.include_router(recruiter_chat.router)
 app.include_router(dashboard.router)

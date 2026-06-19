@@ -1357,6 +1357,99 @@ async def propose_slots(*, application_id: str, count: int = 3) -> dict[str, Any
         return {"error": f"propose_slots_failed: {e}"}
 
 
+async def suggest_meeting_slots(*, business_days: int = 5, limit: int = 6) -> dict[str, Any]:
+    """Recommend interview slots over the next few business days (excl. Sat/Sun).
+
+    Returns ISO-8601 UTC timestamps plus human labels so the recruiter (or
+    Pulse) can pick one to pass to schedule_meeting / reschedule_meeting.
+    """
+    from src.services.slot_suggest import format_slot, suggest_slots
+
+    slots = suggest_slots(business_days=int(business_days), limit=int(limit))
+    return {
+        "slots": [
+            {"scheduled_at": s.isoformat(), "label": format_slot(s)} for s in slots
+        ]
+    }
+
+
+async def schedule_meeting(
+    *,
+    application_id: str,
+    round: str,
+    scheduled_at: str,
+    panel_emails: list[str] | str,
+    duration_minutes: int = 45,
+) -> dict[str, Any]:
+    """Book an interview meeting (Google Meet) for a candidate via chat:
+    creates the calendar event, emails the candidate + panel, arms the bot.
+    """
+    from src.services.chat_meeting import book_meeting
+
+    try:
+        app_id = UUID(application_id)
+    except (ValueError, TypeError, AttributeError):
+        return {"error": "invalid_application_id"}
+    try:
+        when = datetime.fromisoformat(scheduled_at)
+    except (ValueError, TypeError):
+        return {"error": "scheduled_at must be ISO-8601, e.g. 2026-06-23T15:00:00+05:30"}
+    if isinstance(panel_emails, str):
+        panel_emails = [e.strip() for e in panel_emails.split(",") if e.strip()]
+    return await book_meeting(
+        application_id=app_id,
+        round=round,
+        scheduled_at=when,
+        panel_emails=list(panel_emails or []),
+        duration_minutes=int(duration_minutes or 45),
+    )
+
+
+async def reschedule_meeting(
+    *,
+    new_scheduled_at: str,
+    application_id: str | None = None,
+    meeting_session_id: str | None = None,
+    round: str | None = None,
+    duration_minutes: int | None = None,
+    panel_emails: list[str] | str | None = None,
+) -> dict[str, Any]:
+    """Move an existing interview meeting to a new time and send fresh invites.
+    Identify the meeting by meeting_session_id, or by application_id (+ optional
+    round; otherwise the most recent meeting for that application).
+    """
+    from src.services.chat_meeting import reschedule_meeting as _reschedule
+
+    try:
+        when = datetime.fromisoformat(new_scheduled_at)
+    except (ValueError, TypeError):
+        return {"error": "new_scheduled_at must be ISO-8601"}
+    ms_id = None
+    app_id = None
+    if meeting_session_id:
+        try:
+            ms_id = UUID(meeting_session_id)
+        except (ValueError, TypeError):
+            return {"error": "invalid_meeting_session_id"}
+    if application_id:
+        try:
+            app_id = UUID(application_id)
+        except (ValueError, TypeError):
+            return {"error": "invalid_application_id"}
+    if not ms_id and not app_id:
+        return {"error": "application_id_or_meeting_session_id_required"}
+    if isinstance(panel_emails, str):
+        panel_emails = [e.strip() for e in panel_emails.split(",") if e.strip()]
+    return await _reschedule(
+        new_scheduled_at=when,
+        meeting_session_id=ms_id,
+        application_id=app_id,
+        round=round,
+        duration_minutes=int(duration_minutes) if duration_minutes else None,
+        panel_emails=list(panel_emails) if panel_emails else None,
+    )
+
+
 async def set_panel_member(
     *,
     role_id: str,
@@ -1544,6 +1637,9 @@ TOOLS: dict[str, Any] = {
     "add_candidate_note": add_candidate_note,
     "schedule_interview": schedule_interview,
     "propose_slots": propose_slots,
+    "suggest_meeting_slots": suggest_meeting_slots,
+    "schedule_meeting": schedule_meeting,
+    "reschedule_meeting": reschedule_meeting,
     "set_panel_member": set_panel_member,
     "add_panel_member": add_panel_member,
     "parse_attachment": parse_attachment,

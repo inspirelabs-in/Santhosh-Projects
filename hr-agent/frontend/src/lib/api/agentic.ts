@@ -262,7 +262,35 @@ export const meetings = {
     const q = qs.toString();
     return api.get<MeetingListItem[]>(`/agentic/meetings${q ? `?${q}` : ""}`);
   },
+  transcript(meetingSessionId: string) {
+    return api.get<MeetingTranscript>(
+      `/agentic/meetings/${meetingSessionId}/transcript`,
+    );
+  },
 };
+
+export interface TranscriptBlock {
+  speaker?: string | { name?: string } | null;
+  text?: string | null;
+  words?: string | null;
+  transcript?: string | null;
+  t_start?: number | null;
+  start_time?: number | null;
+}
+
+export interface MeetingTranscript {
+  meeting_session_id: string;
+  round: string;
+  verdict: string | null;
+  scores: {
+    technical: number | null;
+    communication: number | null;
+    confidence: number | null;
+    overall: number | null;
+  };
+  llm_report: string | null;
+  transcript: TranscriptBlock[];
+}
 
 // ---------------------------------------------------------------------------
 // CEO dashboard

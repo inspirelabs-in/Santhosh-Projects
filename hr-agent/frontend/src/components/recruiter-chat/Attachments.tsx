@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { Activity, Briefcase, Clock, ExternalLink, Mail, Send, Sparkles, User, X } from "lucide-react";
+import { useState } from "react";
+import { Activity, Briefcase, CalendarClock, Clock, ExternalLink, Mail, Send, Sparkles, User, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Attachment } from "@/lib/useRecruiterChat";
+import { QuickDateTime } from "@/components/quick-datetime";
 import { ConfirmCard } from "./ConfirmCard";
 import { LinkedInPostCard } from "./LinkedInPostCard";
 import { NudgeCard } from "./NudgeCard";
@@ -425,6 +427,108 @@ function CandidateDetailCard({ data }: { data: CandidateDetailData }) {
   );
 }
 
+interface RescheduleRequestData {
+  application_id: string;
+  meeting_session_id: string | null;
+  round: string;
+  candidate_name: string | null;
+  role_title: string | null;
+  current_scheduled_at: string | null;
+  current_label: string | null;
+  requested_at: string | null;
+  requested_label: string | null;
+  reason: string | null;
+  suggested_slots: { scheduled_at: string; label: string }[];
+}
+
+function RescheduleRequestCard({ data, ctx }: { data: RescheduleRequestData; ctx?: ActionCtx }) {
+  const [custom, setCustom] = useState<string | null>(null);
+  const dispatch = ctx?.dispatch;
+  const round = data.round || "interview";
+  const target = data.meeting_session_id
+    ? `meeting_session_id: ${data.meeting_session_id}`
+    : `application_id: ${data.application_id}`;
+  // A precise instruction Pulse maps straight to the reschedule_meeting tool.
+  const cmd = (iso: string) =>
+    `Reschedule the ${round} interview (${target}) to ${iso}. Keep the same panel.`;
+
+  // Candidate's requested time first (starred), then de-duped suggestions.
+  const options: { scheduled_at: string; label: string; preferred?: boolean }[] = [];
+  if (data.requested_at) {
+    options.push({
+      scheduled_at: data.requested_at,
+      label: data.requested_label || data.requested_at,
+      preferred: true,
+    });
+  }
+  for (const s of data.suggested_slots || []) {
+    if (s.scheduled_at !== data.requested_at) options.push(s);
+  }
+
+  return (
+    <div className="rounded-lg border border-amber-300/60 bg-amber-50/50 p-3.5 text-sm dark:border-amber-700/40 dark:bg-amber-950/20">
+      <div className="flex items-center gap-2 font-medium text-foreground">
+        <CalendarClock className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+        <span>
+          {data.candidate_name || "Candidate"} requested to reschedule their {round} interview
+        </span>
+      </div>
+      {data.current_label && (
+        <div className="mt-1 text-xs text-muted-foreground">Currently booked: {data.current_label}</div>
+      )}
+      {data.reason && (
+        <div className="mt-1 text-xs italic text-muted-foreground">&ldquo;{data.reason}&rdquo;</div>
+      )}
+
+      {dispatch ? (
+        <>
+          <div className="mt-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+            Pick a new time
+          </div>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {options.map((o) => (
+              <button
+                key={o.scheduled_at}
+                type="button"
+                onClick={() => dispatch(cmd(o.scheduled_at))}
+                className={cn(
+                  "rounded-md border px-2.5 py-1.5 text-xs transition",
+                  o.preferred
+                    ? "border-primary bg-primary/10 font-medium text-primary hover:bg-primary/20"
+                    : "border-border bg-background hover:border-primary/40 hover:bg-accent/40",
+                )}
+                title={o.preferred ? "Candidate's preferred time" : "Suggested time"}
+              >
+                {o.preferred ? "★ " : ""}
+                {o.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+            Or a custom time
+          </div>
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+            <QuickDateTime onChange={setCustom} />
+            <button
+              type="button"
+              disabled={!custom}
+              onClick={() => custom && dispatch(cmd(custom))}
+              className="rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              Reschedule
+            </button>
+          </div>
+        </>
+      ) : (
+        <div className="mt-2 text-xs text-muted-foreground">
+          Open this conversation to pick a new time.
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AttachmentRenderer({
   att,
   conversationId,
@@ -436,6 +540,8 @@ export function AttachmentRenderer({
 }) {
   const ctx: ActionCtx = { dispatch };
   switch (att.kind) {
+    case "reschedule-request":
+      return <RescheduleRequestCard data={att.data as RescheduleRequestData} ctx={ctx} />;
     case "candidate-list":
       return <CandidateListCard items={(att.data as CandidateRow[]) || (att.raw as { items?: CandidateRow[] })?.items || []} ctx={ctx} />;
     case "role-list":

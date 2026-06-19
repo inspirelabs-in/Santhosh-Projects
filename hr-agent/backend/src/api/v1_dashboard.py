@@ -437,6 +437,43 @@ async def candidate_detail(
         )
 
 
+class MentionCandidate(BaseModel):
+    application_id: UUID
+    name: str | None = None
+    email: str | None = None
+
+
+@router.get("/candidates-mention", response_model=list[MentionCandidate])
+async def candidates_for_mention(
+    _: Annotated[str, Depends(require_viewer)],
+    q: str | None = Query(None, description="name/email substring to match"),
+    limit: int = Query(8, ge=1, le=25),
+) -> list[MentionCandidate]:
+    """Lightweight candidate lookup powering the @-mention autocomplete in
+    Pulse chat. Returns the most recently active applications with an email.
+    """
+    async with session_scope() as session:
+        stmt = select(Application.id, Candidate.name, Candidate.email).join(
+            Candidate, Candidate.id == Application.candidate_id
+        )
+        if q:
+            pattern = f"%{q.lower()}%"
+            stmt = stmt.where(
+                func.lower(Candidate.name).like(pattern)
+                | func.lower(Candidate.email).like(pattern)
+            )
+        stmt = (
+            stmt.where(Candidate.email.isnot(None))
+            .order_by(desc(Application.updated_at))
+            .limit(limit)
+        )
+        rows = (await session.execute(stmt)).all()
+    return [
+        MentionCandidate(application_id=app_id, name=name, email=email)
+        for app_id, name, email in rows
+    ]
+
+
 class NotificationItem(BaseModel):
     id: int
     action: str
@@ -461,6 +498,12 @@ NOTIFICATION_ACTIONS = {
     "parked_no_role": "Parked — no role matched",
     "hr_stage_override": "HR override",
     "pipeline_error": "Pipeline error",
+    "meeting_reschedule_requested": "Reschedule requested",
+    "meeting_scheduled_via_chat": "Meeting scheduled",
+    "meeting_rescheduled_via_chat": "Meeting rescheduled",
+    "meeting_technical_awaiting_chat_scheduling": "Ready to schedule (technical)",
+    "meeting_ceo_awaiting_chat_scheduling": "Ready to schedule (CEO)",
+    "meeting_hr_awaiting_chat_scheduling": "Ready to schedule (HR)",
 }
 
 

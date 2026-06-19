@@ -49,6 +49,9 @@ TOOL_ROLES: dict[str, Role] = {
     "add_candidate_note": "recruiter",
     "schedule_interview": "recruiter",
     "propose_slots": "recruiter",
+    "suggest_meeting_slots": "viewer",
+    "schedule_meeting": "recruiter",
+    "reschedule_meeting": "recruiter",
     "set_panel_member": "recruiter",
     "parse_attachment": "recruiter",
     "remember": "recruiter",
@@ -70,6 +73,8 @@ CONFIRM_REQUIRED: frozenset[str] = frozenset(
         "override_stage",
         "send_custom_email",
         "schedule_interview",
+        "schedule_meeting",
+        "reschedule_meeting",
         "set_panel_member",
         "update_setting",
         "publish_linkedin_post",  # external broadcast -- always confirm

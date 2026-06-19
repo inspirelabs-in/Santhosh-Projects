@@ -275,6 +275,58 @@ RECRUITER_TOOLS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "suggest_meeting_slots",
+            "description": "Recommend interview slots over the next few business days (Mon-Fri only). Read-only. Use this to offer the recruiter time options before scheduling or rescheduling a meeting.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "business_days": {"type": "integer", "default": 5, "description": "How many business days ahead to cover."},
+                    "limit": {"type": "integer", "default": 6, "description": "Max number of slots to return."},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "schedule_meeting",
+            "description": "Book an interview meeting (Google Meet) for a candidate: creates the calendar event, emails the candidate and panel an invite, and arms the recording bot. Use when the recruiter gives a candidate, a round, a time, and panel emails. Requires confirmation.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "application_id": {"type": "string", "description": "The candidate's application id."},
+                    "round": {"type": "string", "enum": ["technical", "ceo", "hr"], "description": "Interview round."},
+                    "scheduled_at": {"type": "string", "description": "ISO-8601 start time, ideally with timezone offset, e.g. 2026-06-23T15:00:00+05:30."},
+                    "panel_emails": {"type": "array", "items": {"type": "string"}, "description": "Email addresses of the interview panel members."},
+                    "duration_minutes": {"type": "integer", "default": 45},
+                },
+                "required": ["application_id", "round", "scheduled_at", "panel_emails"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "reschedule_meeting",
+            "description": "Move an existing interview meeting to a new time and send fresh invites to everyone. Identify the meeting by meeting_session_id, or by application_id (plus round if known). Use this when a candidate requested a reschedule. Requires confirmation.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "new_scheduled_at": {"type": "string", "description": "ISO-8601 new start time, ideally with timezone offset."},
+                    "application_id": {"type": "string", "description": "The candidate's application id (if meeting_session_id is unknown)."},
+                    "meeting_session_id": {"type": "string", "description": "The meeting session id, if known."},
+                    "round": {"type": "string", "enum": ["technical", "ceo", "hr"], "description": "Round to disambiguate when only application_id is given."},
+                    "duration_minutes": {"type": "integer", "description": "Optional; defaults to the original duration."},
+                    "panel_emails": {"type": "array", "items": {"type": "string"}, "description": "Optional; defaults to the original panel."},
+                },
+                "required": ["new_scheduled_at"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "set_panel_member",
             "description": "Assign a panel member to a role for a given round (technical | hr | ceo). Requires confirmation.",
             "parameters": {

@@ -53,7 +53,19 @@ _RELEVANT = {
     "voice_call_completed",
     "meeting_analyzed",
     "assignment_artifact_uploaded",
+    "meeting_reschedule_requested",
+    "meeting_scheduling_needed",
 }
+
+
+def _recommended_slots_md(limit: int = 4) -> tuple[str, list[dict[str, str]]]:
+    """Build a markdown bullet list of suggested slots + the raw slot data."""
+    from src.services.slot_suggest import format_slot, suggest_slots
+
+    slots = suggest_slots(business_days=5, limit=limit)
+    data = [{"scheduled_at": s.isoformat(), "label": format_slot(s)} for s in slots]
+    md = "\n".join(f"- {d['label']}" for d in data)
+    return md, data
 
 
 async def _format_nudge(
@@ -77,6 +89,9 @@ async def _format_nudge(
     role_title = (role.title if role else None) or "a role"
     base = f"Pulse: {name} ({role_title})"
 
+    extra: dict[str, Any] = {}
+    _ROUND_LABEL = {"technical": "Technical", "ceo": "CEO", "hr": "HR"}
+
     if event == "chat_stage_change":
         to = (data or {}).get("to")
         body = f"{base} moved to **{to}**."
@@ -88,6 +103,77 @@ async def _format_nudge(
         body = f"{base} interview meeting analysed."
     elif event == "assignment_artifact_uploaded":
         body = f"{base} uploaded a new artifact."
+    elif event == "meeting_scheduling_needed":
+        rnd = (data or {}).get("round") or ""
+        rlabel = _ROUND_LABEL.get(rnd, rnd.title() or "interview")
+        slots_md, slot_data = _recommended_slots_md()
+        body = (
+            f"{base} is ready for the **{rlabel} round**. "
+            f"Tell me a time and the panel emails and I'll schedule it.\n\n"
+            f"Suggested times:\n{slots_md}"
+        )
+        extra = {"round": rnd, "suggested_slots": slot_data, "action": "schedule"}
+    elif event == "meeting_reschedule_requested":
+        from src.services.slot_suggest import format_slot, suggest_slots
+
+        d = data or {}
+        ms_id = d.get("meeting_session_id")
+        rnd = d.get("round") or ""
+        rlabel = _ROUND_LABEL.get(rnd, rnd.title() or "interview")
+        req_iso = d.get("requested_at")
+        reason = d.get("reason")
+
+        # Resolve the candidate's requested label + the current scheduled time.
+        req_label = None
+        if req_iso:
+            try:
+                req_label = format_slot(datetime.fromisoformat(req_iso))
+            except ValueError:
+                req_label = req_iso
+        current_iso, current_label = None, None
+        if ms_id:
+            from src.db.base import MeetingSession
+
+            async with session_scope() as s2:
+                ms = await s2.get(MeetingSession, UUID(ms_id))
+                if ms and ms.scheduled_at:
+                    current_iso = ms.scheduled_at.isoformat()
+                    current_label = format_slot(ms.scheduled_at)
+
+        slot_data = [
+            {"scheduled_at": s.isoformat(), "label": format_slot(s)}
+            for s in suggest_slots(business_days=5, limit=5)
+        ]
+
+        # Short text summary (rendered above the interactive card).
+        lines = [f"{base} **requested to reschedule** their {rlabel} interview."]
+        if req_label:
+            lines.append(f"Their preferred time: **{req_label}**.")
+        if reason:
+            lines.append(f'Reason: _"{reason}"_')
+        lines.append("Pick a time on the card below — I'll move it and re-send invites.")
+        body = "\n".join(lines)
+
+        return {
+            "content": body,
+            "attachment": {
+                "kind": "reschedule-request",
+                "data": {
+                    "application_id": str(application_id),
+                    "meeting_session_id": ms_id,
+                    "round": rnd,
+                    "candidate_name": name,
+                    "role_title": role_title,
+                    "current_scheduled_at": current_iso,
+                    "current_label": current_label,
+                    "requested_at": req_iso,
+                    "requested_label": req_label,
+                    "reason": reason,
+                    "suggested_slots": slot_data,
+                    "ts": datetime.now(tz=UTC).isoformat(),
+                },
+            },
+        }
     else:
         return None
 
@@ -101,6 +187,7 @@ async def _format_nudge(
                 "candidate_name": name,
                 "role_title": role_title,
                 "ts": datetime.now(tz=UTC).isoformat(),
+                **extra,
             },
         },
     }

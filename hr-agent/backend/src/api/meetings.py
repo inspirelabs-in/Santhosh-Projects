@@ -993,3 +993,55 @@ async def list_meetings(
                 )
             )
         return items
+
+
+@router.get("/meetings/{meeting_session_id}/transcript")
+async def get_meeting_transcript(
+    meeting_session_id: UUID,
+    _: Annotated[str, Depends(require_viewer)],
+) -> dict[str, Any]:
+    """Return the parsed transcript + LLM report + scores for one meeting.
+
+    Reads the transcript JSON from object storage server-side so the browser
+    never has to hit the (CORS-restricted, localhost-only) presigned URL.
+    """
+    import json as _json
+    import logging as _logging
+
+    _log = _logging.getLogger(__name__)
+
+    async with session_scope() as session:
+        m = await session.get(MeetingSession, meeting_session_id)
+        if m is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "meeting not found")
+        key = m.transcript_r2_key
+        out: dict[str, Any] = {
+            "meeting_session_id": str(meeting_session_id),
+            "round": m.round,
+            "verdict": m.verdict,
+            "scores": {
+                "technical": m.technical_score,
+                "communication": m.communication_score,
+                "confidence": m.confidence_score,
+                "overall": m.overall_score,
+            },
+            "llm_report": m.llm_report,
+            "transcript": [],
+        }
+
+    if key:
+        try:
+            raw = await download(get_settings().r2_bucket_resumes, key)
+            if raw:
+                parsed = _json.loads(raw.decode("utf-8"))
+                if isinstance(parsed, list):
+                    out["transcript"] = parsed
+                elif isinstance(parsed, dict):
+                    for k in ("transcript", "speaker_blocks", "segments", "utterances"):
+                        if isinstance(parsed.get(k), list):
+                            out["transcript"] = parsed[k]
+                            break
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("transcript load failed for %s: %s", meeting_session_id, exc)
+
+    return out

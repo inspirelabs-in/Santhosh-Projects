@@ -124,6 +124,34 @@ def _delete_event_sync(*, organiser_email: str, event_id: str) -> None:
         raise
 
 
+def _patch_event_sync(
+    *,
+    organiser_email: str,
+    event_id: str,
+    start_utc: datetime,
+    end_utc: datetime,
+    attendee_emails: list[str] | None = None,
+) -> dict[str, Any]:
+    creds = _load_credentials()
+    svc = build("calendar", "v3", credentials=creds, cache_discovery=False)
+    body: dict[str, Any] = {
+        "start": {"dateTime": _iso_z(start_utc), "timeZone": "UTC"},
+        "end": {"dateTime": _iso_z(end_utc), "timeZone": "UTC"},
+    }
+    if attendee_emails is not None:
+        body["attendees"] = [{"email": e} for e in attendee_emails if e]
+    return (
+        svc.events()
+        .patch(
+            calendarId=organiser_email or "primary",
+            eventId=event_id,
+            body=body,
+            sendUpdates="all",
+        )
+        .execute()
+    )
+
+
 async def create_online_meeting(
     *,
     organiser_email: str,
@@ -176,3 +204,41 @@ async def cancel_online_meeting(*, organiser_email: str, meeting_id: str) -> Non
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("google calendar event delete failed: %s", exc)
+
+
+async def reschedule_online_meeting(
+    *,
+    organiser_email: str,
+    meeting_id: str,
+    start_utc: datetime,
+    end_utc: datetime,
+    attendee_emails: list[str] | None = None,
+) -> str:
+    """Move an existing calendar event to a new time in place (PATCH).
+
+    Keeps the same event id and Meet link. Google emails all attendees the
+    updated invite automatically (sendUpdates="all"). Returns the Meet join
+    URL (unchanged from the original event).
+    """
+    try:
+        event = await asyncio.to_thread(
+            _patch_event_sync,
+            organiser_email=organiser_email,
+            event_id=meeting_id,
+            start_utc=start_utc,
+            end_utc=end_utc,
+            attendee_emails=attendee_emails,
+        )
+    except HttpError as exc:
+        raise RuntimeError(
+            f"Google Calendar patch failed: {exc.status_code} {exc.reason}"
+        ) from exc
+
+    meet_url = event.get("hangoutLink")
+    if not meet_url:
+        cd = event.get("conferenceData") or {}
+        for ep in cd.get("entryPoints") or []:
+            if ep.get("entryPointType") == "video" and ep.get("uri"):
+                meet_url = ep["uri"]
+                break
+    return str(meet_url or "")

@@ -12,6 +12,10 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getDashboardKey } from "@/lib/auth";
 import { SLASH_COMMANDS, SlashMenu, type SlashCommand } from "./SlashMenu";
+import { MentionMenu, type MentionCandidate } from "./MentionMenu";
+
+// Matches a trailing "@token" the user is actively typing (token may be empty).
+const MENTION_RE = /(^|\s)@([^\s@]*)$/;
 
 const BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
@@ -36,12 +40,19 @@ export function PulseComposer({
   disabled = false,
   isStreaming = false,
   conversationId,
-  placeholder = "Ask Pulse anything. Type / for commands.",
+  placeholder = "Ask Pulse anything. Type / for commands, @ to mention a candidate.",
 }: Props) {
   const [value, setValue] = useState("");
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [uploading, setUploading] = useState(false);
   const [showSlash, setShowSlash] = useState(false);
+  const [showMention, setShowMention] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState("");
+  const [mentionResults, setMentionResults] = useState<MentionCandidate[]>([]);
+  // Candidates the recruiter has @-mentioned. We keep the id OUT of the visible
+  // textarea and re-attach it only at send time (see submit), so the recruiter
+  // never sees the raw application_id while typing.
+  const [mentions, setMentions] = useState<MentionCandidate[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -56,19 +67,62 @@ export function PulseComposer({
   useEffect(() => {
     adjust();
     setShowSlash(value.startsWith("/") && !value.includes("\n"));
+    const m = value.match(MENTION_RE);
+    if (m) {
+      setShowMention(true);
+      setMentionQuery(m[2]);
+    } else {
+      setShowMention(false);
+      setMentionQuery("");
+    }
   }, [value, adjust]);
 
   const submit = useCallback(async () => {
     const text = value.trim();
     if (!text && files.length === 0) return;
     if (disabled) return;
+    // Re-attach the hidden application_id markers for any mentioned candidate
+    // still present in the text, so Pulse can pass the id straight to its tools
+    // without the recruiter ever seeing it while typing.
+    let outgoing = text;
+    for (const m of mentions) {
+      const label = m.name || m.email || "candidate";
+      const needle = `@${label} <${m.email ?? ""}>`;
+      if (outgoing.includes(needle) && !outgoing.includes(`(application_id: ${m.application_id})`)) {
+        outgoing = outgoing.replace(needle, `${needle} (application_id: ${m.application_id})`);
+      }
+    }
     setValue("");
     const attached = files;
     setFiles([]);
-    await onSend(text, attached);
-  }, [value, files, disabled, onSend]);
+    setMentions([]);
+    await onSend(outgoing, attached);
+  }, [value, files, disabled, onSend, mentions]);
+
+  const pickMention = useCallback(
+    (c: MentionCandidate) => {
+      const label = c.name || c.email || "candidate";
+      // Insert ONLY the readable "@Name <email>" — the application_id is tracked
+      // in state and re-attached at send time (submit), never shown while typing.
+      setValue((v) => v.replace(MENTION_RE, (_full, pre) => `${pre}@${label} <${c.email ?? ""}> `));
+      setMentions((prev) =>
+        prev.some((m) => m.application_id === c.application_id) ? prev : [...prev, c],
+      );
+      setShowMention(false);
+      setMentionResults([]);
+      taRef.current?.focus();
+    },
+    [],
+  );
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // While the mention menu has results, Enter/Tab accepts the top match
+    // instead of sending the message.
+    if (showMention && mentionResults.length > 0 && (e.key === "Enter" || e.key === "Tab")) {
+      e.preventDefault();
+      pickMention(mentionResults[0]);
+      return;
+    }
     if (e.key === "Enter" && !e.shiftKey && !e.altKey) {
       e.preventDefault();
       void submit();
@@ -152,6 +206,12 @@ export function PulseComposer({
       )}
       <div className="relative mx-auto max-w-3xl">
         <SlashMenu query={slashQuery} onPick={pickSlash} visible={showSlash} />
+        <MentionMenu
+          query={mentionQuery}
+          visible={showMention}
+          onPick={pickMention}
+          onResults={setMentionResults}
+        />
         <div
           className={cn(
             "flex items-end gap-2 rounded-2xl border border-border/60 bg-card px-3 py-2",
@@ -218,7 +278,7 @@ export function PulseComposer({
           )}
         </div>
         <p className="mt-2 text-[11px] text-muted-foreground">
-          Enter to send · Shift+Enter for newline · Tab to accept slash command · Drop files to attach
+          Enter to send · Shift+Enter for newline · Tab to accept slash/mention · @ to mention a candidate · Drop files to attach
         </p>
       </div>
     </div>

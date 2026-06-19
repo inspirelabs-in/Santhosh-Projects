@@ -7,6 +7,13 @@ import { cn } from "@/lib/utils";
 import { AttachmentRenderer } from "./Attachments";
 import type { RecruiterMessage } from "@/lib/useRecruiterChat";
 
+// The @-mention inserts a hidden "(application_id: <uuid>)" marker so Pulse can
+// pass the id straight to its tools. Recruiters shouldn't see that raw id in
+// their own message — strip it for display only (the sent text still has it).
+function stripInternalTokens(text: string): string {
+  return text.replace(/\s*\(application_id:\s*[^)]+\)/gi, "");
+}
+
 function PulseAvatar({ size = 28 }: { size?: number }) {
   return (
     <div
@@ -126,7 +133,7 @@ function MessageBubble({
         )}
       >
         {isUser ? (
-          <div className="whitespace-pre-wrap">{msg.content}</div>
+          <div className="whitespace-pre-wrap">{stripInternalTokens(msg.content)}</div>
         ) : (
           <div className="-my-2">
             <MarkdownLite source={msg.content || ""} />
@@ -136,7 +143,12 @@ function MessageBubble({
             {msg.attachments && msg.attachments.length > 0 && (
               <div className="mt-3 space-y-2">
                 {msg.attachments.map((a, i) => (
-                  <AttachmentRenderer key={i} att={a} conversationId={conversationId ?? null} />
+                  <AttachmentRenderer
+                    key={i}
+                    att={a}
+                    conversationId={conversationId ?? null}
+                    dispatch={dispatch}
+                  />
                 ))}
               </div>
             )}

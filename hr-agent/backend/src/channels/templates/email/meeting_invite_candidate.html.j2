@@ -10,10 +10,12 @@
   {{ ui.cta_button(teams_link, "Join the Teams meeting", accent="primary") }}
   {{ ui.fallback_link(teams_link) }}
 
+  {% if reschedule_link %}
   <p style="margin:18px 0 0 0;font-family:{{ brand.font_stack }};font-size:13px;color:{{ brand.muted_text }};line-height:1.5;">
-    Our AI hiring assistant will call you shortly to confirm this time. If it
-    doesn't work, just say so on the call and we'll pick a new one.
+    Can't make this time? <a href="{{ reschedule_link }}" style="color:{{ brand.primary }};">Request a different slot here</a>
+    and we'll send you an updated invite.
   </p>
+  {% endif %}
 
   {{ ui.signoff(name=company_name ~ " Talent Acquisition") }}
 {{ ui.card_close() }}

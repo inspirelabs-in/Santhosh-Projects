@@ -6,7 +6,6 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   Activity,
   BarChart3,
-  Bot,
   Briefcase,
   ChevronLeft,
   ChevronRight,
@@ -19,7 +18,6 @@ import {
   Search,
   Settings,
   Trash2,
-  UserCheck,
   Users,
   Video,
 } from "lucide-react";
@@ -76,14 +74,16 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/voice-screens", label: "Voice", icon: PhoneCall },
       { href: "/assessments", label: "Assessments", icon: ClipboardCheck },
       { href: "/meetings", label: "Meetings", icon: Video },
-      { href: "/panels", label: "Panels", icon: UserCheck },
+      // Panels hidden — meeting/panel scheduling is now chat-driven via Pulse.
+      // { href: "/panels", label: "Panels", icon: UserCheck },
     ],
   },
   {
     section: "intelligence",
     items: [
       { href: "/analytics", label: "Analytics", icon: BarChart3 },
-      { href: "/supervisor", label: "Supervisor", icon: Bot },
+      // Supervisor tab hidden.
+      // { href: "/supervisor", label: "Supervisor", icon: Bot },
     ],
   },
   {
@@ -265,7 +265,7 @@ export function PulseSidebar() {
 
   // ── Expanded state ───────────────────────────────────────────────────
   return (
-    <aside className="relative flex h-screen w-[268px] shrink-0 flex-col border-r border-border/50 bg-card/50">
+    <aside className="relative flex h-screen w-[268px] shrink-0 flex-col overflow-hidden border-r border-border/50 bg-card/50">
       {confirmDialog}
       <button
         type="button"
@@ -288,8 +288,8 @@ export function PulseSidebar() {
         </div>
       </div>
 
-      {/* Navigation */}
-      <nav className="border-b border-border/40 px-2 py-2">
+      {/* Navigation — capped so the chat list always keeps room on short screens */}
+      <nav className="scrollbar-slim max-h-[40vh] shrink-0 overflow-y-auto border-b border-border/40 px-2 py-2">
         {NAV_GROUPS.map((group, gi) => (
           <div key={group.section} className={gi > 0 ? "mt-3" : ""}>
             <div className="px-2 pb-1 font-mono text-[9px] uppercase tracking-[0.2em] text-muted-foreground/70">
@@ -353,7 +353,7 @@ export function PulseSidebar() {
       </div>
 
       {/* Conversation list */}
-      <div className="scrollbar-slim flex-1 overflow-y-auto px-1.5 py-0.5">
+      <div className="scrollbar-slim min-h-0 flex-1 overflow-y-auto px-1.5 py-0.5">
         {(["today", "yesterday", "thisWeek", "older"] as Bucket[]).map((b) => {
           const items = groups[b];
           if (items.length === 0) return null;

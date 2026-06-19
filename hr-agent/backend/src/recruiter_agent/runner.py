@@ -242,6 +242,20 @@ def _propose_preview(tool_name: str, args: dict[str, Any]) -> str:
             f"Schedule interview for application {a.get('application_id')} "
             f"at {a.get('scheduled_at')}."
         )
+    if tool_name == "schedule_meeting":
+        panel = ", ".join(a.get("panel_emails") or []) or "(no panel set)"
+        return (
+            f"Schedule a {a.get('round') or 'interview'} interview at "
+            f"{a.get('scheduled_at')} "
+            f"({a.get('duration_minutes', 45)} min) with panel: {panel}. "
+            f"Sends a Google Meet invite to the candidate and panel."
+        )
+    if tool_name == "reschedule_meeting":
+        round_lbl = a.get("round")
+        return (
+            f"Move the {round_lbl + ' ' if round_lbl else ''}interview to "
+            f"{a.get('new_scheduled_at')} and re-send updated invites to everyone."
+        )
     if tool_name == "set_panel_member":
         return f"Assign panel member {a.get('panel_member_id')} to {a.get('round')} round of role {a.get('role_id')}."
     if tool_name == "update_setting":

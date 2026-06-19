@@ -43,8 +43,102 @@ import {
   meetings,
   type MeetingListItem,
   type MeetingRound,
+  type MeetingTranscript,
+  type TranscriptBlock,
 } from "@/lib/api/agentic";
+import { MarkdownLite } from "@/components/markdown-lite";
 import { fmtRelative, fmtDate } from "@/lib/utils";
+
+function blockSpeaker(b: TranscriptBlock): string {
+  if (typeof b.speaker === "string") return b.speaker || "Speaker";
+  if (b.speaker && typeof b.speaker === "object") return b.speaker.name || "Speaker";
+  return "Speaker";
+}
+function blockText(b: TranscriptBlock): string {
+  return (b.text || b.words || b.transcript || "").trim();
+}
+
+function TranscriptViewer({ meetingSessionId }: { meetingSessionId: string }) {
+  const { data, error, isLoading } = useSWR<MeetingTranscript>(
+    `/agentic/meetings/${meetingSessionId}/transcript`,
+    () => meetings.transcript(meetingSessionId),
+    { revalidateOnFocus: false },
+  );
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 py-4 text-xs text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" /> Loading transcript…
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="py-3 text-xs text-destructive">
+        Could not load transcript: {error.message}
+      </div>
+    );
+  }
+  if (!data) return null;
+
+  const blocks = (data.transcript || []).filter((b) => blockText(b));
+  const isSummaryOnly =
+    blocks.length === 1 && blockSpeaker(blocks[0]).toLowerCase().includes("summary");
+
+  return (
+    <div className="mt-3 space-y-3 rounded-lg border border-border bg-background p-4">
+      {/* Scores + verdict */}
+      <div className="flex flex-wrap items-center gap-2">
+        {data.verdict ? (
+          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-primary">
+            {data.verdict.replaceAll("_", " ")}
+          </span>
+        ) : null}
+        {(["technical", "communication", "confidence", "overall"] as const).map((k) =>
+          data.scores[k] != null ? (
+            <span
+              key={k}
+              className="rounded-md bg-muted px-2 py-0.5 font-mono text-[11px] text-muted-foreground"
+            >
+              {k}: <span className="font-semibold text-foreground">{data.scores[k]}</span>
+            </span>
+          ) : null,
+        )}
+      </div>
+
+      {/* LLM report */}
+      {data.llm_report ? (
+        <div>
+          <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+            Interview report
+          </div>
+          <div className="rounded-md bg-muted/40 p-3 text-sm leading-relaxed">
+            <MarkdownLite source={data.llm_report} />
+          </div>
+        </div>
+      ) : null}
+
+      {/* Transcript */}
+      <div>
+        <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+          {isSummaryOnly ? "Summary" : "Transcript"}
+        </div>
+        {blocks.length === 0 ? (
+          <p className="text-xs text-muted-foreground">No transcript captured for this meeting.</p>
+        ) : (
+          <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
+            {blocks.map((b, i) => (
+              <div key={i} className="text-sm leading-relaxed">
+                <span className="font-semibold text-primary">{blockSpeaker(b)}: </span>
+                <span className="text-foreground/90">{blockText(b)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 type TabKey = "upcoming" | "live" | "completed" | "all";
 
@@ -467,8 +561,11 @@ function Kpi({
 }
 
 function RowDetail({ row }: { row: MeetingListItem }) {
+  const [showTranscript, setShowTranscript] = useState(false);
+  const hasTranscript = !!row.transcript_url;
   return (
-    <div className="grid grid-cols-1 gap-4 border-t border-border bg-muted/20 px-4 py-3 text-xs md:grid-cols-3">
+    <div className="border-t border-border bg-muted/20 px-4 py-3">
+      <div className="grid grid-cols-1 gap-4 text-xs md:grid-cols-3">
       <div>
         <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
           Identifiers
@@ -516,18 +613,32 @@ function RowDetail({ row }: { row: MeetingListItem }) {
         <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
           Artifacts
         </p>
-        {row.transcript_url ? (
-          <a
-            href={row.transcript_url}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 text-primary hover:underline"
+        {hasTranscript ? (
+          <button
+            type="button"
+            onClick={() => setShowTranscript((v) => !v)}
+            className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
           >
-            Transcript <ExternalLink className="h-3 w-3" />
-          </a>
+            {showTranscript ? "Hide transcript & report" : "View transcript & report"}
+            {showTranscript ? (
+              <ChevronUp className="h-3 w-3" />
+            ) : (
+              <ChevronDown className="h-3 w-3" />
+            )}
+          </button>
         ) : (
           <span className="text-muted-foreground">No transcript yet</span>
         )}
+        {hasTranscript ? (
+          <a
+            href={row.transcript_url!}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+          >
+            Raw JSON <ExternalLink className="h-3 w-3" />
+          </a>
+        ) : null}
         <Link
           href={`/candidates/${row.application_id}`}
           className="mt-auto inline-flex items-center gap-1 font-semibold text-primary hover:underline"
@@ -535,6 +646,10 @@ function RowDetail({ row }: { row: MeetingListItem }) {
           Open candidate <ArrowRight className="h-3 w-3" />
         </Link>
       </div>
+      </div>
+      {showTranscript ? (
+        <TranscriptViewer meetingSessionId={row.meeting_session_id} />
+      ) : null}
     </div>
   );
 }
