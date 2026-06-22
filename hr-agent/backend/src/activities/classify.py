@@ -11,6 +11,7 @@ Routing rules (from references/pipeline-stages.md):
   - else                        → link role to application, status="classified"
 """
 
+# [SCRAPE] dead: run_classify/classify_activity unused; intake classifies inline.
 from __future__ import annotations
 
 import logging
@@ -29,6 +30,7 @@ from src.db.repositories.candidate import update_application_status
 from src.db.repositories.policy import resolve_policy
 from src.db.repositories.role import list_open_roles, match_role_by_title
 from src.llm.client import get_llm_client
+from src.llm.model_registry import Stage, model_for
 from src.llm.prompt_manager import compile_prompt
 from src.llm.prompts import CLASSIFY_EMAIL_V1, CLASSIFY_EMAIL_VERSION
 from src.models.candidate import ApplicationStatus
@@ -94,7 +96,7 @@ async def run_classify(payload: ClassifyInput) -> ClassifyOutput:
     result = await client.complete(
         prompt=prompt,
         response_model=ClassificationResult,
-        model=_settings.llm_model_fast,
+        model=model_for(Stage.CLASSIFY_EMAIL),
         trace_name="classify_email",
         prompt_version=CLASSIFY_EMAIL_VERSION,
         candidate_id=payload.candidate_id,

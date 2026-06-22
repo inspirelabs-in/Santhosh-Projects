@@ -9,6 +9,7 @@ Composite is the weighted average scaled to 0-100. Candidates within
 ±10 points of the role's `cut_line` go to `needs_hr_review`.
 """
 
+# [SCRAPE] dead: no live caller (Temporal-era / Chat-V2 orphan). Safe to delete after burn-in.
 from __future__ import annotations
 
 import logging
@@ -27,6 +28,7 @@ from src.db.repositories.candidate import get_application, update_application_st
 from src.db.repositories.policy import resolve_policy
 from src.db.repositories.role import get_role
 from src.llm.client import get_llm_client
+from src.llm.model_registry import Stage, model_for
 from src.llm.prompt_manager import compile_prompt
 from src.llm.prompts import SCORE_OPEN_TEXT_V1, SCORE_OPEN_TEXT_VERSION
 from src.models.candidate import ApplicationStatus, CandidateProfile
@@ -80,7 +82,7 @@ async def _score_open_text(
     result = await client.complete(
         prompt=prompt,
         response_model=OpenTextScore,
-        model=_settings.llm_model_smart,
+        model=model_for(Stage.SCORE_OPEN_TEXT),
         trace_name="score_open_text",
         prompt_version=SCORE_OPEN_TEXT_VERSION,
         candidate_id=candidate_id,

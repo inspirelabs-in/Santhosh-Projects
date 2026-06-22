@@ -222,6 +222,7 @@ class BookInterviewResult:
     meeting_link: str | None
 
 
+# [SCRAPE] dead: run_book_interview/book_interview_activity (Temporal-era). KEEP run_propose_slots (live).
 async def run_book_interview(payload: BookInterviewInput) -> BookInterviewResult:
     redis = get_redis()
     raw = await redis.get(_slot_key(payload.application_id))

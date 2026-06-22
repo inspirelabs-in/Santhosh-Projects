@@ -5,6 +5,8 @@ via `transcript_r2_key`). Output: a structured `InterviewReport` persisted
 to `interviews.report` JSONB and pushed to the HR dashboard + Slack.
 """
 
+# [SCRAPE] dead: run_interview_report/interview_report_activity superseded by
+# v1_meeting_analysis + v1_journey_report. No live importer.
 from __future__ import annotations
 
 import logging
@@ -21,6 +23,7 @@ from src.db.repositories.candidate import get_application, get_candidate
 from src.db.repositories.interview import get_latest_for_application
 from src.db.repositories.role import get_role
 from src.llm.client import get_llm_client
+from src.llm.model_registry import Stage, model_for
 from src.llm.prompt_manager import compile_prompt
 from src.llm.prompts import INTERVIEW_REPORT_V1, INTERVIEW_REPORT_VERSION
 from src.models.llm_outputs import InterviewReport
@@ -97,7 +100,7 @@ async def run_interview_report(payload: InterviewReportInput) -> InterviewReport
     result = await client.complete(
         prompt=prompt,
         response_model=InterviewReport,
-        model=_settings.llm_model_smart,
+        model=model_for(Stage.INTERVIEW_REPORT),
         trace_name="interview_report",
         prompt_version=INTERVIEW_REPORT_VERSION,
         candidate_id=payload.candidate_id,
