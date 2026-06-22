@@ -571,6 +571,52 @@ RECRUITER_TOOLS: list[dict] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_role_draft",
+            "description": (
+                "Write the role draft as an editable artifact (opens a side panel). "
+                "Call this ONLY after you've gathered enough context over the conversation "
+                "(role, seniority/experience, the ideal-candidate profile, must-have vs nice-to-have "
+                "skills, comp, location/remote, deal-breakers). Pass the FULL draft each time -- to "
+                "revise, call again with the updated content (it edits the same artifact). Derive the "
+                "evaluation dimensions from what the user said they want in a candidate (NOT generic "
+                "defaults). Does NOT create the role; the user applies it from the panel."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "jd_text": {"type": "string", "description": "Full JD, markdown."},
+                    "ctc_min_lpa": {"type": "number"},
+                    "ctc_max_lpa": {"type": "number"},
+                    "location": {"type": "string"},
+                    "remote_policy": {"type": "string", "enum": ["onsite", "hybrid", "remote"]},
+                    "max_notice_days": {"type": "integer"},
+                    "pipeline": {
+                        "type": "array",
+                        "description": "Ordered stages. Each: {stage_key, stage_type, label, position, mode (auto|manual), is_enabled}. stage_type in: intake, parse, fit, screening, voice_screen, assignment, assessment_review, interview, decision, offer. Multiple 'interview' stages allowed (e.g. technical, ceo, hr).",
+                        "items": {"type": "object"},
+                    },
+                    "evaluation_spec": {
+                        "type": "object",
+                        "description": "Role-specific scoring criteria derived from the ideal-candidate context. {dimensions: [{key, label, weight (sum ~100), what_good_looks_like[], anti_signals[]}], knockouts: [{key, rule}]}. Do NOT use generic 'builder mindset' style defaults unless the role truly calls for it.",
+                    },
+                    "company_context": {
+                        "type": "object",
+                        "description": "Role-tuned grounding context generated from the company persona + THIS role. {intensity: light|standard|high|critical, summary, what_matters_here[], hiring_bar}. Scale the intensity to the role: a senior/critical hire gets a deeper, more demanding context + a higher bar than a junior one. This grounds every later stage (fit, voice, interviews).",
+                    },
+                    "assignment": {
+                        "type": "object",
+                        "description": "{enabled, n_problems, time_budget_hours, deadline_days}.",
+                    },
+                    "notes": {"type": "string"},
+                },
+                "required": ["title", "jd_text"],
+            },
+        },
+    },
 ]
 
 
