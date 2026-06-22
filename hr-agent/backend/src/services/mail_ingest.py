@@ -20,8 +20,12 @@ from src.config import get_settings
 from src.db.base import Application, Candidate, ProcessedMessage, Role
 from src.db.connection import session_scope
 from src.db.repositories.role import list_open_roles
+from src.db.events import emit_event
+from src.db.repositories import organization as org_repo
 from src.models.candidate import IntakePayload, SourceChannel
+from src.models.events import ActionType
 from src.pipeline.v1 import run_apply_to_screening
+from src.services.email_filter import InboundDecision, InboundKind, classify_inbound
 from src.services.imap_inbox import (
     InboundMessage,
     InboxConfig,
@@ -29,12 +33,6 @@ from src.services.imap_inbox import (
     fetch_new,
     load_inboxes_from_env,
 )
-from src.services.typed_event_bus import EventType
-from src.services.typed_event_bus import publish_event as publish_supervisor_event
-
-# Only mails whose subject starts with this prefix (case-insensitive) are
-# treated as job applications. Everything else is left read but ignored.
-SUBJECT_REQUIRED_PREFIX = "application"
 
 logger = logging.getLogger(__name__)
 _settings = get_settings()
@@ -130,6 +128,7 @@ async def _ingest_one_resume(
     resume_ct: str | None,
     index: int,
     role_id: UUID | None,
+    is_referral: bool = False,
 ) -> None:
     """Create ONE fresh candidate + application for one resume.
 
@@ -173,6 +172,7 @@ async def _ingest_one_resume(
             "forwarder_email": msg.from_email,
             "forwarder_name": msg.from_name,
             "attachment_index": index,
+            "is_referral": is_referral,
         },
     )
 
@@ -208,76 +208,150 @@ async def _ingest_one_resume(
     pipeline_task.add_done_callback(_on_pipeline_done)
 
 
-async def _try_emit_candidate_email_event(msg: InboundMessage) -> None:
-    """If the sender matches a known candidate, emit CANDIDATE_EMAIL_RECEIVED."""
+async def _match_application_by_thread(
+    session, msg: InboundMessage
+) -> Application | None:
+    """Find the application a reply belongs to via the thread it references.
+
+    A candidate's reply carries In-Reply-To / References pointing at the
+    Message-ID of an email WE sent. We persist our outbound Message-IDs on
+    ``email_sends.provider_message_id`` with their ``application_id``, so we can
+    map the reply to the EXACT application instead of guessing "most recent"
+    (the NB-12 misroute). Returns None if the thread can't be resolved.
+    """
+    from src.db.base import EmailSend
+
+    refs = msg.referenced_message_ids
+    if not refs:
+        return None
+    row = (
+        await session.execute(
+            select(EmailSend)
+            .where(EmailSend.provider_message_id.in_(refs))
+            .where(EmailSend.application_id.is_not(None))
+            .order_by(EmailSend.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if row is None or row.application_id is None:
+        return None
+    return await session.get(Application, row.application_id)
+
+
+async def _route_reply(msg: InboundMessage) -> None:
+    """Route an inbound reply to the right application as a DURABLE event.
+
+    Thread-match first (correct application); fall back to the sender's most
+    recent active application only when the thread can't be resolved. Emits a
+    durable ``candidate_email_reply`` domain event (requires_action) so the reply
+    survives reloads and lands in the inbox -- replacing the dead supervisor bus
+    that silently dropped replies (NB-12).
+    """
+    from sqlalchemy import select as sa_select
+
     if not msg.from_email:
         return
-    from sqlalchemy import select as sa_select
     try:
         async with session_scope() as session:
-            # Find candidate by email
-            candidate = (
-                await session.execute(
-                    sa_select(Candidate).where(
-                        Candidate.email == msg.from_email.lower()
-                    ).limit(1)
-                )
-            ).scalar_one_or_none()
-            if candidate is None:
-                logger.debug(
-                    "mail %s from unknown sender %s — no supervisor event",
-                    msg.message_id, msg.from_email,
-                )
-                return
-            # Find their most recent active application
-            app = (
-                await session.execute(
-                    sa_select(Application)
-                    .where(Application.candidate_id == candidate.id)
-                    .order_by(Application.updated_at.desc())
-                    .limit(1)
-                )
-            ).scalar_one_or_none()
+            app = await _match_application_by_thread(session, msg)
+            matched_by = "thread"
+
             if app is None:
-                return
+                # Fallback: known sender's most recent active application.
+                candidate = (
+                    await session.execute(
+                        sa_select(Candidate)
+                        .where(Candidate.email == msg.from_email.lower())
+                        .limit(1)
+                    )
+                ).scalar_one_or_none()
+                if candidate is None:
+                    logger.info(
+                        "reply %s from unknown sender %s and no thread match -- ignored",
+                        msg.message_id, msg.from_email,
+                    )
+                    return
+                app = (
+                    await session.execute(
+                        sa_select(Application)
+                        .where(Application.candidate_id == candidate.id)
+                        .where(Application.status.notin_(("rejected", "hired", "withdrawn")))
+                        .order_by(Application.updated_at.desc())
+                        .limit(1)
+                    )
+                ).scalar_one_or_none()
+                if app is None:
+                    logger.info(
+                        "reply %s: sender %s has no active application -- ignored",
+                        msg.message_id, msg.from_email,
+                    )
+                    return
+                matched_by = "sender_recent"
+
             has_attachment = any(
                 a.content and _is_resume_attachment(a.filename, a.content_type)
                 for a in msg.attachments
             )
-            # Classify intent from subject + body
             classify_text = f"{msg.subject or ''}\n{msg.body_text or ''}".strip()
             intent_result = await classify_candidate_intent(
-                classify_text, has_attachments=has_attachment,
-            )
-            event_type = EventType.CANDIDATE_EMAIL_RECEIVED
-            if intent_result.intent.value == "withdrawal":
-                event_type = EventType.CANDIDATE_WITHDRAWAL
-
-            await publish_supervisor_event(
-                session,
-                event_type,
+                classify_text,
+                has_attachments=has_attachment,
+                current_stage=app.current_stage,
                 application_id=app.id,
-                candidate_id=candidate.id,
+                candidate_id=app.candidate_id,
+            )
+            requires_action = intent_result.intent.value in {
+                "withdrawal", "reschedule_request", "question",
+            }
+            await emit_event(
+                session,
+                type=ActionType.CANDIDATE_EMAIL_REPLY.value,
+                org_id=getattr(app, "org_id", None),
+                application_id=app.id,
+                role_id=app.role_id,
                 payload={
                     "from_email": msg.from_email,
                     "subject": (msg.subject or "")[:200],
                     "body_preview": (msg.body_text or "")[:500],
                     "has_attachment": has_attachment,
                     "message_id": msg.message_id,
+                    "in_reply_to": msg.in_reply_to,
+                    "matched_by": matched_by,
                     "channel": "email",
                     "intent": intent_result.intent.value,
                     "intent_confidence": intent_result.confidence,
                     "urgency": intent_result.urgency,
                     "extracted_details": intent_result.extracted_details,
                 },
-                dedup_extra=msg.message_id or "",
+                actor="candidate",
+                requires_action=requires_action,
             )
             logger.info(
-                "supervisor event CANDIDATE_EMAIL_RECEIVED for app=%s from=%s",
-                app.id, msg.from_email,
+                "candidate reply routed app=%s via=%s intent=%s action=%s",
+                app.id, matched_by, intent_result.intent.value, requires_action,
             )
     except Exception:
-        logger.exception("failed to emit candidate email event for %s", msg.message_id)
+        logger.exception("failed to route candidate reply for %s", msg.message_id)
+
+
+async def _classify_inbound(msg: InboundMessage) -> InboundDecision:
+    """Run the pure funnel with this org's domains + open-role titles."""
+    has_resume = any(
+        a.content and _is_resume_attachment(a.filename, a.content_type)
+        for a in msg.attachments
+    )
+    async with session_scope() as session:
+        org_domains = await org_repo.get_email_domains(session)
+        roles = await list_open_roles(session)
+        role_titles = [r.title for r in roles if r.title]
+    return classify_inbound(
+        subject=msg.subject,
+        from_email=msg.from_email,
+        has_reply_headers=msg.has_reply_headers,
+        has_resume_attachment=has_resume,
+        org_domains=org_domains,
+        open_role_titles=role_titles,
+    )
 
 
 async def _process_one(msg: InboundMessage) -> None:
@@ -289,17 +363,34 @@ async def _process_one(msg: InboundMessage) -> None:
         logger.info("skip mail %s: no From email", msg.message_id)
         await _mark_processed(msg.message_id, None, f"{msg.source}:skipped_no_from")
         return
-    subject = (msg.subject or "").strip().lower()
-    if not subject.startswith(SUBJECT_REQUIRED_PREFIX):
-        # Not a new application — but could be an inbound reply from a known
-        # candidate (reschedule, withdrawal, question, document). Emit a
-        # supervisor event so the supervisor can classify and act.
-        await _try_emit_candidate_email_event(msg)
-        await _mark_processed(
-            msg.message_id, None, f"{msg.source}:candidate_email_event"
-        )
+
+    # Single deterministic funnel decides what this mail IS before we act.
+    decision = await _classify_inbound(msg)
+    logger.info(
+        "mail %s funnel -> %s (%s) signals=%s",
+        msg.message_id, decision.kind.value, decision.reason, decision.signals,
+    )
+
+    if decision.kind is InboundKind.REPLY:
+        # A reply is never a new application: thread-route it to the right
+        # application as a durable event (NB-12). Never re-intake.
+        await _route_reply(msg)
+        await _mark_processed(msg.message_id, None, f"{msg.source}:reply")
         return
 
+    if decision.kind is InboundKind.INTERNAL:
+        await _mark_processed(msg.message_id, None, f"{msg.source}:internal")
+        return
+
+    if decision.kind is InboundKind.IGNORE:
+        # External non-application (newsletter / vendor / spam). Record so it is
+        # never reprocessed; do not ingest.
+        await _mark_processed(msg.message_id, None, f"{msg.source}:ignored_not_application")
+        return
+
+    # decision.kind is APPLICATION -> ingest. Referrals (internal forwarder) are
+    # flagged on the application's raw_payload + the processed-source marker.
+    is_referral = decision.is_referral
     role_id = await _match_role(msg.subject, msg.body_text)
 
     resume_attachments = [
@@ -320,6 +411,7 @@ async def _process_one(msg: InboundMessage) -> None:
             resume_ct=None,
             index=0,
             role_id=role_id,
+            is_referral=is_referral,
         )
     else:
         logger.info(
@@ -334,11 +426,13 @@ async def _process_one(msg: InboundMessage) -> None:
                 resume_ct=att.content_type,
                 index=i,
                 role_id=role_id,
+                is_referral=is_referral,
             )
 
     # Mark the whole message processed once all its resumes are dispatched.
     # application_id=None is fine — the PK is message_id for dedup.
-    await _mark_processed(msg.message_id, None, msg.source)
+    source = f"{msg.source}:referral" if is_referral else msg.source
+    await _mark_processed(msg.message_id, None, source)
 
 
 # Shared state so the /healthz endpoint can surface poller status.
@@ -404,14 +498,13 @@ async def run_mail_poller() -> None:
             logger.exception("mail poller [%s]: baseline failed", cfg.label)
             POLLER_STATUS["last_error"] = f"[{cfg.label}] baseline: {type(e).__name__}: {e}"
     logger.info(
-        "mail poller: STARTED — %d inbox(es) (%s), interval=%ss, subject_filter=%r",
+        "mail poller: STARTED — %d inbox(es) (%s), interval=%ss, gate=deterministic-funnel",
         len(inboxes),
         ", ".join(i.label for i in inboxes),
         interval,
-        SUBJECT_REQUIRED_PREFIX,
     )
     POLLER_STATUS["running"] = True
-    POLLER_STATUS["subject_filter"] = SUBJECT_REQUIRED_PREFIX
+    POLLER_STATUS["gate"] = "deterministic_funnel"
     while True:
         for cfg in inboxes:
             await _poll_inbox_once(cfg)

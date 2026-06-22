@@ -54,6 +54,26 @@ class InboundMessage:
     body_text: str | None
     received_at: str | None
     attachments: list[MailAttachment] = field(default_factory=list)
+    # Threading headers (RFC 5322). Populated for replies; empty for fresh mail.
+    # ``in_reply_to`` is the parent Message-ID; ``references`` is the full chain.
+    # These drive reply detection + thread-routing in the ingest funnel (NB-12).
+    in_reply_to: str | None = None
+    references: list[str] = field(default_factory=list)
+
+    @property
+    def has_reply_headers(self) -> bool:
+        return bool(self.in_reply_to or self.references)
+
+    @property
+    def referenced_message_ids(self) -> list[str]:
+        """All parent Message-IDs this mail threads onto, newest-intent first."""
+        out: list[str] = []
+        if self.in_reply_to:
+            out.append(self.in_reply_to)
+        for r in self.references:
+            if r and r not in out:
+                out.append(r)
+        return out
 
 
 def load_inboxes_from_env() -> list[InboxConfig]:
@@ -124,6 +144,17 @@ def _split_from(from_header: str) -> tuple[str | None, str | None]:
         addr = from_header.split("<", 1)[1].split(">", 1)[0].strip().lower()
         return addr, name or None
     return from_header.lower(), None
+
+
+def _split_references(raw: str | None) -> list[str]:
+    """Parse a References / In-Reply-To header into a list of Message-IDs.
+
+    Both headers hold whitespace-separated ``<id@host>`` tokens. We keep the
+    angle brackets so the values match the form we persist for our own sends.
+    """
+    if not raw:
+        return []
+    return [tok for tok in raw.replace(",", " ").split() if tok.strip()]
 
 
 def _extract_body_and_attachments(msg: Message) -> tuple[str, list[MailAttachment]]:
@@ -202,6 +233,8 @@ def _fetch_sync(cfg: InboxConfig, max_messages: int) -> list[InboundMessage]:
             from_email, from_name = _split_from(_mime_header(msg.get("From")))
             message_id = _mime_header(msg.get("Message-ID")) or f"imap-{cfg.label}-{i.decode()}"
             received = _mime_header(msg.get("Date"))
+            in_reply_to_list = _split_references(_mime_header(msg.get("In-Reply-To")))
+            references = _split_references(_mime_header(msg.get("References")))
             body, atts = _extract_body_and_attachments(msg)
             out.append(
                 InboundMessage(
@@ -214,6 +247,8 @@ def _fetch_sync(cfg: InboxConfig, max_messages: int) -> list[InboundMessage]:
                     body_text=body or None,
                     received_at=received or None,
                     attachments=atts,
+                    in_reply_to=in_reply_to_list[0] if in_reply_to_list else None,
+                    references=references,
                 )
             )
             # Mark read so we don't reprocess.
