@@ -1,12 +1,20 @@
-"""Auto-progression: template-driven pipeline engine.
+"""Auto-progression: the role-pipeline-driven engine.
 
-When a role has ``pipeline_template``, the engine reads the ordered step list
-and fires the next action based on the candidate's current stage.  When NULL,
-falls back to the legacy hardcoded flow for backward compatibility.
+Progression is driven by the **role's configured pipeline**
+(``role_pipeline_stages``): the candidate's ``current_stage_key`` is mapped to the
+next enabled stage, and the engine either fires that stage's activity (``auto``)
+or parks the candidate and raises a distinct ``requires_action`` item (``manual``).
+The pure decision lives in ``services/pipeline_engine.py`` (unit-tested); this
+module is the IO shell that resolves state, dispatches activities, and parks gates.
 
-This module never blocks the calling activity -- every dispatch goes through
-the Arq queue (with BackgroundTasks fallback). Every action emits a
-``progressed`` audit row so HR can read the agent's reasoning later.
+Each manual gate parks at its OWN ``stage_key`` with its OWN action event
+(``review_assessment`` / ``schedule_interview`` / ``hire_or_reject``), so the
+overloaded ``NEEDS_HR_REVIEW`` state -- which let "schedule the HR round" trigger
+"re-send the assignment" -- is gone.
+
+This never blocks the calling activity: every dispatch goes through the Arq queue
+(with an inline fallback), and every decision writes an audit row + a domain event
+so HR can read the agent's reasoning later.
 """
 
 from __future__ import annotations
@@ -17,21 +25,23 @@ from uuid import UUID
 
 from src.db.base import Application, Role
 from src.db.connection import session_scope
+from src.db.events import emit_event
+from src.db.repositories import role_pipeline_stage as stage_repo
 from src.db.repositories.audit import log_audit
 from src.db.repositories.v1_application import set_stage
+from src.models.events import ActionType, EventType
+from src.models.pipeline import StageStatus
 from src.models.v1 import CallKind, PipelineStage
 from src.services.events import publish_event
+from src.services.pipeline_engine import (
+    Plan,
+    StageAction,
+    StageView,
+    plan_transition,
+)
 from src.services.queue import enqueue
 
 logger = logging.getLogger(__name__)
-
-
-def _voice_globally_enabled() -> bool:
-    try:
-        from src.config import get_settings
-        return bool(get_settings().enable_voice_screening)
-    except Exception:
-        return False
 
 
 def _voice_calls_enabled() -> bool:
@@ -50,87 +60,88 @@ def _agentic_cfg(rubric: dict | list | None) -> dict[str, Any]:
     return a if isinstance(a, dict) else {}
 
 
-def _scheduling_cfg(rubric: dict | list | None) -> dict[str, Any]:
-    if not isinstance(rubric, dict):
-        return {}
-    s = rubric.get("scheduling")
-    return s if isinstance(s, dict) else {}
+# Map a manual gate's park action to the inbox action type + a human-readable note.
+_GATE_EVENT: dict[StageAction, tuple[str, str]] = {
+    StageAction.PARK_REVIEW: (ActionType.REVIEW_ASSESSMENT.value, "review the candidate's work"),
+    StageAction.PARK_SCHEDULE: (ActionType.SCHEDULE_INTERVIEW.value, "schedule the interview"),
+    StageAction.PARK_DECISION: (ActionType.HIRE_OR_REJECT.value, "make the hire / reject call"),
+    StageAction.PARK_MANUAL: (ActionType.REVIEW_ASSESSMENT.value, "trigger this stage manually"),
+}
 
 
 async def auto_progress(*, application_id: UUID) -> str:
-    """Look at the application's current stage and trigger the next thing.
+    """Advance the application to the next step of its role's pipeline.
 
-    Returns one of: "fired:<action>" | "skipped:<reason>" | "noop".
+    Returns one of: "fired:<action>" | "parked:<stage_key>" | "skipped:<reason>"
+    | "done" | "noop".
     """
-
     async with session_scope() as session:
         app = await session.get(Application, application_id)
         if app is None:
             return "skipped:application_missing"
         if (app.status or "").lower() in {"rejected", "withdrawn"}:
             return "skipped:application_not_active"
-        role = await session.get(Role, app.role_id) if app.role_id else None
+        if app.role_id is None:
+            return "skipped:no_role"
+        role = await session.get(Role, app.role_id)
         if role is not None and (role.status or "").lower() not in {"open"}:
             return f"skipped:role_status_{role.status}"
-        rubric = role.scoring_rubric if role else None
-        agentic = _agentic_cfg(rubric)
-        scheduling = _scheduling_cfg(rubric)
-        template = getattr(role, "pipeline_template", None) if role else None
 
+        agentic = _agentic_cfg(role.scoring_rubric if role else None)
         if agentic.get("auto_progress") is False:
             return "skipped:auto_progress_off"
 
-        stage = PipelineStage(app.current_stage)
+        # Resolve the candidate's position in the role's pipeline. current_stage_key
+        # is dual-written by set_stage(); fall back to mapping the legacy stage.
+        current_key = app.current_stage_key
+        if current_key is None:
+            from src.services.state_machine import legacy_stage_to_key
 
-    # ── Template-driven flow ──────────────────────────────────────────
-    if template and isinstance(template, list) and len(template) > 0:
-        decision = await _template_progress(
-            application_id=application_id,
-            stage=stage,
-            template=template,
-            agentic=agentic,
-            scheduling=scheduling,
-        )
-    else:
-        # ── Legacy hardcoded flow (backward compat) ───────────────────
-        decision = await _legacy_progress(
-            application_id=application_id,
-            stage=stage,
-            agentic=agentic,
-            scheduling=scheduling,
-        )
+            current_key, _ = legacy_stage_to_key(PipelineStage(app.current_stage))
 
-    if decision != "noop":
+        rows = await stage_repo.for_role(session, app.role_id, enabled_only=False)
+        stages = [StageView.from_row(r) for r in rows]
+        plan = plan_transition(stages, current_key)
+        from_key = current_key
+        role_id = app.role_id
+
+    # Confirmation / joining calls sit ON a scheduled/hired stage (voice
+    # side-effects, not pipeline moves) -- handle those before normal progression.
+    side = await _maybe_fire_voice_side_effects(application_id, agentic)
+    if side is not None:
+        return side
+
+    decision = await _execute_plan(application_id, plan, role_id=role_id)
+
+    if decision not in {"noop", "done"}:
         async with session_scope() as session:
             await log_audit(
                 session,
                 application_id=application_id,
                 action="auto_progress_fired",
                 actor="agent",
-                details={"from_stage": stage.value, "decision": decision, "template": bool(template)},
+                details={"from_stage_key": from_key, "decision": decision, "to": plan.reason},
             )
         await publish_event(
             application_id,
             event="auto_progressed",
-            data={"from_stage": stage.value, "decision": decision},
+            data={"from_stage_key": from_key, "decision": decision},
         )
     return decision
 
 
-# ── Template-driven progression ───────────────────────────────────────
+async def _maybe_fire_voice_side_effects(
+    application_id: UUID, agentic: dict[str, Any]
+) -> str | None:
+    """Confirmation / joining-details calls keyed off the LEGACY stage (these are
+    voice side-effects that sit on a scheduled/hired stage, not pipeline moves).
+    Returns a decision string if one fired, else None so normal progression runs."""
+    async with session_scope() as session:
+        app = await session.get(Application, application_id)
+        if app is None:
+            return None
+        stage = PipelineStage(app.current_stage)
 
-async def _template_progress(
-    *,
-    application_id: UUID,
-    stage: PipelineStage,
-    template: list[str],
-    agentic: dict[str, Any],
-    scheduling: dict[str, Any],
-) -> str:
-    """Use the role's pipeline_template to decide what to fire next."""
-    from src.services.pipeline_templates import STEP_REGISTRY, find_current_step, get_next_step
-
-    # Handle confirmation calls on meeting-scheduled stages
     if stage in {
         PipelineStage.TECHNICAL_MEETING_SCHEDULED,
         PipelineStage.CEO_MEETING_SCHEDULED,
@@ -138,135 +149,99 @@ async def _template_progress(
     } and agentic.get("voice_confirmation_enabled", True) and _voice_calls_enabled():
         return await _fire_confirmation_call(application_id, stage)
 
-    # Handle joining details call on hired
-    if stage == PipelineStage.HIRED and agentic.get("voice_joining_call_enabled", True) and _voice_calls_enabled():
+    if stage == PipelineStage.HIRED and agentic.get(
+        "voice_joining_call_enabled", True
+    ) and _voice_calls_enabled():
         return await _fire_joining_details_call(application_id)
 
-    # Find which template step the candidate just completed
-    current_step_id = find_current_step(template, stage)
-    if current_step_id is None:
-        logger.debug("template progress: stage %s not mapped to any step for %s", stage, application_id)
+    return None
+
+
+async def _execute_plan(application_id: UUID, plan: Plan, *, role_id: UUID) -> str:
+    """Carry out the engine's decision: fire an auto stage, or park a manual gate."""
+    if plan.action == StageAction.NOOP:
         return "noop"
+    if plan.action == StageAction.DONE:
+        return "done"
 
-    next_step_id = get_next_step(template, current_step_id)
-    if next_step_id is None:
-        return "noop"
+    assert plan.stage is not None  # FIRE_*/PARK_* always carry a stage
 
-    next_step = STEP_REGISTRY.get(next_step_id)
-    if next_step is None:
-        logger.warning("template progress: unknown step %s for %s", next_step_id, application_id)
-        return "noop"
-
-    return await _fire_step(application_id, next_step, scheduling)
-
-
-async def _fire_step(application_id: UUID, step: Any, scheduling: dict[str, Any]) -> str:
-    """Dispatch the action for a given pipeline step."""
-    from src.services.pipeline_templates import StepDef
-
-    if not isinstance(step, StepDef):
-        return "noop"
-
-    if step.action == "fit_score":
-        return "noop"  # fit_score runs during intake, not via auto_progress
-
-    if step.action == "voice_screen":
+    if plan.action == StageAction.FIRE_VOICE_SCREEN:
         return await _fire_voice_screen(application_id)
-
-    if step.action == "chat_screen":
-        return await _fire_chat_screen(application_id)
-
-    if step.action in {"assessment", "cognitive_test"}:
+    if plan.action == StageAction.FIRE_ASSIGNMENT:
         return await _fire_assessment(application_id)
+    if plan.action == StageAction.FIRE_SCREENING:
+        return await _fire_screening(application_id)
+    if plan.action == StageAction.FIRE_OFFER:
+        return await _fire_offer(application_id)
 
-    if step.action == "meeting" and step.is_meeting and step.meeting_round:
-        return await _fire_meeting(application_id, step.meeting_round)
-
-    if step.action == "reference_check":
-        return await _fire_manual_step(application_id, "reference_check")
-
-    if step.action == "background_check":
-        return await _fire_manual_step(application_id, "background_check")
-
-    if step.action == "offer":
-        return await _fire_manual_step(application_id, "offer")
-
-    return "noop"
+    # Manual gates: park at THIS stage_key with a distinct, resolvable action item.
+    return await _park_gate(application_id, plan, role_id=role_id)
 
 
-async def _fire_manual_step(application_id: UUID, step_name: str) -> str:
-    """For steps that need HR action, park at needs_hr_review with context."""
+async def _park_gate(application_id: UUID, plan: Plan, *, role_id: UUID) -> str:
+    """Park the candidate at a manual gate stage and raise a distinct
+    ``requires_action`` domain event so the right inbox card shows up (review vs
+    schedule vs decision) -- never the wrong one."""
+    stage = plan.stage
+    assert stage is not None
+    action_type, note = _GATE_EVENT.get(
+        plan.action, (ActionType.REVIEW_ASSESSMENT.value, "needs attention")
+    )
+
+    # An interview parks as "scheduled-pending"; other gates as "parked".
+    status = (
+        StageStatus.SCHEDULED
+        if plan.action == StageAction.PARK_SCHEDULE
+        else StageStatus.PARKED
+    )
+
     async with session_scope() as session:
-        await set_stage(session, application_id, PipelineStage.NEEDS_HR_REVIEW, force=True)
+        app = await session.get(Application, application_id, with_for_update=True)
+        if app is None:
+            return "skipped:application_missing"
+        app.current_stage_key = stage.stage_key
+        app.stage_status = str(status)
+
+        await emit_event(
+            session,
+            type=EventType.STAGE_CHANGED,
+            org_id=app.org_id,
+            application_id=application_id,
+            role_id=role_id,
+            payload={
+                "to": stage.stage_key,
+                "stage_type": stage.stage_type,
+                "status": str(status),
+                "label": stage.label,
+            },
+            actor="agent",
+        )
+        # The actionable inbox item -- distinct per gate type.
+        await emit_event(
+            session,
+            type=action_type,
+            org_id=app.org_id,
+            application_id=application_id,
+            role_id=role_id,
+            payload={
+                "stage_key": stage.stage_key,
+                "stage_type": stage.stage_type,
+                "label": stage.label,
+                "note": note,
+            },
+            actor="agent",
+            requires_action=True,
+        )
         await log_audit(
             session,
             application_id=application_id,
-            action=f"awaiting_{step_name}",
+            action=f"parked_{action_type}",
             actor="agent",
-            details={"step": step_name, "reason": "manual_step_requires_hr"},
+            details={"stage_key": stage.stage_key, "stage_type": stage.stage_type, "note": note},
         )
-    await publish_event(
-        application_id,
-        event=f"awaiting_{step_name}",
-        data={"step": step_name},
-    )
-    return f"fired:awaiting_{step_name}"
 
-async def _fire_chat_screen(application_id: UUID) -> str:
-    """Dispatch chat-based screening for the application."""
-    queued = await enqueue("run_apply_to_chat", str(application_id))
-    if queued:
-        return "fired:chat_screen"
-    try:
-        from src.pipeline.v1 import run_apply_to_chat
-        await run_apply_to_chat(application_id=application_id)
-        return "fired:chat_screen_inline"
-    except Exception as exc:
-        logger.warning("auto chat screen failed for %s: %s", application_id, exc)
-        return f"fallback:chat_screen_failed:{exc}"[:80]
-
-# ── Legacy hardcoded flow ─────────────────────────────────────────────
-
-async def _legacy_progress(
-    *,
-    application_id: UUID,
-    stage: PipelineStage,
-    agentic: dict[str, Any],
-    scheduling: dict[str, Any],
-) -> str:
-    """Original hardcoded stage branching for roles without pipeline_template."""
-    decision = "noop"
-
-    if stage in {
-        PipelineStage.APPLIED,
-        PipelineStage.SCREENING_EVALUATED,
-        PipelineStage.REPORT_READY,
-    } and (agentic.get("voice_screening_enabled") or _voice_globally_enabled()):
-        decision = await _fire_voice_screen(application_id)
-
-    elif stage == PipelineStage.VOICE_SCREEN_EVALUATED:
-        decision = await _fire_assessment(application_id)
-
-    elif stage == PipelineStage.ASSESSMENT_EVALUATED:
-        decision = await _fire_meeting(application_id, "technical")
-
-    elif stage == PipelineStage.TECHNICAL_EVALUATED:
-        decision = await _fire_meeting(application_id, "ceo")
-
-    elif stage == PipelineStage.CEO_MEETING_COMPLETED:
-        decision = await _fire_meeting(application_id, "hr")
-
-    elif stage in {
-        PipelineStage.TECHNICAL_MEETING_SCHEDULED,
-        PipelineStage.CEO_MEETING_SCHEDULED,
-        PipelineStage.HR_MEETING_SCHEDULED,
-    } and (agentic.get("voice_confirmation_enabled", True) and _voice_calls_enabled()):
-        decision = await _fire_confirmation_call(application_id, stage)
-
-    elif stage == PipelineStage.HIRED and agentic.get("voice_joining_call_enabled", True) and _voice_calls_enabled():
-        decision = await _fire_joining_details_call(application_id)
-
-    return decision
+    return f"parked:{stage.stage_key}"
 
 
 # ---------------------------------------------------------------------------
@@ -463,88 +438,49 @@ async def _fire_assessment(application_id: UUID) -> str:
         return f"fallback:assessment_parked:{exc}"[:80]
 
 
-async def _fire_meeting(application_id: UUID, round: str) -> str:
-    """Meeting scheduling is now CHAT-DRIVEN — the recruiter books meetings via
-    Pulse (``schedule_meeting`` tool) with the panel + time they choose.
-
-    The legacy auto panel-availability / smart-scheduler / direct-booking chain
-    was fragile (slot-finding, dead GMeet stubs, confirmation calls, panel
-    email ping-pong) and is intentionally disabled — see the commented block
-    below for the previous behaviour. Instead we park the candidate for manual
-    scheduling and nudge the recruiter in chat so they pick it up.
-    """
-    async with session_scope() as session:
-        await set_stage(
-            session, application_id, PipelineStage.NEEDS_HR_REVIEW, force=True
-        )
-        await log_audit(
-            session,
-            application_id=application_id,
-            action=f"meeting_{round}_awaiting_chat_scheduling",
-            actor="agent",
-            details={
-                "round": round,
-                "note": "auto-scheduling disabled; recruiter schedules via Pulse chat",
-            },
-        )
+async def _fire_screening(application_id: UUID) -> str:
+    """Dispatch the written/resume screening stage (optional; a role can add a
+    ``screening`` stage before voice). Generates + emails the questionnaire."""
+    queued = await enqueue("run_apply_to_screening_stage", str(application_id))
+    if queued:
+        return "fired:screening"
     try:
-        from src.services.events import publish_event
+        from src.activities.v1_generate_screening import dispatch_screening_stage
 
-        await publish_event(
-            application_id,
-            event="meeting_scheduling_needed",
-            data={"round": round},
-        )
-    except Exception as exc:  # noqa: BLE001
+        await dispatch_screening_stage(application_id=application_id)
+        return "fired:screening_inline"
+    except (ImportError, AttributeError):
+        # No standalone screening dispatcher wired (default pipeline uses voice as
+        # the screen). Park rather than crash so a custom screening stage is
+        # visible to HR instead of silently stalling.
         logger.warning(
-            "meeting_scheduling_needed publish failed (best-effort): %s", exc
+            "screening stage requested for %s but no dispatcher is wired -- parking",
+            application_id,
         )
-    return f"parked:meeting_{round}_awaiting_chat"
+        async with session_scope() as session:
+            await set_stage(
+                session, application_id, PipelineStage.NEEDS_HR_REVIEW, force=True
+            )
+        return "parked:screening_no_dispatcher"
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("auto screening dispatch failed for %s: %s", application_id, exc)
+        return f"fallback:screening_failed:{exc}"[:80]
 
-    # ── LEGACY AUTO-SCHEDULER (disabled — kept for reference) ──────────────────
-    # Primary: emails panel members a confirmation link, auto-books once all
-    # respond. Fallback: smart scheduler (Graph), then legacy direct booking.
-    #
-    # try:
-    #     from src.services.panel_availability import initiate_panel_availability
-    #     queued = await enqueue(
-    #         "panel_availability_request", str(application_id), round=round
-    #     )
-    #     if queued:
-    #         return f"fired:panel_availability_{round}"
-    #     await initiate_panel_availability(application_id=application_id, round=round)
-    #     return f"fired:panel_availability_{round}_inline"
-    # except Exception as exc:
-    #     logger.warning(
-    #         "panel availability %s failed for %s: %s, falling back to smart scheduler",
-    #         round, application_id, exc,
-    #     )
-    #     try:
-    #         from src.services.smart_scheduler import initiate_smart_schedule
-    #         await initiate_smart_schedule(application_id=application_id, round=round)
-    #         return f"fired:smart_meeting_{round}_fallback"
-    #     except Exception as exc2:
-    #         logger.warning("smart schedule also failed for %s: %s, trying legacy", application_id, exc2)
-    #         try:
-    #             from src.activities.v1_schedule_meeting import schedule_meeting
-    #             await schedule_meeting(application_id=application_id, round=round)
-    #             return f"fired:meeting_{round}_legacy_fallback"
-    #         except Exception as exc3:
-    #             logger.warning("all scheduling failed for %s: %s", application_id, exc3)
-    #             async with session_scope() as session:
-    #                 await set_stage(session, application_id, PipelineStage.NEEDS_HR_REVIEW, force=True)
-    #                 await log_audit(
-    #                     session,
-    #                     application_id=application_id,
-    #                     action=f"meeting_{round}_schedule_failed",
-    #                     actor="agent",
-    #                     details={
-    #                         "panel_avail_error": str(exc)[:200],
-    #                         "smart_error": str(exc2)[:200],
-    #                         "legacy_error": str(exc3)[:200],
-    #                     },
-    #                 )
-    #             return f"fallback:meeting_{round}_parked"
+
+async def _fire_offer(application_id: UUID) -> str:
+    """Dispatch the offer stage (when the role's offer stage is auto). Generates
+    and emails the offer; ``generate_offer`` sets the candidate to HIRED."""
+    queued = await enqueue("generate_offer", str(application_id))
+    if queued:
+        return "fired:offer"
+    try:
+        from src.activities.offer import generate_offer
+
+        await generate_offer(application_id=application_id, approved_by="agent")
+        return "fired:offer_inline"
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("auto offer dispatch failed for %s: %s", application_id, exc)
+        return f"fallback:offer_failed:{exc}"[:80]
 
 
 async def _fire_confirmation_call(application_id: UUID, stage: PipelineStage) -> str:
