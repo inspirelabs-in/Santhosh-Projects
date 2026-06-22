@@ -265,11 +265,25 @@ async def run_apply_to_screening(
         await llm_fallback(application_id, candidate_id, "fit_score", str(e))
         return  # parked for HR review; don't proceed with broken state
 
-    # Auto-reject reds.
+    # Record the inline stages (email_filter + fit) as per-candidate verdicts so
+    # they show in the stage view, then drive progression through the generic
+    # stage-runner. The runner walks the ROLE's configured pipeline -- it does NOT
+    # assume voice is next; a role can have any stage (or none) after fit.
+    from src.services.stage_runner import (
+        advance_candidate,
+        record_email_filter_passed,
+        record_fit_verdict,
+    )
+    from src.models.pipeline import StageVerdict
+
+    await record_email_filter_passed(application_id)
+    if fit_tier is not None:
+        await record_fit_verdict(application_id, tier=fit_tier.value)
+
+    # Auto-reject reds (fit verdict=fail -> runner rejects + sends rejection email).
     if fit_tier == FitTier.RED:
         try:
             async with session_scope() as session:
-                await set_stage(session, application_id, PipelineStage.REJECTED, force=True)
                 await log_audit(
                     session,
                     application_id=application_id,
@@ -278,12 +292,18 @@ async def run_apply_to_screening(
                     actor="agent",
                     details={"reason": "fit_tier=red"},
                 )
+            await advance_candidate(
+                application_id=application_id,
+                completed_stage_key="fit",
+                verdict=StageVerdict.FAIL,
+                result_ref={"fit_tier": "red"},
+            )
         except Exception as e:  # noqa: BLE001
             await _log_error(application_id, candidate_id, "auto_reject_fit", e)
         return
 
-    # Green/amber fit: voice screening is mandatory for all roles.
-    # Log shortlist and let auto_progress advance to voice_screen.
+    # Green/amber fit: PASS -> the runner advances to whatever the role configured
+    # as the next stage (voice / assignment / interview / offer ...).
     if fit_tier in {FitTier.GREEN, FitTier.AMBER}:
         try:
             async with session_scope() as session:
@@ -291,11 +311,16 @@ async def run_apply_to_screening(
                     session,
                     application_id=application_id,
                     candidate_id=candidate_id,
-                    action="auto_shortlisted_voice",
+                    action="auto_shortlisted",
                     actor="agent",
                     details={"fit_tier": fit_tier.value},
                 )
-            await auto_progress(application_id=application_id)
+            await advance_candidate(
+                application_id=application_id,
+                completed_stage_key="fit",
+                verdict=StageVerdict.PASS,
+                result_ref={"fit_tier": fit_tier.value},
+            )
         except Exception as e:  # noqa: BLE001
             await _log_error(application_id, candidate_id, "auto_shortlist_voice", e)
         return
@@ -404,67 +429,55 @@ async def run_screening_evaluation(
                 },
             )
 
-    # V1 routing: clear_pass -> auto-progress engine first.
-    # If the role has voice_screening_enabled, the agent calls the candidate
-    # instead of sending the take-home assignment. Otherwise the V1 flow
-    # ships the assignment as before.
-    if evaluation.verdict == "clear_pass" and not forced_review:
-        async with session_scope() as session:
-            await set_stage(session, application_id, PipelineStage.SCREENING_EVALUATED)
-        progressed = await auto_progress(application_id=application_id)
-        if not progressed.startswith("noop"):
-            return  # agent took over (fired/fallback/skipped); skip the V1 assignment branch
-        try:
-            await send_assignment_email(
-                application_id=application_id,
-                candidate_id=candidate_id,
-                role_id=role_id,  # type: ignore[arg-type]
-            )
-            async with session_scope() as session:
-                await set_stage(session, application_id, PipelineStage.ASSIGNMENT_SENT)
-        except Exception as e:  # noqa: BLE001
-            logger.exception("send_assignment failed for %s", application_id)
-            await _log_error(application_id, candidate_id, "send_assignment", e)
-            async with session_scope() as session:
-                await set_stage(session, application_id, PipelineStage.NEEDS_HR_REVIEW, force=True)
+    # Generic routing: map the screening verdict -> a StageVerdict on the
+    # "screening" stage, then let the stage-runner advance to whatever the ROLE
+    # configured next (voice / assignment / interview / offer ...). No hardcoded
+    # "assignment is next". A forced_review or low-confidence verdict holds the
+    # candidate (on_going) so a human reviews via the inbox.
+    from src.services.stage_runner import advance_candidate
+    from src.models.pipeline import StageVerdict
+
+    if evaluation.verdict == "clear_reject":
+        stage_verdict = StageVerdict.FAIL
+        routed = "reject"
+    elif evaluation.verdict == "clear_pass" and not forced_review:
+        stage_verdict = StageVerdict.PASS
+        routed = "pass"
     else:
         async with session_scope() as session:
-            await set_stage(session, application_id, PipelineStage.SCREENING_EVALUATED)
-
             from src.services.confidence_gate import should_auto_advance_gate
             can_skip = await should_auto_advance_gate(
-                session, application_id, "screening_evaluated",
-                role_id=role_id,
+                session, application_id, "screening_evaluated", role_id=role_id,
             )
-            if can_skip and evaluation.verdict != "clear_reject":
-                await log_audit(
-                    session,
-                    application_id=application_id,
-                    candidate_id=candidate_id,
-                    action="screening_confidence_auto_advance",
-                    actor="agent",
-                    details={
-                        "verdict": evaluation.verdict,
-                        "overall_score": evaluation.overall_score,
-                    },
-                )
-            else:
-                await set_stage(session, application_id, PipelineStage.NEEDS_HR_REVIEW)
+        if can_skip and not forced_review:
+            stage_verdict = StageVerdict.PASS
+            routed = "confidence_pass"
+        else:
+            stage_verdict = StageVerdict.ON_GOING
+            routed = "hr_review"
 
-            await log_audit(
-                session,
-                application_id=application_id,
-                candidate_id=candidate_id,
-                action="screening_routed_to_hr" if not can_skip or evaluation.verdict == "clear_reject" else "screening_confidence_passed",
-                actor="agent",
-                details={
-                    "verdict": evaluation.verdict,
-                    "overall_score": evaluation.overall_score,
-                    "reason": "did not clear_pass" if not forced_review else "forced_review",
-                    "red_flags": [f.description for f in evaluation.red_flags] if evaluation.red_flags else [],
-                    "confidence_auto_advance": can_skip and evaluation.verdict != "clear_reject",
-                },
-            )
+    async with session_scope() as session:
+        await log_audit(
+            session,
+            application_id=application_id,
+            candidate_id=candidate_id,
+            action="screening_routed",
+            actor="agent",
+            details={
+                "verdict": evaluation.verdict,
+                "overall_score": evaluation.overall_score,
+                "routed": routed,
+                "forced_review": forced_review,
+                "red_flags": [f for f in evaluation.red_flags] if evaluation.red_flags else [],
+            },
+        )
+
+    await advance_candidate(
+        application_id=application_id,
+        completed_stage_key="screening",
+        verdict=stage_verdict,
+        result_ref={"verdict": evaluation.verdict, "overall_score": evaluation.overall_score},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -511,15 +524,34 @@ async def run_assignment_processing(
     except Exception:  # noqa: BLE001
         logger.warning("stage notification failed for %s", application_id)
 
+    # Best-effort: email the technical panel (notification only; does not set stage).
     try:
         await _request_tech_panel_review(application_id)
     except Exception as e:  # noqa: BLE001
         logger.exception("tech_panel_review request failed for %s", application_id)
         await _log_error(application_id, candidate_id, "tech_panel_review_request", e)
 
+    # Record the assignment verdict and advance generically. The runner parks at
+    # the next manual gate (e.g. assessment_review) or fires the next auto stage --
+    # whatever the role configured. No hardcoded "technical round is next".
+    try:
+        from src.services.stage_runner import advance_candidate
+        from src.models.pipeline import StageVerdict
+
+        await advance_candidate(
+            application_id=application_id,
+            completed_stage_key="assignment",
+            verdict=StageVerdict.PASS,
+            result_ref={"stage": "assignment", "report": "ready"},
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.exception("assignment advance failed for %s", application_id)
+        await _log_error(application_id, candidate_id, "assignment_advance", e)
+
 
 async def _request_tech_panel_review(application_id: UUID) -> None:
-    """After report_ready, email the technical panel and move to TECHNICAL_PENDING_APPROVAL."""
+    """After report_ready, email the technical panel (notification only -- stage
+    progression is owned by the stage-runner)."""
     from src.db.base import PanelMember
 
     async with session_scope() as session:
@@ -573,10 +605,5 @@ async def _request_tech_panel_review(application_id: UUID) -> None:
             actor="agent",
             details={"recipients": recipients_sent, "count": len(recipients_sent)},
         )
-
-        await set_stage(
-            session,
-            application_id,
-            PipelineStage.TECHNICAL_PENDING_APPROVAL,
-            force=True,
-        )
+    # NB: stage progression is owned by the stage-runner (called from
+    # run_assignment_processing); this function only sends the panel notification.
