@@ -25,6 +25,8 @@ from src.db.base import (
     Role,
 )
 from src.db.connection import session_scope
+from src.llm.model_registry import Stage, model_for
+from src.models.artifacts import RoleDraftContent
 
 logger = logging.getLogger(__name__)
 
@@ -467,7 +469,7 @@ async def generate_assignment_for_role(
                     f"with all {n} problems."
                 ),
                 response_model=AssignmentBriefOut,
-                model=client.smart,
+                model=model_for(Stage.ASSIGNMENT_GEN),
                 trace_name="recruiter.assignment_extend",
                 prompt_version="v2",
                 application_id=rid,
@@ -1602,6 +1604,35 @@ async def recall(
     }
 
 
+async def propose_role_draft(
+    *, content: dict[str, Any] | None = None, **fields: Any
+) -> dict[str, Any]:
+    """Write/replace the role draft for the current conversation.
+
+    Call this with the FULL current draft (not a patch) once you've gathered
+    enough context. The runner upserts it into the conversation's artifact and
+    opens the editable panel; call again with updated content to revise the same
+    artifact. Accepts a nested ``content`` object or the fields at top level.
+
+    Does not persist a Role -- that happens only when the user clicks Apply on
+    the artifact panel. This tool is not confirm-gated (writing a draft is not
+    destructive).
+    """
+    raw = dict(content) if isinstance(content, dict) else {}
+    if not raw and fields:
+        raw = {k: v for k, v in fields.items() if v is not None}
+    try:
+        draft = RoleDraftContent.model_validate(raw)
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"invalid_role_draft: {e}"}
+    return {
+        "ok": True,
+        "artifact_type": "role_draft",
+        "title": draft.title or "Role draft",
+        "content": draft.model_dump(mode="json"),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Tool dispatch
 # ---------------------------------------------------------------------------
@@ -1626,6 +1657,7 @@ TOOLS: dict[str, Any] = {
     "smart_defaults_for_role": smart_defaults_for_role,
     "generate_assignment_for_role": generate_assignment_for_role,
     "draft_linkedin_post": draft_linkedin_post,
+    "propose_role_draft": propose_role_draft,
     # Writes
     "create_role_with_assignment": create_role_with_assignment,
     "create_role": create_role,

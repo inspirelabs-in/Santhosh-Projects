@@ -52,9 +52,11 @@ import litellm
 
 from src.config import get_settings
 from src.db.connection import session_scope
+from src.db.repositories import artifact as artifact_repo
 from src.db.repositories import recruiter_chat as repo
 from src.db.repositories import recruiter_memory as memory_repo
 from src.llm.client import LLMError, assert_model_allowed, pat_sub
+from src.llm.model_registry import Stage, model_for
 from src.recruiter_agent.prompts import RECRUITER_SYSTEM_V1, RECRUITER_SYSTEM_VERSION
 from src.recruiter_agent.rbac import can, needs_confirm, required_role
 from src.recruiter_agent.schemas import RECRUITER_TOOLS
@@ -157,7 +159,7 @@ async def _generate_conversation_title(
         return None
     try:
         resp = await litellm.acompletion(
-            model=_settings.llm_model_fast,
+            model=model_for(Stage.PULSE_AGENT),
             messages=[
                 {
                     "role": "system",
@@ -311,7 +313,7 @@ async def _prerender_for_confirm(tool_name: str, args: dict[str, Any]) -> dict[s
                         f"brief with all {n} problems."
                     ),
                     response_model=AssignmentBriefOut,
-                    model=client.smart,
+                    model=model_for(Stage.ASSIGNMENT_GEN),
                     trace_name="recruiter.assignment_prerender_extend",
                     prompt_version="v2",
                     application_id=synthetic_id,
@@ -477,7 +479,7 @@ async def _execute_confirmed(
     ]
     try:
         stream = await litellm.acompletion(
-            model=_settings.llm_model_fast,
+            model=model_for(Stage.PULSE_AGENT),
             messages=follow_up_msgs,
             temperature=0.2,
             max_tokens=200,
@@ -499,7 +501,7 @@ async def _execute_confirmed(
                 conversation_id=conversation_id,
                 role="assistant",
                 content=full,
-                model=_settings.llm_model_fast,
+                model=model_for(Stage.PULSE_AGENT),
             )
     except Exception as e:  # noqa: BLE001
         logger.exception("post-confirm follow-up failed")
@@ -837,7 +839,7 @@ async def run_recruiter_turn(
             history = await _build_history_for_llm(session, conversation_id)
         messages = [system_msg, *history]
 
-        model = _settings.llm_model_fast
+        model = model_for(Stage.PULSE_AGENT)
         assert_model_allowed(model)
 
         # Stream-first: single streaming call detects both tool_calls and
@@ -1101,6 +1103,62 @@ async def run_recruiter_turn(
             # ---- Direct execution ----
             yield {"type": "tool_call", "id": c["id"], "name": name, "arguments": args}
             result = await call_tool(name, args, actor_hash=actor_hash)
+
+            # ---- Artifact-writing tools: upsert the conversation's artifact and
+            # open the editable side panel instead of rendering an inline block.
+            # The agent edits by calling propose_role_draft again (full content). ----
+            if name == "propose_role_draft" and result.get("ok"):
+                yield {
+                    "type": "tool_result",
+                    "id": c["id"],
+                    "name": name,
+                    "preview": "role draft updated",
+                }
+                async with session_scope() as session:
+                    existing = await artifact_repo.get_active_for_conversation(
+                        session, conversation_id
+                    )
+                    if existing is not None:
+                        art = await artifact_repo.update_content(
+                            session, existing.id, result["content"], title=result.get("title")
+                        )
+                    else:
+                        art = await artifact_repo.create(
+                            session,
+                            conversation_id=conversation_id,
+                            type="role_draft",
+                            content=result["content"],
+                            title=result.get("title"),
+                        )
+                    art_payload = {
+                        "id": str(art.id),
+                        "type": art.type,
+                        "status": art.status,
+                        "title": art.title,
+                        "content": art.content,
+                        "version": art.version,
+                    }
+                    await repo.append_message(
+                        session,
+                        conversation_id=conversation_id,
+                        role="tool",
+                        tool_name=name,
+                        tool_calls=[{"id": c["id"]}],
+                        tool_result={"ok": True, "artifact_id": art_payload["id"]},
+                        attachments=[
+                            {
+                                "kind": "artifact",
+                                "data": {
+                                    "artifact_id": art_payload["id"],
+                                    "artifact_type": art.type,
+                                },
+                            }
+                        ],
+                    )
+                # New event: the frontend auto-opens the artifact panel on this.
+                yield {"type": "artifact", "artifact": art_payload}
+                continue
+
             yield {
                 "type": "tool_result",
                 "id": c["id"],
