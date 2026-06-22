@@ -36,6 +36,7 @@ from src.db.repositories.role import get_role
 from src.llm.client import get_llm_client
 from src.llm.prompt_manager import compile_prompt
 from src.llm.prompts import FIT_SCORE_V1, FIT_SCORE_VERSION
+from src.llm.model_registry import Stage, model_for
 from src.models.candidate import (
     ApplicationStatus,
     CandidateProfile,
@@ -129,6 +130,21 @@ async def run_fit_score(payload: FitScoreInput) -> FitScoreOutput:
         role = await get_role(session, application.role_id)
         if role is None:
             raise ValueError(f"role {application.role_id} not found")
+        # CRASH-2: never score against an empty JD (the whole rubric depends on
+        # it). Park the candidate for HR instead of producing a garbage score.
+        if not (role.jd_text or "").strip():
+            logger.warning(
+                "role %s has no jd_text -- parking application %s for HR review",
+                role.id, payload.application_id,
+            )
+            return FitScoreOutput(
+                candidate_id=payload.candidate_id,
+                application_id=payload.application_id,
+                overall_score=0,
+                tier=FitTier.RED,
+                knock_outs=["role_jd_missing"],
+                trace_id=None,
+            )
 
         green_threshold, green_rule_id = await resolve_policy(
             session, "fit_green_threshold", role.id, fallback=60
@@ -168,6 +184,8 @@ async def run_fit_score(payload: FitScoreInput) -> FitScoreOutput:
             "max_notice_days": role.max_notice_days,
             "location": role.location,
             "remote_policy": role.remote_policy or RemotePolicy.ONSITE.value,
+            "evaluation_spec": role.evaluation_spec or {},
+            "company_context": role.company_context or {},
         }
 
     ko_result = check_hard_knockouts(
@@ -180,10 +198,12 @@ async def run_fit_score(payload: FitScoreInput) -> FitScoreOutput:
     )
     knock_outs = ko_result.reasons
 
+    from src.services.scoring_context import scoring_prompt_vars
+
     prompt = compile_prompt(
         "fit_score",
         fallback=FIT_SCORE_V1,
-        jd_text=role_snapshot["jd_text"][:8000],
+        jd_text=(role_snapshot["jd_text"] or "")[:8000],
         role_title=role_snapshot["title"],
         ctc_min_lpa=role_snapshot["ctc_min_lpa"] if role_snapshot["ctc_min_lpa"] is not None else "n/a",
         ctc_max_lpa=role_snapshot["ctc_max_lpa"] if role_snapshot["ctc_max_lpa"] is not None else "n/a",
@@ -195,13 +215,14 @@ async def run_fit_score(payload: FitScoreInput) -> FitScoreOutput:
         experience_weight=weights["experience"],
         ctc_weight=weights["ctc"],
         logistics_weight=weights["logistics"],
+        **scoring_prompt_vars(role_snapshot["evaluation_spec"], role_snapshot["company_context"]),
     )
 
     client = get_llm_client()
     result = await client.complete(
         prompt=prompt,
         response_model=FitAssessment,
-        model=_settings.llm_model_smart,
+        model=model_for(Stage.RESUME_FIT_SCORE),
         trace_name="fit_score",
         prompt_version=FIT_SCORE_VERSION,
         candidate_id=payload.candidate_id,

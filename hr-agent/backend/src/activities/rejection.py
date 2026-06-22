@@ -22,6 +22,7 @@ from src.db.repositories.role import get_role
 from src.llm.client import get_llm_client
 from src.llm.prompt_manager import compile_prompt
 from src.llm.prompts import REJECTION_MESSAGE_V1, REJECTION_MESSAGE_VERSION
+from src.llm.model_registry import Stage, model_for
 from src.models.candidate import ApplicationStatus, CandidateStatus
 from src.models.llm_outputs import RejectionDraft
 from src.services.rejection_reasons import pick_category, render_template
@@ -92,7 +93,7 @@ async def run_rejection(payload: RejectionInput) -> RejectionResult:
     llm_result = await client.complete(
         prompt=prompt,
         response_model=RejectionDraft,
-        model=_settings.llm_model_fast,
+        model=model_for(Stage.REJECTION_MESSAGE),
         trace_name="rejection_message",
         prompt_version=REJECTION_MESSAGE_VERSION,
         candidate_id=payload.candidate_id,

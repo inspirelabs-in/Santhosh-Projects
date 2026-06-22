@@ -32,6 +32,7 @@ from src.db.repositories.candidate_profile import upsert_candidate_profile
 from src.llm.client import get_llm_client
 from src.llm.prompt_manager import compile_prompt
 from src.llm.prompts import PARSE_RESUME_V1, PARSE_RESUME_VERSION
+from src.llm.model_registry import Stage, model_for
 from src.models.candidate import CandidateProfile, CandidateStatus
 from src.services.dedup import normalise_linkedin, normalise_phone
 from src.services.file_storage import download
@@ -129,7 +130,7 @@ async def run_parse_resume(payload: ParseResumeInput) -> ParseResumeResult:
     result = await client.complete(
         prompt=prompt,
         response_model=CandidateProfile,
-        model=_settings.llm_model_fast,
+        model=model_for(Stage.PARSE_RESUME),
         trace_name="parse_resume",
         prompt_version=PARSE_RESUME_VERSION,
         candidate_id=payload.candidate_id,
