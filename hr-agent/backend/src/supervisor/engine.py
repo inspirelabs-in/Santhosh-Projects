@@ -1,4 +1,12 @@
-"""Supervisor engine: perceive → reason → act.
+"""[SCRAPE/RETIRED] Supervisor engine: perceive → reason → act.
+
+RETIRED: never ran in production (enable_supervisor=False by default + a
+startup crash). Its role is superseded by the durable domain_events backbone
+(src/db/events.py). The lifespan task is disabled in api/main.py. Kept for
+reference; safe to delete after the events backbone proves out.
+
+Original docs:
+
 
 Processes SupervisorEvents by assembling context, asking the LLM to reason
 about what action to take, then validating through guardrails and recording
