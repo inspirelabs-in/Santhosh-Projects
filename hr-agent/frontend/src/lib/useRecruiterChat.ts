@@ -33,6 +33,16 @@ export interface Attachment {
   raw?: unknown;
 }
 
+export interface ArtifactData {
+  id: string;
+  conversation_id?: string;
+  type: string; // role_draft
+  status: string; // draft | applied | dismissed
+  title: string | null;
+  content: Record<string, unknown>;
+  version: number;
+}
+
 export interface RecruiterMessage {
   id: string;
   role: RecruiterMessageRole;
@@ -87,6 +97,13 @@ export interface UseRecruiterChatReturn {
   send: (text: string, attachments?: { file_ref: string; filename: string; size: number }[]) => Promise<void>;
   stop: () => Promise<void>;
   refreshList: () => Promise<void>;
+  // Artifact side-panel (editable structured output, e.g. role drafts).
+  activeArtifact: ArtifactData | null;
+  artifactOpen: boolean;
+  openArtifact: () => void;
+  closeArtifact: () => void;
+  saveArtifact: (content: Record<string, unknown>) => Promise<void>;
+  applyArtifact: () => Promise<{ ok: boolean; role_url?: string } | null>;
 }
 
 function uid(): string {
@@ -111,6 +128,8 @@ function hydrate(detail: ConversationDetailRaw): RecruiterMessage[] {
         createdAt: new Date(m.created_at).getTime(),
       });
     } else if (m.role === "tool") {
+      // Role drafts render in the artifact panel, not as an inline tool row.
+      if (m.tool_name === "propose_role_draft") continue;
       out.push({
         id: `srv-${m.sequence}`,
         role: "tool",
@@ -140,6 +159,8 @@ export function useRecruiterChat(): UseRecruiterChatReturn {
   const [isStreaming, setIsStreaming] = useState(false);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeArtifact, setActiveArtifact] = useState<ArtifactData | null>(null);
+  const [artifactOpen, setArtifactOpen] = useState(false);
 
   const sourceRef = useRef<EventSource | null>(null);
   const closingRef = useRef(false);
@@ -179,21 +200,43 @@ export function useRecruiterChat(): UseRecruiterChatReturn {
     }
   }, []);
 
-  const loadConversation = useCallback(async (id: string) => {
-    activeAssistantIdRef.current = null;
-    setMessages([]);
+  const fetchActiveArtifact = useCallback(async (id: string) => {
     try {
-      const res = await fetch(`${BASE}/v2/recruiter-chat/conversations/${id}`, {
-        headers: authHeader(),
-        cache: "no-store",
-      });
+      const res = await fetch(
+        `${BASE}/v2/recruiter-chat/conversations/${id}/artifact`,
+        { headers: authHeader(), cache: "no-store" },
+      );
       if (!res.ok) return;
-      const detail = (await res.json()) as ConversationDetailRaw;
-      setMessages(hydrate(detail));
+      const data = (await res.json()) as { artifact: ArtifactData | null };
+      setActiveArtifact(data.artifact);
     } catch {
       /* ignore */
     }
   }, []);
+
+  const loadConversation = useCallback(
+    async (id: string) => {
+      activeAssistantIdRef.current = null;
+      setMessages([]);
+      setActiveArtifact(null);
+      setArtifactOpen(false);
+      try {
+        const res = await fetch(`${BASE}/v2/recruiter-chat/conversations/${id}`, {
+          headers: authHeader(),
+          cache: "no-store",
+        });
+        if (!res.ok) return;
+        const detail = (await res.json()) as ConversationDetailRaw;
+        setMessages(hydrate(detail));
+        // Make any existing draft available behind the icon (do not auto-open
+        // on reload; only the live `artifact` event auto-opens).
+        void fetchActiveArtifact(id);
+      } catch {
+        /* ignore */
+      }
+    },
+    [fetchActiveArtifact],
+  );
 
   const selectConversation = useCallback(
     (id: string) => {
@@ -217,6 +260,8 @@ export function useRecruiterChat(): UseRecruiterChatReturn {
     setConversations((prev) => [c, ...prev]);
     setConversationId(c.id);
     setMessages([]);
+    setActiveArtifact(null);
+    setArtifactOpen(false);
     activeAssistantIdRef.current = null;
     return c.id;
   }, []);
@@ -275,6 +320,8 @@ export function useRecruiterChat(): UseRecruiterChatReturn {
             setIsThinking(true);
             break;
           case "tool_call": {
+            // Role-draft writes surface in the artifact panel, not as a tool row.
+            if ((payload.name as string) === "propose_role_draft") break;
             // Render a tool-call placeholder message.
             const id = uid();
             setMessages((prev) => [
@@ -310,6 +357,9 @@ export function useRecruiterChat(): UseRecruiterChatReturn {
             break;
           }
           case "attachment": {
+            // The artifact marker is handled by the dedicated `artifact` event
+            // + the side panel; never render it inline.
+            if (((payload.kind as string) || "") === "artifact") break;
             const att: Attachment = {
               kind: (payload.kind as string) || "raw",
               data: payload.data,
@@ -353,6 +403,16 @@ export function useRecruiterChat(): UseRecruiterChatReturn {
               next[real] = { ...cur, attachments: [...(cur.attachments || []), att] };
               return next;
             });
+            break;
+          }
+          case "artifact": {
+            // Structured editable output (role draft). Auto-open the panel.
+            const art = payload.artifact as ArtifactData | undefined;
+            if (art) {
+              setActiveArtifact(art);
+              setArtifactOpen(true);
+            }
+            setIsThinking(false);
             break;
           }
           case "token": {
@@ -508,6 +568,51 @@ export function useRecruiterChat(): UseRecruiterChatReturn {
     [conversationId, conversations, newConversation, refreshList],
   );
 
+  const openArtifact = useCallback(() => setArtifactOpen(true), []);
+  const closeArtifact = useCallback(() => setArtifactOpen(false), []);
+
+  const saveArtifact = useCallback(
+    async (content: Record<string, unknown>) => {
+      const art = activeArtifact;
+      if (!art) return;
+      try {
+        const res = await fetch(`${BASE}/v2/recruiter-chat/artifacts/${art.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", ...authHeader() },
+          body: JSON.stringify({ content }),
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as { artifact: ArtifactData };
+        setActiveArtifact(data.artifact);
+      } catch {
+        /* ignore */
+      }
+    },
+    [activeArtifact],
+  );
+
+  const applyArtifact = useCallback(async (): Promise<{ ok: boolean; role_url?: string } | null> => {
+    const art = activeArtifact;
+    if (!art) return null;
+    try {
+      const res = await fetch(`${BASE}/v2/recruiter-chat/artifacts/${art.id}/apply`, {
+        method: "POST",
+        headers: authHeader(),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.detail ?? `apply_failed (HTTP ${res.status})`);
+        return null;
+      }
+      setActiveArtifact((prev) => (prev ? { ...prev, status: "applied" } : prev));
+      void refreshList();
+      return { ok: true, role_url: data.role_url };
+    } catch {
+      setError("apply_failed");
+      return null;
+    }
+  }, [activeArtifact, refreshList]);
+
   return useMemo(
     () => ({
       conversations,
@@ -524,6 +629,12 @@ export function useRecruiterChat(): UseRecruiterChatReturn {
       send,
       stop,
       refreshList,
+      activeArtifact,
+      artifactOpen,
+      openArtifact,
+      closeArtifact,
+      saveArtifact,
+      applyArtifact,
     }),
     [
       conversations,
@@ -540,6 +651,12 @@ export function useRecruiterChat(): UseRecruiterChatReturn {
       send,
       stop,
       refreshList,
+      activeArtifact,
+      artifactOpen,
+      openArtifact,
+      closeArtifact,
+      saveArtifact,
+      applyArtifact,
     ],
   );
 }

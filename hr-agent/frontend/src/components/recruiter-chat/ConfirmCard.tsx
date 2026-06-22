@@ -4,8 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Check,
-  ChevronDown,
-  ChevronUp,
   Edit3,
   Loader2,
   Plus,
@@ -307,7 +305,6 @@ export function ConfirmCard({
 }) {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<"accepted" | "cancelled" | null>(null);
-  const [showRaw, setShowRaw] = useState(false);
   const [editedArgs, setEditedArgs] = useState<Record<string, unknown>>({ ...data.args });
   const [hasEdits, setHasEdits] = useState(false);
 
@@ -606,21 +603,6 @@ export function ConfirmCard({
             />
           ))}
         </div>
-      )}
-
-      {/* ── Raw JSON drawer ───────────────────────────────────────── */}
-      <button
-        onClick={() => setShowRaw((v) => !v)}
-        type="button"
-        className="inline-flex items-center gap-1 font-mono text-[11px] text-muted-foreground hover:text-foreground"
-      >
-        {showRaw ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-        {data.tool}
-      </button>
-      {showRaw && (
-        <pre className="overflow-x-auto rounded-md bg-background/70 p-2 font-mono text-[11px] text-muted-foreground">
-          {JSON.stringify(args, null, 2)}
-        </pre>
       )}
 
       {/* ── Action bar ────────────────────────────────────────────── */}
