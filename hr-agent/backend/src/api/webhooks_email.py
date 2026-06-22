@@ -6,23 +6,24 @@ lapses, IMAP polling is the floor — email still flows, just with latency.
 
 Two request types:
 1. Subscription validation: POST with validationToken query param → echo it
-2. Change notification: POST with notification payload → fetch message → classify → emit
+2. Change notification: POST with notification payload → fetch message → funnel → durable route
+
+Reply handling is durable + thread-correct here (NB-12); NEW-applicant
+ingestion from Graph is intentionally deferred to the IMAP poller (the
+reliable floor that also pulls attachments), so this path never double-
+ingests and never blocks an application's resume from being processed.
 """
 
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
-from sqlalchemy import select
 
 from src.config import get_settings
-from src.db.base import Candidate
+from src.db.base import ProcessedMessage
 from src.db.connection import session_scope
-from src.services.typed_event_bus import EventType
-from src.services.typed_event_bus import publish_event as publish_supervisor_event
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/webhooks/email", tags=["email-webhooks"])
@@ -72,77 +73,84 @@ async def handle_graph_notification(
         if not msg_data:
             continue
 
-        sender_email = (
-            msg_data.get("from", {}).get("emailAddress", {}).get("address", "")
-        ).lower().strip()
-        subject = msg_data.get("subject", "")
-        body_preview = msg_data.get("bodyPreview", "")
-
-        if not sender_email:
+        msg = _inbound_from_graph(msg_data, message_id)
+        if not msg.from_email:
             continue
 
+        # Idempotency: the IMAP poller and this webhook share processed_messages,
+        # keyed by RFC Message-ID, so the same mail is never handled twice.
         async with session_scope() as session:
-            candidate = (
-                await session.execute(
-                    select(Candidate).where(Candidate.email == sender_email)
-                )
-            ).scalar_one_or_none()
-
-            if not candidate:
-                logger.debug("Graph email from non-candidate %s", sender_email)
+            if await session.get(ProcessedMessage, msg.message_id) is not None:
                 continue
 
-            from sqlalchemy import and_
-            from src.db.base import Application
-            active_app = (
-                await session.execute(
-                    select(Application).where(
-                        and_(
-                            Application.candidate_id == candidate.id,
-                            Application.status.notin_(("rejected", "hired", "withdrawn")),
-                        )
-                    ).order_by(Application.updated_at.desc())
+        from src.services.email_filter import classify_inbound
+        from src.services.mail_ingest import _classify_inbound, _route_reply
+
+        decision = await _classify_inbound(msg)
+        logger.info(
+            "graph mail %s funnel -> %s (%s)",
+            msg.message_id, decision.kind.value, decision.reason,
+        )
+
+        # Replies are routed durably + thread-correct here (NB-12). New
+        # applications + internal/ignore are left to the IMAP poller (the
+        # reliable floor that also fetches attachments), so we never double-
+        # ingest from the push channel.
+        from src.services.email_filter import InboundKind
+        if decision.kind is InboundKind.REPLY:
+            await _route_reply(msg)
+            async with session_scope() as session:
+                session.add(
+                    ProcessedMessage(
+                        message_id=msg.message_id,
+                        application_id=None,
+                        mail_source="graph_push:reply",
+                    )
                 )
-            ).scalar_first()
-
-            app_id = active_app.id if active_app else None
-            stage = active_app.current_stage if active_app else None
-
-            from src.classifiers.candidate_intent import classify_candidate_intent
-            intent_text = f"Subject: {subject}\n\n{body_preview}"
-            intent_result = await classify_candidate_intent(
-                intent_text,
-                current_stage=stage,
-                application_id=app_id,
-                candidate_id=candidate.id,
-            )
-
-            event_type = EventType.CANDIDATE_MESSAGE_RECEIVED
-            if intent_result.intent.value == "withdrawal":
-                event_type = EventType.CANDIDATE_WITHDRAWAL
-
-            await publish_supervisor_event(
-                session,
-                event_type,
-                application_id=app_id,
-                candidate_id=candidate.id,
-                payload={
-                    "channel": "email_push",
-                    "sender_email": sender_email,
-                    "subject": subject[:200],
-                    "message_preview": body_preview[:300],
-                    "intent": intent_result.intent.value,
-                    "intent_confidence": intent_result.confidence,
-                    "urgency": intent_result.urgency,
-                    "extracted_details": intent_result.extracted_details,
-                    "current_stage": stage,
-                    "graph_message_id": message_id,
-                },
-                dedup_extra=f"email-push-{message_id}",
-            )
             processed += 1
 
     return {"status": "ok", "processed": processed}
+
+
+def _inbound_from_graph(msg_data: dict, message_id: str):
+    """Adapt a Graph message payload into the shared InboundMessage shape so the
+    push channel reuses the exact same funnel + reply router as the IMAP poller."""
+    from src.services.imap_inbox import InboundMessage
+
+    sender_email = (
+        msg_data.get("from", {}).get("emailAddress", {}).get("address", "")
+    ).lower().strip() or None
+    sender_name = (
+        msg_data.get("from", {}).get("emailAddress", {}).get("name", "")
+    ) or None
+    subject = msg_data.get("subject") or None
+    body_preview = msg_data.get("bodyPreview") or None
+
+    in_reply_to = None
+    references: list[str] = []
+    for h in msg_data.get("internetMessageHeaders", []) or []:
+        name = (h.get("name") or "").lower()
+        value = h.get("value") or ""
+        if name == "in-reply-to":
+            toks = [tok for tok in value.replace(",", " ").split() if tok.strip()]
+            in_reply_to = toks[0] if toks else None
+        elif name == "references":
+            references = [tok for tok in value.replace(",", " ").split() if tok.strip()]
+
+    rfc_id = msg_data.get("internetMessageId") or f"graph-{message_id}"
+    return InboundMessage(
+        inbox_label="graph_push",
+        source="graph_push",
+        message_id=rfc_id,
+        from_email=sender_email,
+        from_name=sender_name,
+        subject=subject,
+        body_text=body_preview,
+        received_at=msg_data.get("receivedDateTime"),
+        attachments=[],
+        in_reply_to=in_reply_to,
+        references=references,
+    )
 
 
 async def _fetch_graph_message(message_id: str) -> dict | None:
@@ -154,7 +162,9 @@ async def _fetch_graph_message(message_id: str) -> dict | None:
         resp = await client.get(
             f"https://graph.microsoft.com/v1.0/me/messages/{message_id}",
             headers={"Authorization": f"Bearer {token}"},
-            params={"$select": "from,subject,bodyPreview,receivedDateTime"},
+            params={
+                "$select": "from,subject,bodyPreview,receivedDateTime,internetMessageId,internetMessageHeaders"
+            },
         )
         if resp.status_code != 200:
             logger.warning("Graph message fetch failed: %d", resp.status_code)

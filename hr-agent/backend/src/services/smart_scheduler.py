@@ -79,7 +79,7 @@ async def initiate_smart_schedule(
 ) -> UUID:
     """Kick off agentic scheduling for a meeting round.
 
-    Called from ``auto_progress._fire_meeting`` when the pipeline reaches a
+    Called from the manual scheduling path when the pipeline reaches a
     meeting step. Returns the created ``MeetingSession.id``.
     """
     settings = get_settings()

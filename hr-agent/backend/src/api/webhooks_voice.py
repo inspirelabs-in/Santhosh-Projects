@@ -834,18 +834,17 @@ async def elevenlabs_webhook(
     if already_completed:
         return {"ok": True, "duplicate": True}
 
-    # Atomic claim: first webhook delivery for this voice_call_id wins. A
-    # concurrent retry from ElevenLabs (after our previous response timed out)
-    # arriving in parallel will get rowcount==0 and bail without re-running
-    # the evaluator. The sentinel is overwritten with the real key below.
-    _sentinel = f"_in_flight:{conversation_id}"
+    # Atomic claim (idempotency guard): first delivery wins. A concurrent
+    # ElevenLabs retry, the /recover endpoint, or the watchdog arriving in
+    # parallel get claimed=False and bail without re-ingesting / re-running the
+    # evaluator. The claim commits before any work so it is visible cross-path.
     async with session_scope() as session:
-        from src.db.repositories.voice_call import claim_completion
+        from src.db.repositories.voice_call import claim_processing
 
-        claimed = await claim_completion(session, voice_call_id, _sentinel)
+        claimed = await claim_processing(session, voice_call_id)
     if not claimed:
         logger.info(
-            "voice webhook for %s already claimed by concurrent delivery; bailing",
+            "voice webhook for %s already claimed/processed; bailing",
             conversation_id,
         )
         return {"ok": True, "duplicate": True}
@@ -879,6 +878,9 @@ async def elevenlabs_webhook(
                     "requested_at": requested_at.isoformat() if requested_at else None,
                 },
             )
+            # Result fully handled (no evaluator for confirmation calls).
+            from src.db.repositories.voice_call import mark_processing_done
+            await mark_processing_done(session, voice_call_id)
         # Schedule any follow-up work in the background (re-pick slot etc).
         from src.activities.v1_schedule_meeting import schedule_meeting
 
@@ -975,6 +977,9 @@ async def elevenlabs_webhook(
                     "decision": decision,
                 },
             )
+            # Informational call result handled (no screening evaluator).
+            from src.db.repositories.voice_call import mark_processing_done
+            await mark_processing_done(session, voice_call_id)
 
         if call_kind == "meeting_schedule":
             from src.services.smart_scheduler import handle_candidate_response
@@ -1088,6 +1093,9 @@ async def elevenlabs_webhook(
                 },
                 dedup_extra=f"callback-{voice_call_id}",
             )
+        async with session_scope() as session:
+            from src.db.repositories.voice_call import mark_processing_done
+            await mark_processing_done(session, voice_call_id)
         return {
             "ok": True,
             "callback_scheduled_for": callback_at.isoformat(),
@@ -1268,6 +1276,9 @@ async def elevenlabs_webhook(
                 "next_attempt_at": retry_at.isoformat(),
             },
         )
+        async with session_scope() as session:
+            from src.db.repositories.voice_call import mark_processing_failed
+            await mark_processing_failed(session, voice_call_id)
         return {
             "ok": True,
             "early_disconnect": True,
@@ -1315,6 +1326,9 @@ async def elevenlabs_webhook(
             evaluate_voice_call,
             voice_call_id=voice_call_id,
         )
+    async with session_scope() as session:
+        from src.db.repositories.voice_call import mark_processing_done
+        await mark_processing_done(session, voice_call_id)
     await publish_event(
         application_id,
         event="voice_call_completed",
@@ -1368,13 +1382,21 @@ async def recover_elevenlabs_conversation(
         )
         if voice is None:
             raise HTTPException(404, f"No voice_call found for conversation_id={conversation_id}")
-        if voice.transcript_r2_key:
-            return {"ok": True, "already_completed": True, "voice_call_id": str(voice.id)}
         application_id = voice.application_id
         voice_call_id = voice.id
         questions = voice.questions
         attempt_no = voice.attempt_no
         call_kind = getattr(voice, "call_kind", "screening")
+
+    # Idempotency guard: claim the result before recovering. If the live webhook
+    # or the watchdog already processed/claimed it, skip instead of re-ingesting
+    # and re-running the evaluator (V-C2).
+    async with session_scope() as session:
+        from src.db.repositories.voice_call import claim_processing
+
+        claimed = await claim_processing(session, voice_call_id)
+    if not claimed:
+        return {"ok": True, "already_completed": True, "voice_call_id": str(voice_call_id)}
 
     # Fetch conversation from ElevenLabs API
     url = f"https://api.elevenlabs.io/v1/convai/conversations/{conversation_id}"
@@ -1496,6 +1518,8 @@ async def recover_elevenlabs_conversation(
                 error=f"recovery_early_disconnect dur={duration_sec}s user_turns={user_turns} chars={total_answer_chars}",
                 status=VoiceCallStatus.FAILED,
             )
+            from src.db.repositories.voice_call import mark_processing_failed
+            await mark_processing_failed(session, voice_call_id)
             await log_audit(
                 session,
                 application_id=application_id,
@@ -1527,6 +1551,10 @@ async def recover_elevenlabs_conversation(
                 evaluate_voice_call,
                 voice_call_id=voice_call_id,
             )
+
+    async with session_scope() as session:
+        from src.db.repositories.voice_call import mark_processing_done
+        await mark_processing_done(session, voice_call_id)
 
     await publish_event(
         application_id,
