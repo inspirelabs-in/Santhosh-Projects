@@ -5,25 +5,19 @@ Conversational tone -- shorter than the email questionnaire because the
 candidate is answering live on a phone call (no copy-paste from ChatGPT).
 """
 
-VOICE_SCREEN_GEN_VERSION = "v4"
-VOICE_SCREEN_EVAL_VERSION = "v4"
+VOICE_SCREEN_GEN_VERSION = "v5"
+VOICE_SCREEN_EVAL_VERSION = "v5"
 
 
-VOICE_SCREEN_GEN_V1 = """You design a spoken phone-screen for ONE candidate applying to ONE role at GrabOn (InspireLabs).
+VOICE_SCREEN_GEN_V1 = """You design a spoken phone-screen for ONE candidate applying to ONE role.
 
-=== ABOUT GRABON ===
-GrabOn (grabon.in) is India's largest cashback and coupons platform with 15M+ users. Parent company: InspireLabs Solutions Pvt. Ltd., Hyderabad.
+=== ABOUT THE COMPANY & ROLE (role-tuned, generated at JD time) ===
+Use THIS context to frame company-fit questions. Do NOT inject generic culture pillars (ownership / proof of work / builder mindset) unless this context explicitly calls for them -- they are wrong for many roles.
+{company_context_json}
 
-Business model: affiliate marketing + SaaS (Cashback API sold to banks & fintechs) + consumer deals platform. Revenue comes from merchants paying for traffic and conversions. The team is lean and technical — engineers here own product decisions, not just tickets.
-
-Culture pillars (use these to frame company-fit questions):
-- OWNERSHIP: people here run things end-to-end. "I was involved in" is a red flag. "I owned and shipped" is the bar.
-- PROOF OF WORK: credentials don't matter, shipped products do. What have you actually built that real users touched?
-- LEARNING VELOCITY: the stack, the market, and the product all move fast. Curiosity and adaptability beat deep specialisation.
-- BUILDER MINDSET: we move fast with limited resources. People who wait for perfect requirements don't thrive here.
-- ACCOUNTABILITY: mistakes are fine, blame-shifting is not. Strong candidates own outcomes — good and bad.
-
-The company values people who ask "why are we building this?" before "how do I build this?" and who push back when direction is wrong.
+=== ROLE-SPECIFIC EVALUATION CRITERIA ===
+Design questions that surface THESE dimensions and signals (what_good_looks_like / anti_signals). If empty, fall back to the JD with a neutral, role-appropriate stance:
+{evaluation_spec_json}
 
 === ROLE CONTEXT ===
 Role: {role_title}
@@ -48,12 +42,12 @@ WORK EXPERIENCE (Q3–Q4) — type=work_experience | skill_probe | depth: resume
 Q3. Pick ONE specific project, product feature, or technical problem from the candidate's resume above. Ask what they personally built or solved — the hardest call they had to make and the outcome. Name the project or employer explicitly so the candidate knows you read their profile. Tie the probe to a concrete requirement in the JD.
 Q4. Pick a DIFFERENT entry from the resume — a different employer, product, or challenge. Probe on one of: a failure and what they learned, a moment they had to push back or change direction, or a trade-off between speed and quality. Must reference something from the resume, not a generic "tell me about a challenge."
 
-COMPANY FIT (Q5–Q6) — type=company_fit | behavioral: test real interest in GrabOn and culture alignment:
-Q5. Research signal: ask what they know about GrabOn — the business model, what the platform does, or why they specifically applied. A strong answer shows they did their homework (cashback/affiliate model, Hyderabad, SaaS API, lean team). A weak answer is "I saw it on LinkedIn." Do NOT lead the answer — let them show what they found.
-Q6. Builder/ownership test: GrabOn is lean and moves fast. Ask for a concrete example where they had to ship something under ambiguity, incomplete requirements, or with limited resources — specifically what they chose to cut, what they kept, and how they decided. This directly tests builder mindset and ownership. Avoid asking a generic "tell me about a fast-paced project."
+COMPANY FIT (Q5–Q6) — type=company_fit | behavioral: test real interest in the company and alignment with the role criteria above:
+Q5. Research signal: ask what they know about the company and this role, or why they specifically applied. A strong answer shows they did their homework on the company context above. A weak answer is "I saw it on LinkedIn." Do NOT lead the answer — let them show what they found.
+Q6. Role-fit test: pick the most important dimension from the evaluation criteria above and ask for a concrete example that surfaces it (what they chose, what they decided, the outcome). Tie it to a real requirement of THIS role, not a generic "tell me about a fast-paced project."
 
 LOGISTICS (Q7) — type=logistics: all three gates in one tight question:
-Q7. "Quick logistics check — three things: what's your current CTC and what are you expecting for this role, what's your notice period, and the role is based in {role_location} ({remote_policy}) — are you aligned with that?"
+Q7. Ask a single tight logistics question covering: current CTC + expected CTC for this role, notice period, and — ONLY when a real work location is known — alignment with the location. The role location is "{role_location}" ({remote_policy}). If that location value is "n/a", empty, or unknown, DROP the location part entirely and ask only about CTC and notice period (never say "based in None" or "based in n/a"). Example when location is known: "Quick logistics check — what's your current CTC and what are you expecting for this role, what's your notice period, and the role is based in {role_location} ({remote_policy}); are you aligned with that?"
 
 === RULES ===
 - Every question must sound natural when spoken aloud by an AI on a phone call. No bullet points, no em-dashes, no markdown.
@@ -76,12 +70,18 @@ Output strict JSON only:
 }}"""
 
 
-VOICE_SCREEN_EVAL_V1 = """You evaluate a phone-screen transcript answer-by-answer for ONE candidate at GrabOn (InspireLabs).
+VOICE_SCREEN_EVAL_V1 = """You evaluate a phone-screen transcript answer-by-answer for ONE candidate against this role.
 
 NOTE: This is a TEXT-ONLY fallback evaluation — no audio recording was available.
 Evaluate the transcript content only; do not speculate about tone or voice quality.
 
-GrabOn Culture: Ownership > task completion. Learning velocity > static expertise. Builders > coordinators. Proof of work > credentials. Look for: ownership language ("I built", "I decided", "I shipped"), learning examples, data-driven decisions, builder mindset. Flag: passive language ("I was assigned"), credential-heavy with no proof of work, process-over-outcome focus.
+## Company & role context (role-tuned, generated at JD time)
+Ground every judgment in THIS role's context below. Do NOT apply generic culture assumptions (e.g. "ownership", "builder mindset", "proof of work") unless this context explicitly calls for them -- those are wrong for many roles (a coupon editor is not judged like a builder).
+{company_context_json}
+
+## Role-specific evaluation criteria
+Judge the candidate against THESE dimensions and signals, not generic defaults. Where a dimension lists what_good_looks_like / anti_signals, weigh them directly. If this object is empty, fall back to the JD with a neutral, role-appropriate stance (never invent a culture bias):
+{evaluation_spec_json}
 
 Role: {role_title}
 JD (excerpt):
@@ -100,9 +100,10 @@ Weight: content quality (65%) > logistics fit (35%).
 Note ONLY findings supported by the transcript — do NOT invent specifics.
 Penalize evasive non-answers, contradictions with the resume, and logistics deal-breakers.
 
-Verdict rules (TWO tiers — no HR review):
-- clear_pass: candidate answered most questions with real examples, English is coherent, no explicit hard logistics block. When uncertain, default to clear_pass. Score >= 50.
-- clear_reject: consistently vague across most questions with no ownership or specifics, OR English completely unintelligible, OR candidate explicitly ruled out a logistics requirement with zero flexibility stated. Score < 50 with no recovery signals.
+Verdict rules (THREE tiers):
+- clear_pass: candidate answered most questions with real examples, English is coherent, no explicit hard logistics block. Score >= 50.
+- clear_reject: consistently vague across most questions with no role-relevant specifics, OR English completely unintelligible, OR candidate explicitly ruled out a logistics requirement with zero flexibility stated. Score < 50 with no recovery signals.
+- needs_hr_review: genuinely borderline — some strong and some weak answers, an unverifiable claim, or an ambiguous logistics signal that a human should confirm. Use this sparingly; when truly uncertain between pass and reject, prefer needs_hr_review over guessing.
 
 EXTRACT every concrete logistic the candidate mentioned. Use null when not stated.
 Do NOT guess — wrong values corrupt downstream scheduling.
@@ -115,7 +116,7 @@ Output strict JSON only:
   ],
   "red_flags": ["..."],
   "strengths": ["..."],
-  "verdict": "clear_pass | clear_reject",
+  "verdict": "clear_pass | needs_hr_review | clear_reject",
   "verdict_rationale": "1-2 sentences citing concrete transcript evidence",
   "extracted_facts": {{
     "current_ctc_lpa": null,

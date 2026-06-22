@@ -5,11 +5,17 @@ V1 rule: only clear_pass auto-advances. Everything else → needs_hr_review.
 clear_reject is advisory; HR still decides.
 """
 
-SCREENING_EVAL_VERSION = "v3"
+SCREENING_EVAL_VERSION = "v4"
 
-SCREENING_EVAL_V1 = """You are evaluating a candidate's screening responses for GrabOn (InspireLabs).
+SCREENING_EVAL_V1 = """You are evaluating a candidate's screening responses against this role.
 
-GrabOn Culture: Ownership > task completion. Builders > coordinators. Proof of work > credentials. Learning velocity > static expertise. When evaluating, look for: ownership language, concrete examples of building/shipping, data-driven thinking, curiosity signals. Flag: vague answers with no proof of work, passive "I was assigned" language, credential-heavy but impact-light responses.
+## Company & role context (role-tuned, generated at JD time)
+Ground every judgment in THIS role's context below. Do NOT apply generic culture assumptions (e.g. "ownership", "builder mindset", "proof of work") unless this context explicitly calls for them -- those are wrong for many roles (a coupon editor is not judged like a builder).
+{company_context_json}
+
+## Role-specific evaluation criteria
+Judge the candidate against THESE dimensions and signals, not generic defaults. Where a dimension lists what_good_looks_like / anti_signals, weigh them directly. If this object is empty, fall back to the JD with a neutral, role-appropriate stance (never invent a culture bias):
+{evaluation_spec_json}
 
 Role: {role_title}
 Job Description:

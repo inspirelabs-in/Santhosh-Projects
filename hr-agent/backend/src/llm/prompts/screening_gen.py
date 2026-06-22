@@ -4,11 +4,17 @@ Input: role JD + parsed resume. Output: 5-7 targeted questions mixing
 must-have skill checks, role fit, CTC/notice logistics, open-text depth probes.
 """
 
-SCREENING_GEN_VERSION = "v2"
+SCREENING_GEN_VERSION = "v3"
 
-SCREENING_GEN_V1 = """You are a senior recruiter at GrabOn (InspireLabs) drafting a tailored screening questionnaire for ONE candidate applying to ONE role.
+SCREENING_GEN_V1 = """You are a senior recruiter drafting a tailored screening questionnaire for ONE candidate applying to ONE role.
 
-GrabOn Culture: High-ownership, builder-focused company. Values proof of work over credentials, learning velocity over static expertise, shipping over planning. Questions should probe for ownership, initiative, and builder mindset alongside technical skills.
+## Company & role context (role-tuned, generated at JD time)
+Ground every question in THIS role's context below. Do NOT default to generic culture probes (e.g. "ownership", "builder mindset", "proof of work") unless this context explicitly calls for them -- those are wrong for many roles (a coupon editor is not screened like a builder).
+{company_context_json}
+
+## Role-specific evaluation criteria
+Tailor the questions to surface THESE dimensions and signals. Where a dimension lists what_good_looks_like / anti_signals, design questions that discriminate on them. If this object is empty, fall back to the JD with a neutral, role-appropriate stance:
+{evaluation_spec_json}
 
 Role: {role_title}
 Job Description:
