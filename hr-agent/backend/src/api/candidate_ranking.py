@@ -28,6 +28,7 @@ from src.db.base import (
 )
 from src.db.connection import session_scope
 from src.llm.client import get_llm_client
+from src.llm.model_registry import Stage, model_for
 
 logger = logging.getLogger(__name__)
 _settings = get_settings()
@@ -221,7 +222,7 @@ Candidates:
 
             result = await client.complete(
                 prompt=prompt,
-                model=_settings.llm_model_smart,
+                model=model_for(Stage.CANDIDATE_RANKING),
                 trace_name="candidate_ranking",
                 temperature=0.2,
                 max_tokens=500,

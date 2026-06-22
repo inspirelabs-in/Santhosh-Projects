@@ -13,6 +13,7 @@ Intent categories:
 """
 
 from __future__ import annotations
+from src.llm.model_registry import Stage, model_for
 
 import logging
 from enum import StrEnum
@@ -190,7 +191,7 @@ async def classify_candidate_intent(
                 f"\n\n---\n{message_text[:4000]}\n---"
             ),
             response_model=IntentClassification,
-            model=settings.llm_model_fast,
+            model=model_for(Stage.CLASSIFY_CANDIDATE_INTENT),
             trace_name="classify_candidate_intent",
             prompt_version="intent_v1",
             application_id=application_id,
