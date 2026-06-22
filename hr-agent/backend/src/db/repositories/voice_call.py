@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 logger = logging.getLogger(__name__)
 
 from src.db.base import VoiceCall
-from src.models.v1 import VoiceCallStatus
+from src.models.v1 import ProcessingStatus, VoiceCallStatus
 
 
 _TERMINAL_STATUSES = {
@@ -125,7 +125,11 @@ async def mark_in_progress(session: AsyncSession, voice_call_id: UUID) -> None:
 async def claim_completion(
     session: AsyncSession, voice_call_id: UUID, sentinel_key: str
 ) -> bool:
-    """Atomically claim webhook completion for ``voice_call_id``.
+    """[SCRAPE] superseded by claim_processing (processing_status CAS); no live
+    caller. The old transcript_r2_key sentinel could orphan a row on crash
+    (V-C1) -- the processing_status guard + watchdog sweep replace it.
+
+    Atomically claim webhook completion for ``voice_call_id``.
 
     First caller wins. Returns True if this caller claimed it, False if another
     concurrent webhook already did. Used as the idempotency primitive for the
@@ -210,3 +214,72 @@ async def mark_failed(
     if len(error) > 2000:
         logger.warning("voice call %s error truncated from %d to 2000 chars", voice_call_id, len(error))
     row.error = error[:2000]
+
+
+# ---------------------------------------------------------------------------
+# Result-processing idempotency guard.
+#
+# Three paths can try to ingest+evaluate one call's result (the live webhook, the
+# /recover endpoint, the watchdog) and the provider re-delivers webhooks. The
+# guard makes ingestion run EXACTLY ONCE: a caller atomically claims the row
+# (pending|failed -> processing); the loser skips. After ingest the winner marks
+# it processed (or failed, which is retryable). A crashed worker that leaves a row
+# stuck in ``processing`` is swept back to ``pending`` by the watchdog.
+# ---------------------------------------------------------------------------
+
+
+async def claim_processing(session: AsyncSession, voice_call_id: UUID) -> bool:
+    """Atomically claim a call's result for processing.
+
+    UPDATE ... WHERE processing_status IN (pending, failed) -> processing.
+    Returns True iff THIS caller won the claim (rowcount == 1). A caller that
+    gets False must NOT ingest/evaluate (another path already owns it)."""
+    from sqlalchemy import update
+
+    stmt = (
+        update(VoiceCall)
+        .where(VoiceCall.id == voice_call_id)
+        .where(
+            VoiceCall.processing_status.in_(
+                [ProcessingStatus.PENDING.value, ProcessingStatus.FAILED.value]
+            )
+        )
+        .values(processing_status=ProcessingStatus.PROCESSING.value)
+    )
+    result = await session.execute(stmt)
+    return (result.rowcount or 0) > 0
+
+
+async def mark_processing_done(session: AsyncSession, voice_call_id: UUID) -> None:
+    """Mark the result fully ingested + evaluator dispatched."""
+    row = await session.get(VoiceCall, voice_call_id)
+    if row is not None:
+        row.processing_status = ProcessingStatus.PROCESSED.value
+
+
+async def mark_processing_failed(session: AsyncSession, voice_call_id: UUID) -> None:
+    """Release the claim as failed so a later path may retry."""
+    row = await session.get(VoiceCall, voice_call_id)
+    if row is not None:
+        row.processing_status = ProcessingStatus.FAILED.value
+
+
+async def sweep_stale_processing(session: AsyncSession, *, older_than_minutes: int = 15) -> int:
+    """Reset rows stuck in ``processing`` (crashed mid-ingest) back to ``pending``
+    so recovery can re-claim them. Returns the number reset. Called by the
+    watchdog. Uses ``updated_at`` as the staleness clock."""
+    from datetime import UTC, datetime, timedelta
+    from sqlalchemy import update
+
+    cutoff = datetime.now(UTC) - timedelta(minutes=older_than_minutes)
+    stmt = (
+        update(VoiceCall)
+        .where(VoiceCall.processing_status == ProcessingStatus.PROCESSING.value)
+        .where(VoiceCall.updated_at < cutoff)
+        .values(processing_status=ProcessingStatus.PENDING.value)
+    )
+    result = await session.execute(stmt)
+    n = result.rowcount or 0
+    if n:
+        logger.warning("swept %d stale 'processing' voice_calls back to pending", n)
+    return n

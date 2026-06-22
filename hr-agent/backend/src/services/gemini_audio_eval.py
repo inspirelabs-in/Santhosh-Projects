@@ -20,15 +20,21 @@ from uuid import UUID
 
 from src.config import get_settings
 from src.models.v1 import VoiceCallScore
+from src.services.scoring_context import scoring_prompt_vars
 
 logger = logging.getLogger(__name__)
 
 _GEMINI_MODEL = "gemini-2.5-flash"
 
-_EVAL_PROMPT = """You evaluate a phone-screen recording for ONE candidate at GrabOn (InspireLabs).
+_EVAL_PROMPT = """You evaluate a phone-screen recording for ONE candidate against this role.
 
-ABOUT GRABON:
-India's largest cashback and coupons platform. Parent: InspireLabs. High-traffic consumer tech, affiliate marketing, and SaaS. Culture: ownership, proof of work, learning velocity, builder mindset.
+## Company & role context (role-tuned, generated at JD time)
+Ground company-fit and culture judgments in THIS context. Do NOT inject a generic ownership / proof-of-work / builder lens unless the context calls for it.
+{company_context_json}
+
+## Role-specific evaluation criteria
+Weigh answers against THESE dimensions (what_good_looks_like / anti_signals). If empty, assess against the JD with a neutral stance:
+{evaluation_spec_json}
 
 Role: {role_title}
 JD:
@@ -94,9 +100,10 @@ LOGISTICS HANDLING -- read carefully:
 - Location: only flag if candidate explicitly refuses to work from the required location.
 - When uncertain whether a logistics gate is truly breached, do not penalise. The fit re-score handles hard knockouts separately.
 
-VERDICT -- two tiers only:
-- clear_pass: candidate answered most questions with real examples, showed up coherently in English, no explicit hard logistics block. When uncertain, default to clear_pass -- subsequent rounds will filter further. Score >= 50.
-- clear_reject: consistent failure across most questions (vague on everything, no specifics, no ownership), OR English completely unintelligible, OR candidate explicitly ruled out a logistics requirement with zero flexibility. Score < 50 with no recovery signals.
+VERDICT -- three tiers:
+- clear_pass: candidate answered most questions with real examples, showed up coherently in English, no explicit hard logistics block. Score >= 50.
+- clear_reject: consistent failure across most questions (vague on everything, no role-relevant specifics), OR English completely unintelligible, OR candidate explicitly ruled out a logistics requirement with zero flexibility. Score < 50 with no recovery signals.
+- needs_hr_review: genuinely borderline -- some strong and some weak answers, an unverifiable claim, or an ambiguous logistics signal that a human should confirm. Use this sparingly; when truly uncertain between pass and reject, prefer needs_hr_review over guessing.
 
 EXTRACTION: Only extract what was explicitly stated on the call. Use null when not mentioned.
 Do not infer from resume. Wrong values corrupt downstream scheduling.
@@ -114,7 +121,7 @@ Output strict JSON only:
   ],
   "red_flags": ["..."],
   "strengths": ["..."],
-  "verdict": "clear_pass|clear_reject",
+  "verdict": "clear_pass|needs_hr_review|clear_reject",
   "verdict_rationale": "2-3 sentences: content quality first, conviction signals second, logistics third",
   "extracted_facts": {{
     "current_ctc_lpa": null,
@@ -148,6 +155,8 @@ async def evaluate_voice_call_with_audio(
     role_location: str | None = None,
     remote_policy: str | None = None,
     application_id: UUID | None = None,
+    evaluation_spec: dict | None = None,
+    company_context: dict | None = None,
 ) -> VoiceCallScore | None:
     """Evaluate the voice call using Gemini 2.5 Flash with audio + transcript.
 
@@ -213,6 +222,7 @@ async def evaluate_voice_call_with_audio(
             role_location=role_location or "n/a",
             remote_policy=remote_policy or "n/a",
             answers_json=answers_json,
+            **scoring_prompt_vars(evaluation_spec, company_context),
         )
 
         response = await client.aio.models.generate_content(

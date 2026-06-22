@@ -6,6 +6,7 @@ the original pattern matching — zero behavior change on failure.
 """
 
 from __future__ import annotations
+from src.llm.model_registry import Stage, model_for
 
 import logging
 from uuid import UUID
@@ -38,7 +39,7 @@ def _detect_voicemail_regex(answers: list[dict] | None) -> bool:
     if not answers:
         return False
     blob = " ".join(
-        str(a.get("answer", "")).lower()
+        str(a.get("answer_transcript") or a.get("answer") or "").lower()
         for a in answers
         if isinstance(a, dict)
     )
@@ -96,7 +97,7 @@ async def classify_voicemail(
         return False, 1.0, "no answers provided"
 
     blob = " ".join(
-        str(a.get("answer", "")).lower()
+        str(a.get("answer_transcript") or a.get("answer") or "").lower()
         for a in answers
         if isinstance(a, dict)
     )
@@ -115,7 +116,7 @@ async def classify_voicemail(
         client = get_llm_client()
 
         transcript_text = "\n".join(
-            f"Q: {a.get('question', '?')}\nA: {a.get('answer', '')}"
+            f"Q: {a.get('question', '?')}\nA: {a.get('answer_transcript') or a.get('answer') or ''}"
             for a in answers
             if isinstance(a, dict)
         )
@@ -123,7 +124,7 @@ async def classify_voicemail(
         result = await client.complete(
             prompt=f"Classify this voice call transcript:\n\n{transcript_text[:3000]}",
             response_model=VoicemailClassification,
-            model=settings.llm_model_fast,
+            model=model_for(Stage.CLASSIFY_VOICEMAIL),
             trace_name="classify_voicemail",
             prompt_version="voicemail_v1",
             application_id=application_id,

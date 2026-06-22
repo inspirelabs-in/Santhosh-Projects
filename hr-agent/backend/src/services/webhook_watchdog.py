@@ -79,6 +79,7 @@ async def _try_recover_from_elevenlabs(call: VoiceCall) -> bool:
     from src.db.repositories.audit import log_audit
     from src.db.repositories.v1_application import set_stage
     from src.db.repositories.voice_call import save_call_completion
+    from src.db.repositories.voice_call import claim_processing, mark_processing_done, mark_processing_failed
     from src.models.v1 import PipelineStage
     from src.services.events import publish_event
     from src.services.queue import enqueue
@@ -107,37 +108,55 @@ async def _try_recover_from_elevenlabs(call: VoiceCall) -> bool:
     call_kind = getattr(call, "call_kind", "screening")
     is_informational = call_kind in ("status_update", "joining_details", "general_query", "meeting_schedule")
 
+    # Idempotency guard (V-C3 + V-C1): claim the call so the live webhook or the
+    # /recover endpoint cannot double-run the evaluator for the same conversation.
     async with session_scope() as session:
-        await save_call_completion(
-            session,
-            call.id,
-            answers=answers,
-            transcript_r2_key=transcript_key,
-            recording_r2_key=recording_key,
-            duration_sec=duration_sec,
-            ended_at=datetime.now(UTC),
+        claimed = await claim_processing(session, call.id)
+    if not claimed:
+        logger.info(
+            "watchdog: voice_call %s already processed/claimed, skipping", call.id
         )
-        if not is_informational:
-            await set_stage(
-                session, call.application_id, PipelineStage.VOICE_SCREEN_COMPLETED, force=True
+        return False
+
+    try:
+        async with session_scope() as session:
+            await save_call_completion(
+                session,
+                call.id,
+                answers=answers,
+                transcript_r2_key=transcript_key,
+                recording_r2_key=recording_key,
+                duration_sec=duration_sec,
+                ended_at=datetime.now(UTC),
             )
-        await log_audit(
-            session,
-            application_id=call.application_id,
-            action="voice_call_auto_recovered",
-            actor="system",
-            details={
-                "voice_call_id": str(call.id),
-                "conversation_id": call.provider_call_id,
-                "duration_sec": duration_sec,
-                "answer_count": len(answers),
-            },
-        )
+            if not is_informational:
+                await set_stage(
+                    session, call.application_id, PipelineStage.VOICE_SCREEN_COMPLETED, force=True
+                )
+            await log_audit(
+                session,
+                application_id=call.application_id,
+                action="voice_call_auto_recovered",
+                actor="system",
+                details={
+                    "voice_call_id": str(call.id),
+                    "conversation_id": call.provider_call_id,
+                    "duration_sec": duration_sec,
+                    "answer_count": len(answers),
+                },
+            )
 
-    if not is_informational and call_kind != "confirmation":
-        from src.activities.v1_evaluate_voice_call import evaluate_voice_call
+        if not is_informational and call_kind != "confirmation":
+            from src.activities.v1_evaluate_voice_call import evaluate_voice_call
 
-        await enqueue("evaluate_voice_call", str(call.id))
+            await enqueue("evaluate_voice_call", str(call.id))
+
+        async with session_scope() as session:
+            await mark_processing_done(session, call.id)
+    except Exception:
+        async with session_scope() as session:
+            await mark_processing_failed(session, call.id)
+        raise
 
     await publish_event(
         call.application_id,
@@ -310,9 +329,18 @@ async def _check_stuck_assessments() -> int:
 
 async def run_webhook_watchdog() -> None:
     """Background loop. Runs every 30 minutes."""
+    from src.db.repositories.voice_call import sweep_stale_processing
+
     await asyncio.sleep(600)  # initial delay
     while True:
         try:
+            try:
+                async with session_scope() as session:
+                    await sweep_stale_processing(session, older_than_minutes=15)
+            except Exception:
+                logger.warning(
+                    "webhook watchdog: stale-claim sweep failed", exc_info=True
+                )
             v = await _check_stuck_voice_calls()
             m = await _check_stuck_meetings()
             a = await _check_stuck_assessments()
