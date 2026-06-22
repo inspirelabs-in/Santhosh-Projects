@@ -19,10 +19,12 @@ from src.db.connection import session_scope
 from src.db.repositories.audit import log_audit
 from src.db.repositories.v1_application import save_screening_questions
 from src.llm.client import get_llm_client
+from src.llm.model_registry import Stage, model_for
 from src.llm.prompt_manager import compile_prompt
 from src.llm.prompts import SCREENING_GEN_V1, SCREENING_GEN_VERSION
 from src.models.candidate import CandidateProfile
 from src.models.v1 import GeneratedScreeningSet
+from src.services.scoring_context import scoring_prompt_vars
 
 logger = logging.getLogger(__name__)
 
@@ -57,12 +59,14 @@ async def generate_screening_questions(
             candidate_profile_json=json.dumps(
                 profile.model_dump(mode="json", exclude_none=True), ensure_ascii=False
             )[:6000],
+            **scoring_prompt_vars(role.evaluation_spec, role.company_context),
         )
 
         client = get_llm_client()
         result = await client.complete(
             prompt=prompt,
             response_model=GeneratedScreeningSet,
+            model=model_for(Stage.SCREENING_GEN),
             trace_name="screening_gen",
             prompt_version=SCREENING_GEN_VERSION,
             candidate_id=candidate_id,

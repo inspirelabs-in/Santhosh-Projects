@@ -21,8 +21,10 @@ from src.db.repositories.v1_application import save_screening_evaluation
 from src.llm.client import get_llm_client
 from src.llm.prompt_manager import compile_prompt
 from src.llm.prompts import SCREENING_EVAL_V1, SCREENING_EVAL_VERSION
+from src.llm.model_registry import Stage, model_for
 from src.models.candidate import CandidateProfile
 from src.models.v1 import ScreeningEvaluation, ScreeningSubmission
+from src.services.scoring_context import scoring_prompt_vars
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +58,7 @@ async def evaluate_screening(
             responses_json=json.dumps(
                 submission.model_dump(mode="json"), ensure_ascii=False
             )[:6000],
+            **scoring_prompt_vars(role.evaluation_spec, role.company_context),
         )
 
         client = get_llm_client()
@@ -63,7 +66,7 @@ async def evaluate_screening(
             prompt=prompt,
             response_model=ScreeningEvaluation,
             # Smart model for evaluation quality.
-            model=client.smart,
+            model=model_for(Stage.SCREENING_EVAL),
             trace_name="screening_eval",
             prompt_version=SCREENING_EVAL_VERSION,
             candidate_id=candidate_id,

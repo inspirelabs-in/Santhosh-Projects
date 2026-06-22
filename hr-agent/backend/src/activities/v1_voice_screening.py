@@ -32,6 +32,7 @@ from src.db.repositories.voice_call import (
     next_attempt_no,
 )
 from src.llm.client import get_llm_client
+from src.llm.model_registry import Stage, model_for
 from src.llm.prompt_manager import compile_prompt
 from src.llm.prompts.voice_screening import (
     VOICE_SCREEN_GEN_V1,
@@ -153,12 +154,14 @@ async def dispatch_voice_screening(
                 candidate_profile_json=json.dumps(
                     profile.model_dump(mode="json", exclude_none=True), ensure_ascii=False
                 )[:6000],
+                **scoring_prompt_vars(role.evaluation_spec, role.company_context),
             )
 
             client = get_llm_client()
             result = await client.complete(
                 prompt=prompt,
                 response_model=_VoiceQuestionSet,
+                model=model_for(Stage.VOICE_SCREEN_GEN),
                 trace_name="voice_screen_gen",
                 prompt_version=VOICE_SCREEN_GEN_VERSION,
                 candidate_id=candidate.id,

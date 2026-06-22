@@ -23,6 +23,7 @@ from src.db.connection import session_scope
 from src.db.repositories.audit import log_audit
 from src.db.repositories.v1_application import save_assignment_submission
 from src.llm.client import get_llm_client
+from src.llm.model_registry import Stage, model_for
 from src.llm.prompt_manager import compile_prompt
 from src.llm.prompts import ASSIGNMENT_PARSE_V1, ASSIGNMENT_PARSE_VERSION
 from src.models.v1 import (
@@ -186,6 +187,7 @@ async def parse_assignment(
         links_json=json.dumps(submission.links, ensure_ascii=False),
         file_texts_json=json.dumps(file_texts, ensure_ascii=False)[:10000],
         candidate_notes=(submission.notes or "")[:2000],
+        **scoring_prompt_vars(role.evaluation_spec, role.company_context),
     )
 
     if enrichment_block:
@@ -206,6 +208,7 @@ async def parse_assignment(
         result = await client.complete(
             prompt=prompt,
             response_model=AssignmentParseResult,
+            model=model_for(Stage.ASSIGNMENT_PARSE),
             trace_name="assignment_parse",
             prompt_version=ASSIGNMENT_PARSE_VERSION,
             candidate_id=candidate_id,
