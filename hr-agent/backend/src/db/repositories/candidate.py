@@ -84,11 +84,21 @@ async def create_application(
     candidate_id: UUID,
     role_id: UUID | None,
     status: ApplicationStatus = ApplicationStatus.ACTIVE,
+    org_id: UUID | None = None,
 ) -> Application:
+    # Stamp the tenant anchor so org-scoped reads (the durable inbox /
+    # actionable-event feed) see this application's events. During the
+    # single-tenant phase we resolve the default org when none is passed.
+    if org_id is None:
+        from src.db.repositories import organization as _org_repo
+
+        default_org = await _org_repo.get_default(session)
+        org_id = default_org.id if default_org is not None else None
     app = Application(
         candidate_id=candidate_id,
         role_id=role_id,
         status=status.value,
+        org_id=org_id,
     )
     session.add(app)
     await session.flush()
