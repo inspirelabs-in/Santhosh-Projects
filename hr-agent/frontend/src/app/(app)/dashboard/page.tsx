@@ -7,9 +7,10 @@
  * This page is just chat panel + composer + glass header.
  */
 
-import { Sparkles } from "lucide-react";
+import { FileText, Sparkles } from "lucide-react";
 import { ChatMessages } from "@/components/recruiter-chat/ChatPanel";
 import { PulseComposer } from "@/components/recruiter-chat/PulseComposer";
+import { ArtifactPanel } from "@/components/recruiter-chat/ArtifactPanel";
 import { useRecruiterChatCtx } from "@/lib/RecruiterChatProvider";
 import { cn } from "@/lib/utils";
 
@@ -42,29 +43,54 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
-        {chat.error && (
-          <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-1 text-xs text-destructive">
-            {chat.error}
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          {chat.activeArtifact && (
+            <button
+              onClick={() => (chat.artifactOpen ? chat.closeArtifact() : chat.openArtifact())}
+              className="flex items-center gap-1.5 rounded-md border border-border/50 px-2.5 py-1.5 text-xs hover:bg-muted"
+              title="Open role draft"
+            >
+              <FileText className="h-3.5 w-3.5 text-brand-green" />
+              Draft
+            </button>
+          )}
+          {chat.error && (
+            <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-1 text-xs text-destructive">
+              {chat.error}
+            </div>
+          )}
+        </div>
       </header>
 
-      <main className="flex-1 overflow-y-auto">
-        <ChatMessages
-          messages={chat.messages}
-          isThinking={chat.isThinking}
-          conversationId={chat.conversationId}
-          dispatch={(m) => void chat.send(m)}
-        />
-      </main>
+      <div className="flex flex-1 overflow-hidden">
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <main className="flex-1 overflow-y-auto">
+            <ChatMessages
+              messages={chat.messages}
+              isThinking={chat.isThinking}
+              conversationId={chat.conversationId}
+              dispatch={(m) => void chat.send(m)}
+            />
+          </main>
 
-      <PulseComposer
-        onSend={(text, files) => chat.send(text, files)}
-        onStop={chat.stop}
-        disabled={false}
-        isStreaming={chat.isStreaming}
-        conversationId={chat.conversationId}
-      />
+          <PulseComposer
+            onSend={(text, files) => chat.send(text, files)}
+            onStop={chat.stop}
+            disabled={false}
+            isStreaming={chat.isStreaming}
+            conversationId={chat.conversationId}
+          />
+        </div>
+
+        {chat.artifactOpen && chat.activeArtifact && (
+          <ArtifactPanel
+            artifact={chat.activeArtifact}
+            onClose={chat.closeArtifact}
+            onSave={chat.saveArtifact}
+            onApply={chat.applyArtifact}
+          />
+        )}
+      </div>
     </div>
   );
 }
