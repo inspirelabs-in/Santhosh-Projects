@@ -446,16 +446,33 @@ _GATE_STAGES = {
 }
 
 
+# A gate's round_key -> the stage_key(s) the candidate must currently be parked on
+# for that approval to be valid (new pipeline model). The role may rename these;
+# the conventional defaults cover the standard rounds.
+_GATE_STAGE_KEYS = {
+    "assessment": {"assessment_review"},
+    "technical": {"technical"},
+    "ceo": {"ceo"},
+    "hr": {"hr"},
+}
+
+
 async def _guard_stage_for_round(application_id: UUID, round_key: str) -> Application:
     async with session_scope() as session:
         app = await session.get(Application, application_id)
         if app is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "application_not_found")
-        if app.current_stage not in _GATE_STAGES[round_key]:
+        # Validate against the new pipeline cursor first; fall back to the legacy
+        # current_stage for rows that predate the cut-over.
+        valid_keys = _GATE_STAGE_KEYS.get(round_key, set())
+        on_gate = (app.current_stage_key in valid_keys) or (
+            app.current_stage in _GATE_STAGES.get(round_key, set())
+        )
+        if not on_gate:
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
                 f"application not at {round_key} review gate "
-                f"(current_stage={app.current_stage})",
+                f"(stage_key={app.current_stage_key}, current_stage={app.current_stage})",
             )
         existing = (app.admin_review or {}).get(round_key)
         if existing and existing.get("decision"):
@@ -495,25 +512,97 @@ async def _record_review(
         )
 
 
+async def _advance_from_gate(
+    application_id: UUID, completed_stage_key: str, decision: str
+) -> str:
+    """Drive the generic stage-runner from a human approval gate.
+
+    approve -> PASS (runner advances to whatever the role configured next: an
+    interview stage parks for scheduling, an auto stage fires, the end hires).
+    reject  -> FAIL (runner rejects + sends the rejection email). No hardcoded
+    "ceo is next" / "hr is next" -- the role's pipeline decides.
+    """
+    from src.models.pipeline import StageVerdict
+    from src.services.stage_runner import advance_candidate
+
+    verdict = StageVerdict.PASS if decision == "approve" else StageVerdict.FAIL
+    return await advance_candidate(
+        application_id=application_id,
+        completed_stage_key=completed_stage_key,
+        verdict=verdict,
+        result_ref={"gate": completed_stage_key, "decision": decision},
+    )
+
+
+# Map a meeting round to the pipeline stage_key its interview lives on. The role's
+# pipeline may rename/reorder these; this is the conventional default mapping.
+_ROUND_TO_STAGE_KEY = {"technical": "technical", "ceo": "ceo", "hr": "hr"}
+
+
 async def _kick_schedule_meeting(application_id: UUID, round: str) -> None:
-    from src.services.queue import enqueue
+    """Park the candidate at the upcoming interview round and raise a distinct
+    ``schedule_interview`` action item, instead of booking via the legacy
+    ``schedule_meeting`` path (which created duplicate MeetingSession rows and
+    bypassed the idempotent chat booking — NB-1/NB-2). The recruiter then books
+    the meeting via Pulse chat / the dashboard, which is the single booking path.
+    """
     from src.db.connection import session_scope
+    from src.db.events import emit_event
     from src.db.repositories.audit import log_audit
-    queued = await enqueue("schedule_meeting", str(application_id), round=round)
-    if queued:
-        return
+    from src.models.events import ActionType, EventType
+    from src.models.pipeline import StageStatus
+
+    stage_key = _ROUND_TO_STAGE_KEY.get(round, round)
+
+    async with session_scope() as session:
+        app = await session.get(Application, application_id, with_for_update=True)
+        if app is None:
+            return
+        app.current_stage_key = stage_key
+        app.stage_status = str(StageStatus.SCHEDULED)
+
+        await emit_event(
+            session,
+            type=EventType.STAGE_CHANGED,
+            org_id=app.org_id,
+            application_id=application_id,
+            role_id=app.role_id,
+            payload={"to": stage_key, "status": str(StageStatus.SCHEDULED), "round": round},
+            actor="agent",
+        )
+        await emit_event(
+            session,
+            type=ActionType.SCHEDULE_INTERVIEW.value,
+            org_id=app.org_id,
+            application_id=application_id,
+            role_id=app.role_id,
+            payload={
+                "stage_key": stage_key,
+                "round": round,
+                "note": f"schedule the {round} interview",
+            },
+            actor="agent",
+            requires_action=True,
+        )
+        await log_audit(
+            session,
+            application_id=application_id,
+            action="parked_schedule_interview",
+            actor="agent",
+            details={"round": round, "stage_key": stage_key},
+        )
+
+    # Best-effort realtime nudge so the recruiter sees it without a reload.
     try:
-        await schedule_meeting(application_id=application_id, round=round)
-    except Exception as exc:  # noqa: BLE001
-        # Surface failure into audit log so HR can see why nothing got scheduled.
-        async with session_scope() as session:
-            await log_audit(
-                session,
-                application_id=application_id,
-                action="schedule_meeting_failed",
-                actor="agent",
-                details={"round": round, "error": str(exc)[:500]},
-            )
+        from src.services.events import publish_event
+
+        await publish_event(
+            application_id,
+            event="meeting_scheduling_needed",
+            data={"round": round, "stage_key": stage_key},
+        )
+    except Exception:  # noqa: BLE001
+        pass
 
 
 @router.post("/assessment/review", status_code=status.HTTP_200_OK)
@@ -535,10 +624,6 @@ async def review_assessment(
                 status.HTTP_400_BAD_REQUEST,
                 f"unknown pi_persona; expected one of {sorted(_PI_PERSONAS)}",
             )
-    new_stage = (
-        PipelineStage.ASSESSMENT_EVALUATED if body.decision == "approve"
-        else PipelineStage.REJECTED
-    )
     await _record_review(
         application_id=body.application_id,
         round_key="assessment",
@@ -550,12 +635,15 @@ async def review_assessment(
             "notes": body.notes,
             "reviewer": actor,
         },
-        new_stage=new_stage,
+        new_stage=None,
     )
-    if body.decision == "approve":
-        # Kick the technical round scheduler now that admin signed off.
-        await _kick_schedule_meeting(body.application_id, "technical")
-    return {"ok": True, "stage": new_stage.value}
+    # Advance generically: the runner moves to whatever the role configured after
+    # the assessment-review gate (an interview stage parks for scheduling, an auto
+    # stage fires, etc.). No hardcoded "technical is next".
+    decision = await _advance_from_gate(
+        body.application_id, "assessment_review", body.decision,
+    )
+    return {"ok": True, "decision": decision}
 
 
 @router.post("/technical/approve", status_code=status.HTTP_200_OK)
@@ -566,15 +654,6 @@ async def approve_technical(
     if body.decision not in {"approve", "reject"}:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "decision must be approve|reject")
     await _guard_stage_for_round(body.application_id, "technical")
-    if body.decision == "reject":
-        await _record_review(
-            application_id=body.application_id,
-            round_key="technical",
-            actor=actor,
-            payload={"decision": body.decision, "notes": body.notes, "reviewer": actor},
-            new_stage=PipelineStage.REJECTED,
-        )
-        return {"ok": True, "stage": PipelineStage.REJECTED.value}
     await _record_review(
         application_id=body.application_id,
         round_key="technical",
@@ -582,8 +661,8 @@ async def approve_technical(
         payload={"decision": body.decision, "notes": body.notes, "reviewer": actor},
         new_stage=None,
     )
-    await _kick_schedule_meeting(body.application_id, "ceo")
-    return {"ok": True, "stage": "ceo_scheduling"}
+    decision = await _advance_from_gate(body.application_id, "technical", body.decision)
+    return {"ok": True, "decision": decision}
 
 
 @router.post("/ceo/approve", status_code=status.HTTP_200_OK)
@@ -594,15 +673,6 @@ async def approve_ceo(
     if body.decision not in {"approve", "reject"}:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "decision must be approve|reject")
     await _guard_stage_for_round(body.application_id, "ceo")
-    if body.decision == "reject":
-        await _record_review(
-            application_id=body.application_id,
-            round_key="ceo",
-            actor=actor,
-            payload={"decision": body.decision, "notes": body.notes, "reviewer": actor},
-            new_stage=PipelineStage.REJECTED,
-        )
-        return {"ok": True, "stage": PipelineStage.REJECTED.value}
     await _record_review(
         application_id=body.application_id,
         round_key="ceo",
@@ -610,8 +680,8 @@ async def approve_ceo(
         payload={"decision": body.decision, "notes": body.notes, "reviewer": actor},
         new_stage=None,
     )
-    await _kick_schedule_meeting(body.application_id, "hr")
-    return {"ok": True, "stage": "hr_scheduling"}
+    decision = await _advance_from_gate(body.application_id, "ceo", body.decision)
+    return {"ok": True, "decision": decision}
 
 
 @router.post("/hr/finalize", status_code=status.HTTP_200_OK)

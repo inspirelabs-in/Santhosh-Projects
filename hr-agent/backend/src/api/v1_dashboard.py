@@ -1382,12 +1382,6 @@ async def tech_decision(
             except Exception:  # noqa: BLE001
                 pass
 
-        await set_stage(
-            session,
-            application_id,
-            PipelineStage.CEO_PENDING_APPROVAL,
-            force=True,
-        )
         await log_audit(
             session,
             application_id=application_id,
@@ -1400,11 +1394,20 @@ async def tech_decision(
             },
         )
 
+    # Generic progression: advance from the technical stage to whatever the role
+    # configured next (parks the next interview / fires an auto stage / hires).
     try:
-        from src.api.meetings import _kick_schedule_meeting
-        await _kick_schedule_meeting(application_id, "ceo")
+        from src.models.pipeline import StageVerdict
+        from src.services.stage_runner import advance_candidate
+
+        await advance_candidate(
+            application_id=application_id,
+            completed_stage_key="technical",
+            verdict=StageVerdict.PASS,
+            result_ref={"gate": "technical", "decision": "advance"},
+        )
     except Exception:  # noqa: BLE001
-        _stage_log.exception("auto-schedule CEO meeting failed for %s", application_id)
+        _stage_log.exception("advance after tech decision failed for %s", application_id)
 
     return {"status": "advanced", "ceo_recipients": recipients_sent}
 
@@ -1524,12 +1527,6 @@ async def ceo_decision(
             except Exception:  # noqa: BLE001
                 pass
 
-        await set_stage(
-            session,
-            application_id,
-            PipelineStage.HR_MEETING_SCHEDULED,
-            force=True,
-        )
         await log_audit(
             session,
             application_id=application_id,
@@ -1539,11 +1536,20 @@ async def ceo_decision(
             details={"note": body.note, "hr_recipients": hr_recipients},
         )
 
+    # Generic progression: advance from the ceo stage to whatever the role
+    # configured next (parks the next interview / fires an auto stage / hires).
     try:
-        from src.api.meetings import _kick_schedule_meeting
-        await _kick_schedule_meeting(application_id, "hr")
+        from src.models.pipeline import StageVerdict
+        from src.services.stage_runner import advance_candidate
+
+        await advance_candidate(
+            application_id=application_id,
+            completed_stage_key="ceo",
+            verdict=StageVerdict.PASS,
+            result_ref={"gate": "ceo", "decision": "advance"},
+        )
     except Exception:  # noqa: BLE001
-        _stage_log.exception("auto-schedule HR meeting failed for %s", application_id)
+        _stage_log.exception("advance after ceo decision failed for %s", application_id)
 
     return {"status": "advanced_to_hr", "hr_recipients": hr_recipients}
 

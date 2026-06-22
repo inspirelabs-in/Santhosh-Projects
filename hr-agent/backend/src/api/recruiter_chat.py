@@ -30,6 +30,11 @@ from src.db.connection import get_redis, session_scope
 from src.db.repositories import recruiter_chat as repo
 from src.db.repositories.recruiter_chat import hash_actor
 from src.recruiter_agent.runner import run_recruiter_turn
+from src.db.base import Role, RolePipelineStage
+from src.db.repositories import artifact as artifact_repo
+from src.db.repositories import organization as org_repo
+from src.db.repositories import role_pipeline_stage as stage_repo
+from src.models.artifacts import ArtifactStatus, RoleDraftContent
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v2/recruiter-chat", tags=["recruiter-chat"])
@@ -241,6 +246,165 @@ async def rename_conversation(
     if not ok:
         raise HTTPException(404, "conversation_not_found")
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Artifacts (editable side-panel: role draft etc.)
+# ---------------------------------------------------------------------------
+
+
+class ArtifactUpdateBody(BaseModel):
+    content: dict[str, Any]
+    title: str | None = Field(default=None, max_length=255)
+
+
+def _artifact_payload(art: Any) -> dict[str, Any]:
+    return {
+        "id": str(art.id),
+        "conversation_id": str(art.conversation_id),
+        "type": art.type,
+        "status": art.status,
+        "title": art.title,
+        "content": art.content,
+        "version": art.version,
+    }
+
+
+async def _owned_artifact(session, artifact_id: UUID, actor_hash: str):
+    art = await artifact_repo.get(session, artifact_id)
+    if art is None:
+        raise HTTPException(404, "artifact_not_found")
+    conv = await repo.get_conversation(
+        session, conversation_id=art.conversation_id, actor_hash=actor_hash
+    )
+    if conv is None:
+        raise HTTPException(404, "artifact_not_found")
+    return art
+
+
+@router.get(
+    "/conversations/{conversation_id}/artifact",
+    dependencies=[Depends(require_viewer)],
+)
+async def get_active_artifact(
+    conversation_id: UUID,
+    actor: tuple[str, str] = Depends(_actor),
+) -> dict:
+    actor_hash, _ = actor
+    async with session_scope() as session:
+        conv = await repo.get_conversation(
+            session, conversation_id=conversation_id, actor_hash=actor_hash
+        )
+        if conv is None:
+            raise HTTPException(404, "conversation_not_found")
+        art = await artifact_repo.get_active_for_conversation(session, conversation_id)
+        return {"artifact": _artifact_payload(art) if art else None}
+
+
+@router.patch("/artifacts/{artifact_id}", dependencies=[Depends(require_recruiter)])
+async def update_artifact(
+    artifact_id: UUID,
+    body: Annotated[ArtifactUpdateBody, Body()],
+    actor: tuple[str, str] = Depends(_actor),
+) -> dict:
+    """Human edit from the panel: replace the artifact content (+ bump version)."""
+    actor_hash, _ = actor
+    async with session_scope() as session:
+        await _owned_artifact(session, artifact_id, actor_hash)
+        art = await artifact_repo.update_content(
+            session, artifact_id, body.content, title=body.title
+        )
+        return {"ok": True, "artifact": _artifact_payload(art)}
+
+
+@router.post("/artifacts/{artifact_id}/apply", dependencies=[Depends(require_recruiter)])
+async def apply_artifact(
+    artifact_id: UUID,
+    actor: tuple[str, str] = Depends(_actor),
+) -> dict:
+    """Apply a role_draft: create the Role (+ evaluation_spec), seed the pipeline
+    stages, and generate the assignment. Marks the artifact applied."""
+    actor_hash, _ = actor
+    async with session_scope() as session:
+        art = await _owned_artifact(session, artifact_id, actor_hash)
+        if art.type != "role_draft":
+            raise HTTPException(400, "unsupported_artifact_type")
+        if art.status == ArtifactStatus.APPLIED.value:
+            raise HTTPException(409, "already_applied")
+        try:
+            draft = RoleDraftContent.model_validate(art.content or {})
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(422, f"invalid_role_draft: {e}")
+        if not draft.title or not draft.jd_text:
+            raise HTTPException(422, "title_and_jd_required")
+
+        org = await org_repo.get_default(session)
+        org_id = org.id if org else None
+        role = Role(
+            org_id=org_id,
+            title=draft.title,
+            jd_text=draft.jd_text,
+            screening_questions=[],
+            scoring_rubric={},
+            interviewer_panel=[],
+            ctc_min_lpa=draft.ctc_min_lpa,
+            ctc_max_lpa=draft.ctc_max_lpa,
+            location=draft.location,
+            remote_policy=draft.remote_policy,
+            max_notice_days=draft.max_notice_days,
+            screening_modality="voice",
+            evaluation_spec=draft.evaluation_spec.model_dump(mode="json"),
+            company_context=draft.company_context.model_dump(mode="json"),
+            status="open",
+        )
+        session.add(role)
+        await session.flush()
+        role_id = role.id
+
+        if draft.pipeline:
+            for pos, st in enumerate(draft.pipeline):
+                session.add(
+                    RolePipelineStage(
+                        role_id=role_id,
+                        org_id=org_id,
+                        position=pos,
+                        stage_type=str(st.stage_type),
+                        stage_key=st.stage_key,
+                        label=st.label,
+                        mode=str(st.mode),
+                        is_enabled=st.is_enabled,
+                        config=st.config.model_dump(mode="json"),
+                        eval_spec=st.eval_spec.model_dump(mode="json"),
+                    )
+                )
+        else:
+            await stage_repo.seed_default(session, role_id=role_id, org_id=org_id)
+
+        await artifact_repo.set_status(session, artifact_id, ArtifactStatus.APPLIED)
+        assignment_cfg = draft.assignment
+
+    # Assignment generation runs in its own session after the role is committed.
+    assignment_result = None
+    if assignment_cfg and assignment_cfg.enabled:
+        try:
+            from src.recruiter_agent.tools import generate_assignment_for_role
+
+            assignment_result = await generate_assignment_for_role(
+                role_id=str(role_id),
+                n_problems=assignment_cfg.n_problems,
+                time_budget_hours=assignment_cfg.time_budget_hours,
+                deadline_days=assignment_cfg.deadline_days,
+                save=True,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("assignment generation failed on apply: %s", e)
+
+    return {
+        "ok": True,
+        "role_id": str(role_id),
+        "role_url": f"/roles/{role_id}",
+        "assignment": assignment_result,
+    }
 
 
 # ---------------------------------------------------------------------------
