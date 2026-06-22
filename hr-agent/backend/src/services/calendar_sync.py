@@ -202,6 +202,7 @@ async def find_free_slots(
     return free
 
 
+# [SCRAPE] dead: create_event/cancel_event (only legacy schedule.py uses them). KEEP find_free_slots (live).
 async def create_event(
     *,
     summary: str,

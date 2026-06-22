@@ -11,6 +11,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 
 
+# [SCRAPE] dead: TailoredQuestion/TailoredQuestionsOut/ExtractedTurn (Chat-V2). KEEP AssignmentBriefOut etc (live).
 class TailoredQuestion(BaseModel):
     id: Literal["q1", "q2"]
     question: str = Field(min_length=10, max_length=400)

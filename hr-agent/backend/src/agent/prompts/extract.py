@@ -1,3 +1,4 @@
+# [SCRAPE] dead: Chat-V2 per-turn extractor prompt. No live caller.
 """Prompt: extract structured screening fields from a free-form candidate turn.
 
 Runs on the FAST model after every user message. Pulls any of the 6 target

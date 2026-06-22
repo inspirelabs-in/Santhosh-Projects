@@ -27,6 +27,7 @@ from src.agent.schemas import (
 )
 from src.config import get_settings
 from src.llm.client import get_llm_client
+from src.llm.model_registry import Stage, model_for
 from src.llm.prompt_manager import compile_prompt
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,7 @@ def _truncate(s: str, n: int) -> str:
     return s if len(s) <= n else s[:n] + "...[truncated]"
 
 
+# [SCRAPE] dead: gen_tailored_questions (Chat-V2). KEEP gen_assignment (live).
 async def gen_tailored_questions(
     *,
     role_title: str,
@@ -94,7 +96,7 @@ async def gen_assignment(
     result = await client.complete(
         prompt=prompt,
         response_model=AssignmentBriefOut,
-        model=client.smart,
+        model=model_for(Stage.ASSIGNMENT_GEN),
         trace_name="agent.assignment_gen",
         prompt_version=ASSIGNMENT_GEN_VERSION,
         candidate_id=candidate_id,
@@ -106,6 +108,7 @@ async def gen_assignment(
     return result.parsed
 
 
+# [SCRAPE] dead: extract_turn (Chat-V2). No live caller.
 async def extract_turn(
     *,
     candidate_message: str,

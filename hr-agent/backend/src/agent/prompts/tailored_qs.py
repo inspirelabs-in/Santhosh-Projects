@@ -1,3 +1,4 @@
+# [SCRAPE] dead: Chat-V2 tailored-questions prompt. No live caller.
 """Prompt: generate exactly 2 candidate-tailored screening questions.
 
 Each question must reference a SPECIFIC project, claim, or skill from the
