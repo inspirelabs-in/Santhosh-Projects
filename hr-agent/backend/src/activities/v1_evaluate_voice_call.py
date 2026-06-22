@@ -23,6 +23,7 @@ from src.db.repositories.voice_call import get_voice_call, save_evaluation
 from src.activities.rejection import RejectionInput, run_rejection
 from src.services.auto_progress import auto_progress
 from src.llm.client import get_llm_client
+from src.llm.model_registry import Stage, model_for
 from src.llm.prompt_manager import compile_prompt
 from src.llm.prompts.voice_screening import (
     VOICE_SCREEN_EVAL_V1,
@@ -135,6 +136,36 @@ async def evaluate_voice_call(
                     "total_questions": q_total,
                 },
             )
+            # NB-5: tell HR the call failed via a durable actionable event (the
+            # supervisor bus is retired). Emitted inside this session so it
+            # persists even though we raise right after.
+            try:
+                from src.db.events import emit_event
+                from src.models.events import ActionType
+                app_for_fail = await session.get(Application, voice.application_id)
+
+                await emit_event(
+                    session,
+                    type=ActionType.VOICE_CALL_FAILED.value,
+                    org_id=getattr(app_for_fail, "org_id", None),
+                    application_id=voice.application_id,
+                    role_id=getattr(app_for_fail, "role_id", None),
+                    payload={
+                        "voice_call_id": str(voice_call_id),
+                        "reason": "transcript_too_short",
+                        "total_answer_chars": total_chars,
+                        "answered_questions": answered,
+                        "total_questions": q_total,
+                        "note": "voice call produced no usable transcript -- retry the call",
+                    },
+                    actor="agent",
+                    requires_action=True,
+                )
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "NB-5: failed to emit voice_call_failed action event for app=%s",
+                    voice.application_id, exc_info=True,
+                )
             # Do NOT call the LLM. Do NOT write a verdict. HR retries manually
             # or the dispatch_voice_screening retry path picks this up.
             raise ValueError(
@@ -205,6 +236,8 @@ async def evaluate_voice_call(
                 role_location=role.location,
                 remote_policy=role.remote_policy,
                 application_id=application.id,
+                evaluation_spec=role.evaluation_spec,
+                company_context=role.company_context,
             )
 
         # Fallback: text-only LiteLLM eval (no recording, no API key, or Gemini failed)
@@ -221,12 +254,13 @@ async def evaluate_voice_call(
                 role_location=role.location or "n/a",
                 remote_policy=role.remote_policy or "n/a",
                 answers_json=json.dumps(voice.answers, ensure_ascii=False)[:8000],
+                **scoring_prompt_vars(role.evaluation_spec, role.company_context),
             )
             client = get_llm_client()
             result = await client.complete(
                 prompt=prompt,
                 response_model=VoiceCallScore,
-                model=client.smart,
+                model=model_for(Stage.VOICE_SCREEN_EVAL),
                 trace_name="voice_screen_eval",
                 prompt_version=VOICE_SCREEN_EVAL_VERSION,
                 candidate_id=application.candidate_id,
@@ -271,6 +305,33 @@ async def evaluate_voice_call(
                     "eval_model": model_used,
                 },
             )
+            # NB-5: the supervisor bus (the old notification path) is retired, so
+            # raise a durable, reload-safe actionable inbox item instead. Without
+            # this the borderline candidate parks silently and HR is never told.
+            try:
+                from src.db.events import emit_event
+                from src.models.events import EventType
+
+                await emit_event(
+                    session,
+                    type=EventType.VOICE_EVALUATED,
+                    org_id=getattr(application, "org_id", None),
+                    application_id=application.id,
+                    role_id=application.role_id,
+                    payload={
+                        "verdict": "needs_hr_review",
+                        "overall_score": score.overall_score,
+                        "verdict_rationale": (score.verdict_rationale or "")[:500],
+                        "note": "voice screen is borderline -- review and decide",
+                    },
+                    actor="agent",
+                    requires_action=True,
+                )
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "NB-5: failed to emit needs_hr_review action event for app=%s",
+                    application.id, exc_info=True,
+                )
         else:
             await set_stage(session, application.id, PipelineStage.REJECTED, force=True)
             application.status = "rejected"
@@ -388,6 +449,14 @@ async def evaluate_voice_call(
     except Exception:
         logger.exception("fit re-score after voice failed for app=%s — non-fatal", application.id)
 
+    # Hand-off to the generic stage-runner. The voice_screen verdict drives the
+    # next move per the ROLE's configured pipeline -- no assumption that assignment
+    # (or anything) is next.
+    from src.services.stage_runner import advance_candidate
+    from src.models.pipeline import StageVerdict
+
+    result_ref = {"verdict": score.verdict, "overall_score": score.overall_score}
+
     if transition == "rejected":
         try:
             await run_rejection(RejectionInput(
@@ -399,12 +468,28 @@ async def evaluate_voice_call(
             ))
         except Exception:
             logger.exception("failed to send rejection email for app=%s", application.id)
-
-    if transition == "pass":
-        await auto_progress(application_id=application.id)
-
-    # needs_hr_review: HR is notified via Teams/email through the supervisor event
-    # bus; no auto-progress, no rejection email.
+        await advance_candidate(
+            application_id=application.id,
+            completed_stage_key="voice_screen",
+            verdict=StageVerdict.FAIL,
+            result_ref=result_ref,
+        )
+    elif transition == "pass":
+        await advance_candidate(
+            application_id=application.id,
+            completed_stage_key="voice_screen",
+            verdict=StageVerdict.PASS,
+            result_ref=result_ref,
+        )
+    elif transition == "hr_review":
+        # Held for a human: record on_going (the requires_action inbox event was
+        # already raised above, NB-5). No advance, no rejection email.
+        await advance_candidate(
+            application_id=application.id,
+            completed_stage_key="voice_screen",
+            verdict=StageVerdict.ON_GOING,
+            result_ref=result_ref,
+        )
     return score
 
 

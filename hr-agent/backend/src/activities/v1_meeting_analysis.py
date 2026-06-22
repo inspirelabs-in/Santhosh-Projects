@@ -19,18 +19,31 @@ from src.db.connection import session_scope
 from src.db.repositories.audit import log_audit
 from src.db.repositories.evidence import record_decision, record_evidence_batch_verified
 from src.db.repositories.meeting_session import get_session, save_analysis
-from src.db.repositories.v1_application import set_stage
 from src.llm.client import get_llm_client
+from src.llm.model_registry import Stage, model_for
 from src.llm.prompt_manager import compile_prompt
 from src.llm.prompts.meeting_analysis import (
     MEETING_ANALYSIS_V1,
     MEETING_ANALYSIS_VERSION,
 )
-from src.models.v1 import MeetingAnalysis, MeetingRound, PipelineStage
-from src.services.auto_progress import auto_progress, auto_reject_if_configured
+from src.models.v1 import MeetingAnalysis
 from src.services.file_storage import download
 
 logger = logging.getLogger(__name__)
+
+
+# Fallback map: a meeting round -> a representative stage_key, used only when the
+# application has no current_stage_key yet. Real progression uses the candidate's
+# actual current stage, so this is just a safety net for legacy rows.
+_ROUND_STAGE_KEY = {
+    "technical": "technical",
+    "ceo": "ceo",
+    "hr": "hr",
+}
+
+
+def _round_to_stage_key(round_value: str) -> str:
+    return _ROUND_STAGE_KEY.get(round_value, round_value)
 
 
 async def analyze_meeting(*, meeting_session_id: UUID) -> MeetingAnalysis:
@@ -56,6 +69,8 @@ async def analyze_meeting(*, meeting_session_id: UUID) -> MeetingAnalysis:
         candidate_id = application.candidate_id
         round_value = meeting.round
         scoring_rubric = role.scoring_rubric or {}
+        evaluation_spec = role.evaluation_spec or {}
+        company_context = role.company_context or {}
         role_title = role.title
         jd_excerpt = role.jd_text[:3500]
         emotion_features = meeting.candidate_emotion_timeline or []
@@ -74,6 +89,8 @@ async def analyze_meeting(*, meeting_session_id: UUID) -> MeetingAnalysis:
         role_title=role_title,
         jd_text=jd_excerpt,
         scoring_rubric_json=json.dumps(scoring_rubric, ensure_ascii=False)[:2000],
+        evaluation_spec_json=json.dumps(evaluation_spec, ensure_ascii=False)[:3000],
+        company_context_json=json.dumps(company_context, ensure_ascii=False)[:3000],
         transcript_json=transcript_excerpt,
         paralinguistic_json=json.dumps(emotion_features, ensure_ascii=False)[:2000],
     )
@@ -82,7 +99,7 @@ async def analyze_meeting(*, meeting_session_id: UUID) -> MeetingAnalysis:
     result = await client.complete(
         prompt=prompt,
         response_model=MeetingAnalysis,
-        model=client.smart,
+        model=model_for(Stage.MEETING_ANALYSIS),
         trace_name="meeting_analysis",
         prompt_version=MEETING_ANALYSIS_VERSION,
         candidate_id=candidate_id,
@@ -111,66 +128,57 @@ async def analyze_meeting(*, meeting_session_id: UUID) -> MeetingAnalysis:
             ],
         )
 
-        # Stage routing depends on the round.
-        transition = "noop"
-        if round_value == MeetingRound.TECHNICAL.value:
-            if analysis.verdict == "clear_pass":
-                await set_stage(
-                    session, application.id, PipelineStage.TECHNICAL_EVALUATED
-                )
-                await set_stage(
-                    session, application.id, PipelineStage.TECHNICAL_PENDING_APPROVAL
-                )
-                transition = "pending_admin"
-            elif analysis.verdict == "clear_reject":
-                await set_stage(
-                    session, application.id, PipelineStage.REJECTED, force=True
-                )
-                transition = "reject"
-            else:
-                from src.services.confidence_gate import should_auto_advance_gate
-                can_skip = await should_auto_advance_gate(
-                    session, application.id, "technical_evaluated",
-                    role_id=application.role_id,
-                    role_rubric=role.scoring_rubric if role else None,
-                )
-                if can_skip:
-                    await set_stage(session, application.id, PipelineStage.TECHNICAL_EVALUATED)
-                    await set_stage(session, application.id, PipelineStage.TECHNICAL_PENDING_APPROVAL)
-                    transition = "confidence_auto_advance_to_pending"
-                else:
-                    await set_stage(
-                        session, application.id, PipelineStage.NEEDS_HR_REVIEW, force=True
-                    )
-                    transition = "hr_review"
-        elif round_value == MeetingRound.CEO.value:
-            if analysis.verdict == "clear_reject":
-                await set_stage(
-                    session, application.id, PipelineStage.REJECTED, force=True
-                )
-                transition = "reject"
-            else:
-                await set_stage(
-                    session, application.id, PipelineStage.CEO_MEETING_COMPLETED, force=True
-                )
-                await set_stage(
-                    session, application.id, PipelineStage.CEO_PENDING_APPROVAL
-                )
-                transition = "pending_admin"
-        elif round_value == MeetingRound.HR.value:
-            if analysis.verdict == "clear_reject":
-                await set_stage(
-                    session, application.id, PipelineStage.REJECTED, force=True
-                )
-                transition = "reject"
-            else:
-                await set_stage(
-                    session, application.id, PipelineStage.HR_MEETING_COMPLETED, force=True
-                )
-                await set_stage(
-                    session, application.id, PipelineStage.HR_EVALUATED
-                )
-                transition = "pending_admin"
+        # Generic, verdict-based routing (no hardcoded round chain). We map the
+        # analysis verdict -> a StageVerdict on the candidate's CURRENT interview
+        # stage (whatever the role configured -- technical/ceo/hr/custom), then let
+        # the stage-runner + engine decide the next move. This is what makes any
+        # configured pipeline work and kills the tech->ceo->hr->offer stall (P-0).
+        #
+        # clear_pass -> pass (advance to the next configured stage)
+        # clear_reject -> fail (reject + rejection email)
+        # anything else (needs_hr_review / low confidence) -> on_going + park for
+        #   a human, unless the role's confidence gate says auto-advance.
+        from src.models.pipeline import StageVerdict
+        from src.db.repositories import role_pipeline_stage as _stage_repo
+
+        completed_stage_key = (
+            application.current_stage_key
+            or _round_to_stage_key(round_value)
+        )
+
+        # Mode of THIS interview stage decides what a pass does:
+        #   auto   -> act on the verdict automatically (pass advances, reject rejects)
+        #   manual -> park for human approval even on a pass (the approval gate)
+        stage_mode = "manual"
+        if application.role_id is not None:
+            _st = await _stage_repo.get_stage(
+                session, application.role_id, completed_stage_key
+            )
+            if _st is not None:
+                stage_mode = (_st.mode or "manual").lower()
+
+        if analysis.verdict == "clear_reject":
+            # A reject always acts immediately, regardless of mode.
+            stage_verdict = StageVerdict.FAIL
+            transition = "reject"
+        elif stage_mode == "auto" and analysis.verdict == "clear_pass":
+            stage_verdict = StageVerdict.PASS
+            transition = "pass"
+        elif stage_mode == "auto":
+            # Ambiguous on an auto stage: use the confidence gate to decide.
+            from src.services.confidence_gate import should_auto_advance_gate
+            can_skip = await should_auto_advance_gate(
+                session, application.id, "technical_evaluated",
+                role_id=application.role_id,
+                role_rubric=role.scoring_rubric if role else None,
+            )
+            stage_verdict = StageVerdict.PASS if can_skip else StageVerdict.ON_GOING
+            transition = "pass" if can_skip else "hr_review"
+        else:
+            # Manual stage: record the analysis outcome but HOLD for human approval
+            # (the /technical|ceo/approve endpoint advances). Inbox card raised below.
+            stage_verdict = StageVerdict.ON_GOING
+            transition = "hr_review"
 
         audit_row = await log_audit(
             session,
@@ -258,15 +266,55 @@ async def analyze_meeting(*, meeting_session_id: UUID) -> MeetingAnalysis:
     except Exception:
         logger.warning("auto feedback request failed", exc_info=True)
 
-    # Hand-off to the auto-progression engine.
-    if transition == "pass":
-        await auto_progress(application_id=application.id)
-    elif transition == "reject":
-        await auto_reject_if_configured(
-            application_id=application.id,
-            reason=f"meeting verdict={analysis.verdict} round={round_value}",
-        )
-    elif transition == "pending_admin":
+    # Hand-off to the generic stage-runner: record the verdict on the interview
+    # stage that just finished, then advance / reject / hold per the verdict. The
+    # engine decides the next stage from the role's pipeline -- no hardcoding.
+    from src.services.stage_runner import advance_candidate
+
+    decision = await advance_candidate(
+        application_id=application.id,
+        completed_stage_key=completed_stage_key,
+        verdict=stage_verdict,
+        result_ref={
+            "round": round_value,
+            "verdict": analysis.verdict,
+            "overall_score": analysis.overall_score,
+            "meeting_session_id": str(meeting_session_id),
+        },
+    )
+    logger.info(
+        "meeting %s round=%s verdict=%s -> %s",
+        meeting_session_id, round_value, analysis.verdict, decision,
+    )
+
+    # If the candidate is held for a human (on_going), raise a durable inbox item
+    # + notify admins the round is analysed and awaiting an approve/reject.
+    if transition == "hr_review":
+        try:
+            from src.db.connection import session_scope as _scope
+            from src.db.events import emit_event
+            from src.models.events import ActionType
+
+            async with _scope() as _s:
+                _app = await _s.get(Application, application.id)
+                await emit_event(
+                    _s,
+                    type=ActionType.REVIEW_INTERVIEW_ANALYSIS.value,
+                    org_id=getattr(_app, "org_id", None) if _app else None,
+                    application_id=application.id,
+                    role_id=_app.role_id if _app else None,
+                    payload={
+                        "stage_key": completed_stage_key,
+                        "round": round_value,
+                        "verdict": analysis.verdict,
+                        "overall_score": analysis.overall_score,
+                        "note": f"review the {round_value} interview and approve/reject",
+                    },
+                    actor="agent",
+                    requires_action=True,
+                )
+        except Exception:  # noqa: BLE001
+            logger.warning("failed to emit review_interview_analysis event", exc_info=True)
         try:
             from src.services.admin_notify import notify_round_complete
             await notify_round_complete(
