@@ -111,6 +111,9 @@ class Role(Base):
     # Legacy pipeline_template/scoring_rubric kept for back-compat; the relational
     # role_pipeline_stages rows are the source of truth going forward.
     evaluation_spec: Mapped[dict | None] = mapped_column(JSONB)
+    # Role-tuned company context (models.context.RoleContext), generated at JD
+    # time, intensity scaled to the role; grounds every downstream LLM stage.
+    company_context: Mapped[dict | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     pipeline_stages: Mapped[list["RolePipelineStage"]] = relationship(
@@ -154,6 +157,13 @@ class Application(Base):
     # authoritative until the runtime cut-over, so nothing breaks.
     current_stage_key: Mapped[str | None] = mapped_column(String(64), index=True)
     stage_status: Mapped[str | None] = mapped_column(String(20))
+    # Per-stage outcome overlay (the generic stage-runner). Map keyed by
+    # role_pipeline_stages.stage_key -> {processing_status, verdict, result_ref,
+    # updated_at}. "Processed vs not" is DERIVED from current_stage_key + the role
+    # template (position); this stores ONLY what position can't express: the
+    # per-stage verdict (pending|on_going|pass|fail), the processing claim
+    # (idempotency), and a pointer to the result. Absent stage == unprocessed.
+    stage_results: Mapped[dict | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -322,6 +332,11 @@ class VoiceCall(Base):
     attempt_no: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
 
     error: Mapped[str | None] = mapped_column(Text)
+    # Idempotency guard for ingesting/evaluating the call RESULT (separate from
+    # ``status`` which is the call lifecycle). See models.v1.ProcessingStatus.
+    processing_status: Mapped[str] = mapped_column(
+        String(20), default="pending", server_default="pending", index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -1112,4 +1127,38 @@ class Notification(Base):
     __table_args__ = (
         Index("ix_notifications_org_read", "org_id", "read_at"),
         Index("ix_notifications_user_read", "user_id", "read_at"),
+    )
+
+
+class RecruiterArtifact(Base):
+    """Structured, editable artifact the agent produces in a conversation.
+
+    Replaces the inline "confirm-card" block for drafts: the agent writes a typed
+    JSON document here (e.g. a ``role_draft``); the frontend opens it in a side
+    panel as an editable form. Both human edits and agent edits update ``content``
+    (bumping ``version``); ``apply`` turns it into the real entity.
+    """
+
+    __tablename__ = "recruiter_artifacts"
+
+    id: Mapped[UUID] = _uuid_pk()
+    conversation_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("recruiter_conversations.id", ondelete="CASCADE"),
+        index=True,
+    )
+    org_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), index=True)
+    application_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), index=True)
+    type: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="draft", server_default="draft")
+    title: Mapped[str | None] = mapped_column(String(255))
+    content: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        Index("ix_recruiter_artifacts_conv_status", "conversation_id", "status"),
     )

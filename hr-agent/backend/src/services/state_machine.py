@@ -26,6 +26,52 @@ from src.models.pipeline import StageStatus
 logger = logging.getLogger(__name__)
 
 
+# Stage-1 cutover: map a legacy PipelineStage value to the new
+# (stage_key, stage_status) so set_stage() can dual-write the new columns while
+# the legacy current_stage stays authoritative. Mirrors the CASE map in
+# migration 0031. Returns (None, None) for unmapped values.
+_LEGACY_STAGE_KEY: dict[str, tuple[str, str]] = {
+    "applied": ("intake", "active"),
+    "screening_sent": ("screening", "active"),
+    "screening_submitted": ("screening", "in_progress"),
+    "screening_evaluated": ("screening", "completed"),
+    "needs_hr_review": ("assessment_review", "parked"),
+    "assignment_sent": ("assignment", "active"),
+    "assignment_submitted": ("assignment", "completed"),
+    "assessment_invited": ("assignment", "active"),
+    "report_ready": ("assessment_review", "active"),
+    "assessment_completed": ("assessment_review", "active"),
+    "assessment_pending_review": ("assessment_review", "active"),
+    "assessment_evaluated": ("assessment_review", "completed"),
+    "voice_screen_scheduled": ("voice_screen", "scheduled"),
+    "voice_screen_in_progress": ("voice_screen", "in_progress"),
+    "voice_screen_callback_requested": ("voice_screen", "scheduled"),
+    "voice_screen_completed": ("voice_screen", "completed"),
+    "voice_screen_evaluated": ("voice_screen", "completed"),
+    "technical_meeting_scheduled": ("technical", "scheduled"),
+    "technical_meeting_in_progress": ("technical", "in_progress"),
+    "technical_meeting_completed": ("technical", "completed"),
+    "technical_evaluated": ("technical", "completed"),
+    "technical_pending_approval": ("technical", "completed"),
+    "ceo_meeting_scheduled": ("ceo", "scheduled"),
+    "ceo_meeting_in_progress": ("ceo", "in_progress"),
+    "ceo_meeting_completed": ("ceo", "completed"),
+    "ceo_pending_approval": ("ceo", "completed"),
+    "hr_meeting_scheduled": ("hr", "scheduled"),
+    "hr_meeting_in_progress": ("hr", "in_progress"),
+    "hr_meeting_completed": ("hr", "completed"),
+    "hr_evaluated": ("hr", "completed"),
+    "hired": ("offer", "passed"),
+    "rejected": ("decision", "failed"),
+}
+
+
+def legacy_stage_to_key(stage: object) -> tuple[str | None, str | None]:
+    """Map a legacy PipelineStage (or its string value) to (stage_key, status)."""
+    val = getattr(stage, "value", None) or str(stage)
+    return _LEGACY_STAGE_KEY.get(val, (None, None))
+
+
 class InvalidTransition(Exception):
     """Raised when a stage move isn't permitted by the role's pipeline."""
 

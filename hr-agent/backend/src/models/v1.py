@@ -367,7 +367,11 @@ class VoiceAnswer(BaseModel):
 
 
 class EmotionFeatures(BaseModel):
-    """Paralinguistic features over the full call audio."""
+    """[TO BE REMOVED] Paralinguistic features over the full call audio.
+
+    Orphaned: voice scoring moved to Gemini (gemini_audio_eval) which does this
+    inline. Only the dead emotion_client stub references this model.
+    """
 
     avg_pitch_hz: float | None = None
     pitch_variance: float | None = None
@@ -425,6 +429,20 @@ class CallKind(StrEnum):
     STATUS_UPDATE = "status_update"
     JOINING_DETAILS = "joining_details"
     GENERAL_QUERY = "general_query"
+
+
+class ProcessingStatus(StrEnum):
+    """Tracks OUR ingestion/evaluation of an AI step's RESULT, separate from the
+    step's own lifecycle (e.g. VoiceCallStatus). It is the idempotency guard: a
+    result is claimed exactly once (pending -> processing), then marked processed
+    or failed. Re-delivered webhooks / concurrent recovery paths that find a row
+    already ``processing``/``processed`` skip instead of double-running the
+    evaluator. Reusable for any AI step (voice, assignment, meeting)."""
+
+    PENDING = "pending"        # result not yet ingested
+    PROCESSING = "processing"  # a worker holds the claim (CAS lock)
+    PROCESSED = "processed"    # ingested + evaluator enqueued/run
+    FAILED = "failed"          # ingestion/eval errored (retryable)
 
 
 class VoiceCallStatus(StrEnum):

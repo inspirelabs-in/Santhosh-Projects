@@ -26,6 +26,7 @@ class StageType(StrEnum):
 
     INTAKE = "intake"
     PARSE = "parse"
+    EMAIL_FILTER = "email_filter"  # deterministic inbound-mail funnel as a real stage
     FIT = "fit"
     SCREENING = "screening"  # resume / written screening — removable per role
     VOICE_SCREEN = "voice_screen"
@@ -55,6 +56,21 @@ class StageStatus(StrEnum):
     FAILED = "failed"
     PARKED = "parked"
     SKIPPED = "skipped"
+
+
+class StageVerdict(StrEnum):
+    """The decision outcome of a stage for one candidate (the generic runner).
+
+    Distinct from StageStatus (the within-stage lifecycle). A stage can be
+    ``processed`` (status) yet ``on_going`` (verdict) -- e.g. an interview that
+    happened but whose result isn't decided. Stored per stage_key in
+    applications.stage_results.
+    """
+
+    PENDING = "pending"      # not started / not reached
+    ON_GOING = "on_going"    # started, awaiting a decision (call placed, meeting booked)
+    PASS = "pass"            # cleared -> the runner advances
+    FAIL = "fail"            # failed -> the runner rejects (+ rejection email on auto lane)
 
 
 class StageEvalSpec(BaseModel):
@@ -103,14 +119,15 @@ class PipelineStageDef(BaseModel):
 
 
 # Default pipeline seeded onto roles with none (and on the migration backfill).
-# Automation line: auto through assignment-send; manual from assessment_review
-# onward ("till voice no HR intervention; post that we need it"). Reorder /
-# remove / duplicate stages per role to customise.
+# Mirrors the ideal flow: auto from intake through assignment-send ("till voice +
+# assignment, no HR intervention"); manual from assessment_review onward
+# ("post that we need it"). Voice screen IS the screen — there is no separate
+# written-screening stage by default (a role can add one). Reorder / remove /
+# duplicate stages per role to customise.
 DEFAULT_PIPELINE: list[dict] = [
     {"stage_key": "intake", "stage_type": "intake", "label": "Intake", "mode": "auto"},
     {"stage_key": "parse", "stage_type": "parse", "label": "Resume Parse", "mode": "auto"},
     {"stage_key": "fit", "stage_type": "fit", "label": "Fit Score", "mode": "auto"},
-    {"stage_key": "screening", "stage_type": "screening", "label": "Resume Screening", "mode": "auto"},
     {"stage_key": "voice_screen", "stage_type": "voice_screen", "label": "Voice Screen", "mode": "auto"},
     {"stage_key": "assignment", "stage_type": "assignment", "label": "Assignment", "mode": "auto"},
     {"stage_key": "assessment_review", "stage_type": "assessment_review", "label": "Assessment Review", "mode": "manual"},
