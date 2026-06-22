@@ -1,4 +1,9 @@
-"""Stub: emotion-service client (disabled — replaced by Gemini audio eval)."""
+"""[TO BE REMOVED] Stub: emotion-service client.
+
+Dead since voice scoring moved to Gemini (services/gemini_audio_eval.py), which
+evaluates audio + emotion inline. No live caller -- safe to delete with the
+EmotionFeatures model once confirmed nothing imports it.
+"""
 
 from __future__ import annotations
 

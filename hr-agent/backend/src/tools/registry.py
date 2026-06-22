@@ -16,6 +16,7 @@ Usage:
 """
 
 from __future__ import annotations
+from src.llm.model_registry import Stage, model_for
 
 import logging
 from dataclasses import dataclass, field
@@ -462,7 +463,7 @@ def _register_supervisor_tools(registry: ToolRegistry) -> None:
         )
         result = await client.complete(
             prompt=prompt,
-            model=client.smart,
+            model=model_for(Stage.ANSWER_CANDIDATE_QUESTION),
             trace_name="answer_candidate_question",
             system="You are an HR assistant answering candidate questions accurately and warmly.",
             max_tokens=500,
@@ -698,7 +699,7 @@ def _register_supervisor_tools(registry: ToolRegistry) -> None:
         client = get_llm_client()
         result = await client.complete(
             prompt=eval_prompt,
-            model=client.smart,
+            model=model_for(Stage.ASSIGNMENT_EVAL),
             trace_name="evaluate_assignment",
             system="You evaluate candidate assignment submissions objectively. Return valid JSON only.",
             application_id=UUID(application_id),
