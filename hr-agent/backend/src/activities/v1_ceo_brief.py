@@ -32,6 +32,7 @@ from src.db.repositories.v1_application import save_journey_report
 from src.llm.client import get_llm_client
 from src.llm.prompt_manager import compile_prompt
 from src.llm.prompts.ceo_brief import CEO_BRIEF_V1, CEO_BRIEF_VERSION
+from src.llm.model_registry import Stage, model_for
 
 logger = logging.getLogger(__name__)
 
@@ -154,7 +155,7 @@ async def generate_ceo_brief(*, application_id: UUID) -> str:
         prompt=prompt
         + '\n\nReturn JSON only: {"markdown": "<the full markdown brief>"}',
         response_model=_Brief,
-        model=client.smart,
+        model=model_for(Stage.CEO_BRIEF),
         trace_name="ceo_brief",
         prompt_version=CEO_BRIEF_VERSION,
         candidate_id=candidate_id,

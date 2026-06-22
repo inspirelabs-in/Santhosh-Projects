@@ -24,6 +24,7 @@ from src.db.repositories.evidence import (
 )
 from src.db.repositories.v1_application import set_stage
 from src.llm.client import get_llm_client
+from src.llm.model_registry import Stage, model_for
 from src.models.v1 import PipelineStage
 
 logger = logging.getLogger(__name__)
@@ -74,7 +75,7 @@ async def generate_offer(
                     f"Keep it professional, specific to their background, and enthusiastic. "
                     f"Do not mention salary or compensation."
                 ),
-                model=settings.llm_model_fast,
+                model=model_for(Stage.OFFER_NOTE),
                 trace_name="generate_offer_note",
                 application_id=application_id,
                 candidate_id=app.candidate_id,
@@ -129,6 +130,12 @@ async def generate_offer(
                 "to": candidate.email,
             },
         )
+
+        # P-3 fix: offer activity previously never advanced the stage to HIRED.
+        # Only advance when the offer email actually went out. force=True since
+        # the pending-approval -> HIRED transition isn't in the strict allow-map.
+        if email_result.success:
+            await set_stage(session, application_id, PipelineStage.HIRED, force=True)
 
     return {
         "success": email_result.success,

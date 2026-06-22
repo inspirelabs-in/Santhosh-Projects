@@ -20,6 +20,7 @@ from src.db.connection import session_scope
 from src.db.repositories.audit import log_audit
 from src.db.repositories.v1_application import save_journey_report
 from src.llm.client import get_llm_client
+from src.llm.model_registry import Stage, model_for
 from src.llm.prompt_manager import compile_prompt
 from src.llm.prompts import JOURNEY_REPORT_V1, JOURNEY_REPORT_VERSION
 
@@ -114,7 +115,7 @@ async def generate_journey_report(*, application_id: UUID) -> str:
         result = await client.complete(
             prompt=prompt,
             response_model=_MarkdownOut,
-            model=client.smart,
+            model=model_for(Stage.JOURNEY_REPORT),
             trace_name="journey_report",
             prompt_version=JOURNEY_REPORT_VERSION,
             candidate_id=app.candidate_id,
