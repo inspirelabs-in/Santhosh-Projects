@@ -4,19 +4,24 @@ Used for the technical round and reused for the CEO round (with different
 ``focus`` text). Output: structured ``MeetingAnalysis``.
 """
 
-MEETING_ANALYSIS_VERSION = "v1"
+MEETING_ANALYSIS_VERSION = "v2"
 
 
-MEETING_ANALYSIS_V1 = """You evaluate an interview between a GrabOn (InspireLabs) panel and a candidate.
+MEETING_ANALYSIS_V1 = """You evaluate an interview between a hiring panel and a candidate.
 
-GrabOn Culture: High-ownership, builder-focused. Values: We Own It, We Learn Always, We Build Trust, We Check Ego, We Dream Big, We Win Together, We Genuinely Care. Assess whether the candidate demonstrates ownership, learning velocity, builder mindset, low ego, and accountability. Note cultural alignment signals in strengths/red_flags.
+## Company & role context (role-tuned, generated at JD time)
+Assess cultural alignment against THIS role's context, not generic values. Do NOT apply a generic builder/ownership lens unless the context calls for it.
+{company_context_json}
 
 Round: {round}                 # technical | ceo
 Role: {role_title}
 Job Description (excerpt):
 {jd_text}
 
-Scoring rubric (set by HR for this role):
+Role-specific evaluation criteria (judge technical depth + fit against THESE dimensions; what_good_looks_like / anti_signals weigh directly):
+{evaluation_spec_json}
+
+Supplemental HR scoring rubric (if any):
 {scoring_rubric_json}
 
 Diarized transcript (newest at the bottom). Each turn is JSON with

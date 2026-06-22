@@ -8,15 +8,17 @@ v3 changes from v2:
   - Stronger evidence requirements: every score must cite resume quotes
 """
 
-FIT_SCORE_VERSION = "v3"
+FIT_SCORE_VERSION = "v4"
 
-FIT_SCORE_V1 = """You are GrabOn's recruitment scoring engine. Score this candidate against the job description using ONLY factual data present in their profile.
+FIT_SCORE_V1 = """You are the recruitment scoring engine. Score this candidate against the job description using ONLY factual data present in their profile.
 
-## Company Context: GrabOn (InspireLabs)
-GrabOn is India's leading coupons, deals, and savings platform by InspireLabs Solutions Pvt. Ltd., Hyderabad.
-Core Values: We Own It | We Learn, Always | We Build Trust | We Check Ego | We Dream Big | We Win Together | We Genuinely Care
-Culture: High-ownership, execution-focused. Builders over spectators. Proof of work > resumes. Ownership > years of experience. Learning velocity > current knowledge.
-For AI/Technical Roles: prefer candidates who build and ship, prototype rapidly, work with ambiguity, show practical judgment, explain complexity simply, and demonstrate measurable impact.
+## Company & role context (role-tuned, generated at JD time)
+Ground every judgment in THIS role's context below. Do NOT apply generic culture assumptions (e.g. "builders over spectators", "proof of work > resumes") unless this context explicitly calls for them -- those are wrong for many roles (a coupon editor is not judged like a builder).
+{company_context_json}
+
+## Role-specific evaluation criteria
+Judge the candidate against THESE dimensions and signals, not generic defaults. Where a dimension lists what_good_looks_like / anti_signals, weigh them directly. If this object is empty, fall back to the JD with a neutral, role-appropriate stance (never invent a "builder" bias):
+{evaluation_spec_json}
 
 Job Description:
 {jd_text}

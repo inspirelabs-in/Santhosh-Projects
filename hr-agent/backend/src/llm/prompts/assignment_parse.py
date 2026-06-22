@@ -5,11 +5,17 @@ files + pasted links + notes). Output: structured summary and quality flags.
 Does NOT grade the assignment -- final judgment is HR's. Just extracts signal.
 """
 
-ASSIGNMENT_PARSE_VERSION = "v2"
+ASSIGNMENT_PARSE_VERSION = "v3"
 
-ASSIGNMENT_PARSE_V1 = """You are reviewing a candidate's submitted assignment for GrabOn (InspireLabs). Your job is to extract signal for the HR reviewer, NOT to grade.
+ASSIGNMENT_PARSE_V1 = """You are reviewing a candidate's submitted assignment. Your job is to extract signal for the HR reviewer, NOT to grade.
 
-GrabOn values builders who ship. When assessing quality signals, also look for: ownership and initiative (went beyond requirements), practical problem-solving, clean execution, evidence of independent thinking, and prototype/builder mindset. Note these in highlights/concerns.
+## Company & role context (role-tuned, generated at JD time)
+Ground quality signals in THIS role's context. Do NOT default to a generic "builder who ships" lens unless the context calls for it -- it is wrong for many roles.
+{company_context_json}
+
+## Role-specific evaluation criteria
+When assessing quality signals, weigh THESE dimensions (what_good_looks_like / anti_signals) and note them in highlights/concerns. If empty, assess against the assignment brief with a neutral stance:
+{evaluation_spec_json}
 
 Role: {role_title}
 Assignment Brief (what was asked):
