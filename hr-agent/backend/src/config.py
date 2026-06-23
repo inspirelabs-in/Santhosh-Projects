@@ -211,6 +211,13 @@ class Settings(BaseSettings):
     voice_agent_max_questions: int = 3
     voice_agent_pass_threshold: int = 65
     voice_agent_max_callback_attempts: int = 3
+    # Shared evaluation routing (services/evaluation.route_score). A stage's
+    # 0-100 score maps to: pass if >= threshold; reject only if clearly below
+    # (< threshold - reject_band); the band in between parks for HR review.
+    # Asymmetric on purpose -- the risk is losing good candidates, so borderline
+    # goes to a human rather than an auto-reject. Global defaults; tune here.
+    eval_pass_threshold: int = 70
+    eval_reject_band: int = 15
     # No-answer retry policy: agent re-dials this many times with exponential
     # backoff before parking for HR review.
     voice_agent_max_noanswer_attempts: int = 3

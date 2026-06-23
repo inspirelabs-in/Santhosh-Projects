@@ -68,7 +68,10 @@ class FitAssessment(BaseModel):
     red_flags: list[str] = Field(default_factory=list)
     green_flags: list[str] = Field(default_factory=list)
     pending_verification: list[str] = Field(default_factory=list)
-    recommended_tier: FitTier
+    # Score-only contract (v6+): the prompt no longer emits a verdict/tier; code
+    # routes pass/needs_review/reject from overall_score. Kept optional for
+    # backward-compat with any legacy response that still includes it.
+    recommended_tier: FitTier | None = None
     summary: str
 
     @field_validator("recommended_tier", mode="before")

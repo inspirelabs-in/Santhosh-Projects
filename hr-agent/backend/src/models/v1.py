@@ -53,6 +53,8 @@ class PipelineStage(StrEnum):
     HR_MEETING_IN_PROGRESS = "hr_meeting_in_progress"
     HR_MEETING_COMPLETED = "hr_meeting_completed"
     HR_EVALUATED = "hr_evaluated"
+    DECISION = "decision"
+    OFFER = "offer"
     REJECTED = "rejected"
     HIRED = "hired"
 
@@ -212,6 +214,14 @@ ALLOWED_TRANSITIONS: dict[PipelineStage, set[PipelineStage]] = {
         PipelineStage.REJECTED,
         PipelineStage.NEEDS_HR_REVIEW,
     },
+    PipelineStage.DECISION: {
+        PipelineStage.OFFER,
+        PipelineStage.REJECTED,
+    },
+    PipelineStage.OFFER: {
+        PipelineStage.HIRED,
+        PipelineStage.REJECTED,
+    },
     PipelineStage.REJECTED: set(),
     PipelineStage.HIRED: set(),
 }
@@ -283,8 +293,8 @@ class ScreeningEvaluation(BaseModel):
     logistics_values: LogisticsValues = Field(default_factory=LogisticsValues)
     red_flags: list[str] = Field(default_factory=list)
     strengths: list[str] = Field(default_factory=list)
-    verdict: Literal["clear_pass", "needs_hr_review", "clear_reject"]
-    verdict_rationale: str
+    verdict: Literal["clear_pass", "needs_hr_review", "clear_reject"] | None = None
+    verdict_rationale: str | None = None
     evaluated_at: datetime | None = None
     prompt_version: str | None = None
 
@@ -415,8 +425,8 @@ class VoiceCallScore(BaseModel):
     per_question: list[PerQuestionScore] = Field(default_factory=list)
     red_flags: list[str] = Field(default_factory=list)
     strengths: list[str] = Field(default_factory=list)
-    verdict: Literal["clear_pass", "needs_hr_review", "clear_reject"]
-    verdict_rationale: str
+    verdict: Literal["clear_pass", "needs_hr_review", "clear_reject"] | None = None
+    verdict_rationale: str | None = None
     extracted_facts: ExtractedCandidateFacts | None = None
     evaluated_at: datetime | None = None
     prompt_version: str | None = None
@@ -507,6 +517,6 @@ class MeetingAnalysis(BaseModel):
     highlights: list[str] = Field(default_factory=list)
     candidate_emotion_timeline: list[EmotionTimelineEntry] = Field(default_factory=list)
     summary: str
-    verdict: Literal["clear_pass", "needs_hr_review", "clear_reject"]
+    verdict: Literal["clear_pass", "needs_hr_review", "clear_reject"] | None = None
     evaluated_at: datetime | None = None
     prompt_version: str | None = None
