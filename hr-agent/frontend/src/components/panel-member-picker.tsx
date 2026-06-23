@@ -1,3 +1,4 @@
+/* PanelMemberPicker — commented out per instructions
 "use client";
 
 import { useMemo, useState } from "react";
@@ -8,15 +9,6 @@ import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import { panels, type PanelMember, type PanelRoleType } from "@/lib/api/panels";
 
-/**
- * Multi-select panel-member picker. Sources options from /dashboard/panels
- * (workspace-level directory). Falls back to free-text email entry for
- * one-off / external interviewers not in the directory.
- *
- * Value model: string[] of email addresses. The picker emits the same shape
- * the rest of role-form.tsx already expects on `panel_emails` so wiring is a
- * drop-in.
- */
 export function PanelMemberPicker({
   roleType,
   value,
@@ -69,7 +61,6 @@ export function PanelMemberPicker({
 
   return (
     <div className="space-y-2">
-      {/* Selected chips */}
       {value.length > 0 ? (
         <div className="flex flex-wrap gap-1.5">
           {value.map((email) => {
@@ -97,7 +88,6 @@ export function PanelMemberPicker({
         </div>
       ) : null}
 
-      {/* Free-text entry */}
       <div className="flex gap-2">
         <Input
           value={text}
@@ -121,7 +111,6 @@ export function PanelMemberPicker({
         </button>
       </div>
 
-      {/* Directory suggestions */}
       {isLoading ? (
         <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
           loading directory...
@@ -162,3 +151,4 @@ export function PanelMemberPicker({
     </div>
   );
 }
+*/

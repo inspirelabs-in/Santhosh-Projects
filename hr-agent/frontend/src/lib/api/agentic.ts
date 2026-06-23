@@ -390,15 +390,10 @@ export interface RoleDraftEnvelope {
 }
 
 export interface RoleDefaults {
-  panel_emails_technical: string[];
-  panel_emails_ceo: string[];
-  panel_emails_hr: string[];
-  common_timezone: string;
   common_remote_policy: string | null;
   common_locations: string[];
   common_ctc_min: number | null;
   common_ctc_max: number | null;
-  durations: Record<string, number>;
 }
 
 export interface LinkedInPost {
