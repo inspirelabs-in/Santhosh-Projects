@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Activity, Briefcase, CalendarClock, Clock, ExternalLink, Mail, Send, Sparkles, User, X } from "lucide-react";
+import { Activity, Briefcase, CalendarClock, Clock, ExternalLink, Mail, Sparkles, User, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Attachment } from "@/lib/useRecruiterChat";
 import { QuickDateTime } from "@/components/quick-datetime";
@@ -128,12 +128,6 @@ function CandidateListCard({
                   label="Open"
                   icon={ExternalLink}
                   command={`Open candidate ${c.application_id}`}
-                  dispatch={ctx.dispatch}
-                />
-                <ActionLink
-                  label="Re-invite"
-                  icon={Send}
-                  command={`Re-send chat invite to application ${c.application_id}`}
                   dispatch={ctx.dispatch}
                 />
                 <ActionLink

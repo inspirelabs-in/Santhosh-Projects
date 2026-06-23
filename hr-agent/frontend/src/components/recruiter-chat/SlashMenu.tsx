@@ -34,11 +34,6 @@ export const SLASH_COMMANDS: SlashCommand[] = [
         : "Show me recent agent activity.",
   },
   {
-    cmd: "/invite",
-    hint: "Re-send chat invite (needs application id)",
-    expand: (rest) => `Re-send chat invite to application ${rest.trim()}`,
-  },
-  {
     cmd: "/stuck",
     hint: "Applications stuck > 48h",
     expand: () => "Which applications are stuck?",
