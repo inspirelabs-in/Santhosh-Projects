@@ -190,3 +190,59 @@ def test_assignment_brief_rejects_estimated_minutes_zero():
     payload["problems"][0]["estimated_minutes"] = 0
     with pytest.raises(ValidationError):
         AssignmentBriefOut.model_validate(payload)
+
+
+# ---------------------------------------------------------------------------
+# EvaluationRubric — tolerate the shapes the assignment prompt actually elicits
+# ---------------------------------------------------------------------------
+
+
+def test_rubric_normalises_bare_string_criteria():
+    """The assignment prompt lists rubric criteria as bare dimension NAMES, so
+    the model returns ``criteria: ["Demo Quality", ...]`` (plain strings). The
+    schema must coerce these into RubricCriterion objects instead of exploding
+    with ``Input should be a valid dictionary or instance of RubricCriterion``.
+    Regression for the no-assignment-on-apply bug.
+    """
+    payload = _valid_brief()
+    payload["evaluation_rubric"]["criteria"] = [
+        "Technical Depth",
+        "Product Thinking",
+        "Demo Quality",
+        "AI/Tool Usage",
+        "Code Quality & Documentation",
+    ]
+    out = AssignmentBriefOut.model_validate(payload)
+    names = [c.name for c in out.evaluation_rubric.criteria]
+    assert names == [
+        "Technical Depth",
+        "Product Thinking",
+        "Demo Quality",
+        "AI/Tool Usage",
+        "Code Quality & Documentation",
+    ]
+    # Weights are auto-assigned and valid (1..100).
+    assert all(1 <= c.weight <= 100 for c in out.evaluation_rubric.criteria)
+
+
+def test_rubric_still_normalises_name_description_dicts():
+    """Existing tolerance for ``{name: description}`` single-key dicts stays."""
+    payload = _valid_brief()
+    payload["evaluation_rubric"]["criteria"] = [
+        {"Correctness": "Matches ground truth"},
+        {"Tests": "Edge case coverage"},
+    ]
+    out = AssignmentBriefOut.model_validate(payload)
+    assert [c.name for c in out.evaluation_rubric.criteria] == ["Correctness", "Tests"]
+    assert out.evaluation_rubric.criteria[0].description == "Matches ground truth"
+
+
+def test_rubric_handles_mixed_strings_and_objects():
+    payload = _valid_brief()
+    payload["evaluation_rubric"]["criteria"] = [
+        "Strategic Thinking",
+        {"name": "Analytical Rigor", "weight": 40, "description": "Depth of analysis"},
+    ]
+    out = AssignmentBriefOut.model_validate(payload)
+    assert out.evaluation_rubric.criteria[0].name == "Strategic Thinking"
+    assert out.evaluation_rubric.criteria[1].weight == 40

@@ -84,17 +84,13 @@ def test_voice_screen_advances_to_assignment():
     assert p.stage and p.stage.stage_key == "assignment"
 
 
-def test_assignment_advances_to_assessment_review_gate():
-    """After assignment (auto), the assessment_review gate (manual) parks for review."""
+def test_assignment_advances_to_technical_interview():
+    """assessment_review is folded into the assignment stage: the review now happens
+    on submit (off-planner, via complete_assignment_submission, which parks the
+    assignment for HR). So once the candidate moves past assignment, the next
+    planner action is the technical interview, which PARKS for scheduling. There is
+    no separate review gate."""
     p = _plan(_default_stages(), "assignment")
-    assert p.action == StageAction.PARK_REVIEW
-    assert p.stage and p.stage.stage_key == "assessment_review"
-
-
-def test_assessment_review_advances_to_technical_schedule():
-    """Approving the assessment_review leads to the technical interview, which
-    PARKS for scheduling (an interview always needs a human)."""
-    p = _plan(_default_stages(), "assessment_review")
     assert p.action == StageAction.PARK_SCHEDULE
     assert p.stage and p.stage.stage_key == "technical"
 
@@ -157,11 +153,12 @@ def test_offer_is_last_stage_done():
 
 
 def test_role_can_drop_assignment_stage():
-    """A role with no assignment goes voice_screen -> assessment_review directly."""
+    """A role with no assignment goes voice_screen -> the technical interview
+    (which parks for scheduling) directly."""
     stages = [s for s in _default_stages() if s.stage_key != "assignment"]
     p = _plan(stages, "voice_screen")
-    assert p.action == StageAction.PARK_REVIEW
-    assert p.stage and p.stage.stage_key == "assessment_review"
+    assert p.action == StageAction.PARK_SCHEDULE
+    assert p.stage and p.stage.stage_key == "technical"
 
 
 def test_default_pipeline_has_no_written_screening():
@@ -180,7 +177,8 @@ def test_disabled_stage_is_skipped():
         for s in stages
     ]
     p = _plan(stages, "voice_screen")
-    assert p.action == StageAction.PARK_REVIEW
+    assert p.action == StageAction.PARK_SCHEDULE
+    assert p.stage and p.stage.stage_key == "technical"
 
 
 def test_extra_interview_round_supported():
@@ -218,28 +216,51 @@ def test_extra_interview_round_supported():
 # ---------------------------------------------------------------------------
 
 
-def test_auto_assessment_review_is_skipped():
-    """An assessment_review marked auto auto-approves: skip to the next interview."""
+def test_manual_assignment_still_fires_the_email():
+    """A fire stage's work (sending the assignment) is intrinsic to *entering* the
+    stage, so it runs even when the stage is manual -- ``mode`` only governs the
+    move to the NEXT stage, not whether THIS stage does its own job. Marking the
+    assignment stage manual must NOT silently skip the assignment email. This is
+    the reported regression: a 4-step JD with a manual assignment stage parked the
+    candidate at "assignment" without ever emailing the take-home."""
     stages = [
-        s if s.stage_key != "assessment_review"
-        else StageView(s.stage_key, s.stage_type, "auto", True, s.position, s.label)
+        s if s.stage_key != "assignment"
+        else StageView(s.stage_key, s.stage_type, "manual", True, s.position, s.label)
         for s in _default_stages()
     ]
-    p = _plan(stages, "assignment")
-    assert p.action == StageAction.PARK_SCHEDULE
-    assert p.stage and p.stage.stage_key == "technical"
+    p = _plan(stages, "voice_screen")
+    assert p.action == StageAction.FIRE_ASSIGNMENT
+    assert p.stage and p.stage.stage_key == "assignment"
 
 
-def test_manual_voice_screen_parks_instead_of_firing():
-    """A voice_screen set to manual parks for HR to trigger, not auto-fire."""
+def test_manual_voice_screen_still_fires():
+    """A voice_screen marked manual still places the screen call on entry -- its
+    work belongs to the stage. (The old behavior parked it without calling, which
+    suppressed the stage's own action -- the same class of bug as the un-sent
+    assignment email.) These outbound stages don't auto-advance anyway; they pause
+    for the candidate's response, so ``mode`` has nothing to gate here."""
     stages = [
         s if s.stage_key != "voice_screen"
         else StageView(s.stage_key, s.stage_type, "manual", True, s.position, s.label)
         for s in _default_stages()
     ]
     p = _plan(stages, "fit")
-    assert p.action == StageAction.PARK_MANUAL
+    assert p.action == StageAction.FIRE_VOICE_SCREEN
     assert p.stage and p.stage.stage_key == "voice_screen"
+
+
+def test_manual_offer_still_parks_terminal_gate():
+    """The lone exception: firing the offer IS the terminal action (-> HIRED), so a
+    manual offer genuinely parks for HR to trigger -- unlike the outbound dispatch
+    stages, there is no "do the work then wait for the candidate" here."""
+    stages = [
+        s if s.stage_key != "offer"
+        else StageView(s.stage_key, s.stage_type, "manual", True, s.position, s.label)
+        for s in _default_stages()
+    ]
+    p = _plan(stages, "decision")
+    assert p.action == StageAction.PARK_MANUAL
+    assert p.stage and p.stage.stage_key == "offer"
 
 
 def test_interview_stays_manual_even_when_marked_auto():
@@ -249,7 +270,7 @@ def test_interview_stays_manual_even_when_marked_auto():
         else StageView(s.stage_key, s.stage_type, "auto", True, s.position, s.label)
         for s in _default_stages()
     ]
-    p = _plan(stages, "assessment_review")
+    p = _plan(stages, "assignment")
     assert p.action == StageAction.PARK_SCHEDULE
 
 

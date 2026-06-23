@@ -16,6 +16,7 @@ from src.llm.model_registry import (
 # Cost-guard allowlist mirror (kept tiny + local so this test needs no LLM deps).
 # If client._ALLOWED_MODEL_SUBSTRINGS grows, this is a cheap independent check.
 _ALLOWED_SUBSTRINGS = (
+    "gpt-4o",  # opted in for fit + JD drafting (deliberate higher-judgment choice)
     "gpt-4o-mini", "gpt-3.5-turbo", "gpt-4.1-nano", "gpt-4.1-mini",
     "gpt-5-nano", "gpt-5-mini", "claude-haiku", "claude-3-haiku",
     "llama-3.1-8b", "llama-3-8b", "qwen2.5:7b", "qwen2.5:3b",
@@ -52,8 +53,9 @@ def test_model_for_unknown_stage_falls_back_to_default():
 
 
 def test_known_stage_assignments():
-    """Spot-check the explicit mapping (RESUME_FIT_SCORE -> a real cheap model,
-    classifiers -> mini)."""
-    assert model_for(Stage.RESUME_FIT_SCORE).endswith("mini")
+    """Spot-check the explicit mapping: fit + JD drafting use the higher-judgment
+    gpt-4o (the two fairness-critical stages); classifiers stay on mini."""
+    assert model_for(Stage.RESUME_FIT_SCORE) == "openai/gpt-4o"
+    assert model_for(Stage.ROLE_DRAFT_CHAT) == "openai/gpt-4o"
     assert model_for(Stage.CLASSIFY_EMAIL) == "openai/gpt-4o-mini"
     assert model_for(Stage.PARSE_RESUME) == "openai/gpt-4o-mini"
