@@ -605,6 +605,20 @@ export function useRecruiterChat(): UseRecruiterChatReturn {
         return null;
       }
       setActiveArtifact((prev) => (prev ? { ...prev, status: "applied" } : prev));
+      // Surface the post-apply follow-up (LinkedIn offer + assignment status) in
+      // the chat. The apply endpoint runs no agent turn, so without this the
+      // conversational LinkedIn offer never appears.
+      if (data.follow_up) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `apply-${Date.now()}`,
+            role: "assistant",
+            content: data.follow_up as string,
+            createdAt: Date.now(),
+          },
+        ]);
+      }
       void refreshList();
       return { ok: true, role_url: data.role_url };
     } catch {

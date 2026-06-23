@@ -160,6 +160,8 @@ export interface Role {
   has_problem_doc?: boolean;
   pipeline_template: string[] | null;
   screening_modality: string;
+  evaluation_spec?: Record<string, unknown> | null;
+  company_context?: Record<string, unknown> | null;
   created_at: string;
 }
 
@@ -225,4 +227,32 @@ export interface OverridePayload {
   hr_email: string;
   new_role_id?: string | null;
   new_fit_tier?: FitTier | null;
+}
+
+export interface StageViewEntry {
+  stage_key: string;
+  stage_type: string;
+  label: string;
+  position: number;
+  mode: string;
+  is_enabled: boolean;
+  is_current: boolean;
+  processing_status: string;
+  verdict: string;
+  result_ref: unknown;
+}
+
+export interface CandidateListItem {
+  application_id: string;
+  candidate_id: string;
+  name: string | null;
+  email: string | null;
+  role_title: string | null;
+  current_stage: string;
+  current_stage_key: string;
+  screening_score: number | null;
+  fit_score: number | null;
+  fit_tier: string | null;
+  created_at: string;
+  updated_at: string;
 }
