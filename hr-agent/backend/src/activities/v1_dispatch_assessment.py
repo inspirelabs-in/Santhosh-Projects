@@ -16,7 +16,7 @@ from src.config import get_settings
 from src.db.base import Application, Candidate, Role
 from src.db.connection import session_scope
 from src.db.repositories.audit import log_audit
-from src.db.repositories.v1_application import set_stage
+from src.db.repositories.v1_application import set_stage, claim_stage_processing, record_stage_verdict, mark_stage_failed
 from src.models.v1 import PipelineStage
 
 logger = logging.getLogger(__name__)
@@ -46,12 +46,19 @@ async def dispatch_assessment(*, application_id: UUID) -> None:
         role_id = role.id
 
         if has_assignment:
+            # Claim processing BEFORE the side-effect (P-1 fix).
+            await claim_stage_processing(session, application_id, "assignment")
             await set_stage(
                 session, application_id, PipelineStage.ASSIGNMENT_SENT, force=True
             )
         else:
             await set_stage(
                 session, application_id, PipelineStage.ASSESSMENT_EVALUATED, force=True
+            )
+            await record_stage_verdict(
+                session, application_id, "assignment",
+                verdict="pass",
+                result_ref={"skipped": True, "reason": "no assignment configured"},
             )
             await log_audit(
                 session,
@@ -73,7 +80,21 @@ async def dispatch_assessment(*, application_id: UUID) -> None:
             )
         except Exception as exc:  # noqa: BLE001
             logger.exception("assignment email dispatch failed: %s", exc)
+            # Mark the stage as failed so it's visible + retryable (P-1).
+            async with session_scope() as err_session:
+                await mark_stage_failed(
+                    err_session, application_id, "assignment",
+                    error=str(exc)[:300],
+                )
             raise
+
+        # Side-effect succeeded -> record verdict (P-1).
+        async with session_scope() as ok_session:
+            await record_stage_verdict(
+                ok_session, application_id, "assignment",
+                verdict="on_going",
+                result_ref={"dispatched": True},
+            )
     else:
         from src.services.auto_progress import auto_progress
 

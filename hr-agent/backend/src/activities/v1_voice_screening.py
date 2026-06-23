@@ -23,7 +23,8 @@ from src.config import get_settings
 from src.db.base import Application, Candidate, CandidateProfileRow, Role
 from src.db.connection import session_scope
 from src.db.repositories.audit import log_audit
-from src.db.repositories.v1_application import set_stage
+from src.services.scoring_context import scoring_prompt_vars
+from src.db.repositories.v1_application import set_stage, claim_stage_processing, record_stage_verdict, mark_stage_failed
 from src.db.repositories.voice_call import (
     cancel_in_flight,
     create_voice_call,
@@ -186,6 +187,7 @@ async def dispatch_voice_screening(
         )
         voice_call_id = voice_row.id
 
+        await claim_stage_processing(session, application_id, "voice_screen")
         await set_stage(
             session, application_id, PipelineStage.VOICE_SCREEN_SCHEDULED, force=True
         )
@@ -240,6 +242,10 @@ async def dispatch_voice_screening(
                 error=str(exc),
                 status=VoiceCallStatus.FAILED,
             )
+            await mark_stage_failed(
+                session, application_id, "voice_screen",
+                error=str(exc)[:300],
+            )
             await log_audit(
                 session,
                 application_id=application_id,
@@ -252,6 +258,11 @@ async def dispatch_voice_screening(
     async with session_scope() as session:
         await mark_dispatched(
             session, voice_call_id, provider_call_id=handle.provider_call_id
+        )
+        await record_stage_verdict(
+            session, application_id, "voice_screen",
+            verdict="on_going",
+            result_ref={"voice_call_id": str(voice_call_id), "dispatched": True},
         )
     return voice_call_id
 

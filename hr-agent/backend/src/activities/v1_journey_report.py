@@ -92,9 +92,18 @@ async def generate_journey_report(*, application_id: UUID) -> str:
         submission = sq.get("submission") if isinstance(sq, dict) else None
         answers = (submission or {}).get("answers", []) if submission else []
 
+        # Load company context + evaluation spec for generic prompt
+        _cc = (role.company_context if role and hasattr(role, 'company_context') else None) or {}
+        _es = (role.evaluation_spec if role and hasattr(role, 'evaluation_spec') else None) or {}
+        import json as _json
+        _cc_json = _json.dumps(_cc, ensure_ascii=False, default=str)[:2000]
+        _es_json = _json.dumps(_es, ensure_ascii=False, default=str)[:2000]
+
         prompt = compile_prompt(
             "journey_report",
             fallback=JOURNEY_REPORT_V1,
+            company_context_json=_cc_json,
+            evaluation_spec_json=_es_json,
             role_title=role.title if role else "n/a",
             candidate_name=(candidate.name if candidate else "") or "n/a",
             candidate_email=(candidate.email if candidate else "") or "n/a",
