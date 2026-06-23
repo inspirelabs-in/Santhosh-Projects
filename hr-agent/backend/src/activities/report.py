@@ -86,9 +86,15 @@ async def run_interview_report(payload: InterviewReportInput) -> InterviewReport
         else "role-appropriate technical and behavioural competencies"
     )
 
+    import json as _json
+    _cc_json = _json.dumps(snapshot.get("company_context") or {}, ensure_ascii=False, default=str)[:2000]
+    _es_json = _json.dumps(snapshot.get("evaluation_spec") or {}, ensure_ascii=False, default=str)[:2000]
+
     prompt = compile_prompt(
         "interview_report",
         fallback=INTERVIEW_REPORT_V1,
+        company_context_json=_cc_json,
+        evaluation_spec_json=_es_json,
         role_title=snapshot["role_title"],
         candidate_name=snapshot["candidate_name"],
         interviewer_names=", ".join(snapshot["panel"]) or "(unspecified)",

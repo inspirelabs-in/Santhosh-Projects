@@ -129,18 +129,31 @@ async def generate_ceo_brief(*, application_id: UUID) -> str:
         fit_score = app.fit_score
         fit_tier = app.fit_tier or "n/a"
 
+    _NA = "DATA_NOT_AVAILABLE"
     prompt = compile_prompt(
         "ceo_brief",
         fallback=CEO_BRIEF_V1,
         role_title=role_title,
         jd_text=jd_excerpt,
         candidate_json=json.dumps(candidate_summary, ensure_ascii=False)[:4000],
-        fit_score=fit_score if fit_score is not None else "n/a",
-        fit_tier=fit_tier,
-        screening_evaluation_json=json.dumps(screening_evaluation, ensure_ascii=False)[:3000],
-        voice_call_json=json.dumps(voice_block, ensure_ascii=False)[:4000],
-        assessment_json=json.dumps(assessment_block, ensure_ascii=False)[:2000],
-        technical_meeting_json=json.dumps(technical_block, ensure_ascii=False)[:5000],
+        fit_score=fit_score if fit_score is not None else _NA,
+        fit_tier=fit_tier if fit_score is not None else _NA,
+        screening_evaluation_json=(
+            json.dumps(screening_evaluation, ensure_ascii=False)[:3000]
+            if screening_evaluation else _NA
+        ),
+        voice_call_json=(
+            json.dumps(voice_block, ensure_ascii=False)[:4000]
+            if voice_block else _NA
+        ),
+        assessment_json=(
+            json.dumps(assessment_block, ensure_ascii=False)[:2000]
+            if assessment_block else _NA
+        ),
+        technical_meeting_json=(
+            json.dumps(technical_block, ensure_ascii=False)[:5000]
+            if technical_block else _NA
+        ),
     )
 
     # The shared LLM client returns Pydantic-validated JSON. Wrap the brief in

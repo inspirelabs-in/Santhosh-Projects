@@ -23,6 +23,13 @@ from src.llm.client import get_llm_client
 from src.llm.prompt_manager import compile_prompt
 from src.llm.prompts import REJECTION_MESSAGE_V1, REJECTION_MESSAGE_VERSION
 from src.llm.model_registry import Stage, model_for
+
+
+def _get_company_name_for_rejection() -> str:
+    try:
+        return get_settings().voice_agent_company_name
+    except Exception:
+        return "the company"
 from src.models.candidate import ApplicationStatus, CandidateStatus
 from src.models.llm_outputs import RejectionDraft
 from src.services.rejection_reasons import pick_category, render_template
@@ -85,6 +92,7 @@ async def run_rejection(payload: RejectionInput) -> RejectionResult:
     prompt = compile_prompt(
         "rejection_message",
         fallback=REJECTION_MESSAGE_V1,
+        company_name=_get_company_name_for_rejection(),
         candidate_name=snapshot["candidate_name"] or "there",
         role_title=snapshot["role_title"],
         rejection_category=category,
