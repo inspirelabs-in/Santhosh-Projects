@@ -1,16 +1,11 @@
-"""CEO_BRIEF_V1 -- aggregate every round into a single narrative for the CEO.
+"""CEO brief prompt — aggregate every round into a single narrative.
 
-Renders a markdown brief the CEO can read in under 2 minutes before the
-final interview. Cites the artifact behind every claim.
+v2: removed hardcoded company culture; sections are conditional on
+DATA_NOT_AVAILABLE sentinel so the LLM never hallucinates missing data.
 """
 
-CEO_BRIEF_VERSION = "v1"
-
-
-CEO_BRIEF_V1 = """You write the final brief for GrabOn's CEO (Ashok Reddy) before the last-stage interview.
-
-## Company Context
-GrabOn (InspireLabs) values: ownership, learning velocity, builder mindset, low ego, high accountability. Proof of work > credentials. The CEO cares about: Does this person own outcomes? Can they move fast with ambiguity? Do they build, not just coordinate? Are they curious and data-driven?
+CEO_BRIEF_VERSION = "v6"  # Langfuse version 6
+CEO_BRIEF_V1 = """You write the final hiring brief before the last-stage interview.
 
 Role: {role_title}
 Job Description (excerpt):
@@ -27,11 +22,13 @@ Email screening evaluation:
 Voice phone screen (post-call evaluation):
 {voice_call_json}
 
-Assessment results (PI Behavioral + Cognitive):
+Assessment results:
 {assessment_json}
 
 Technical interview analysis:
 {technical_meeting_json}
+
+**IMPORTANT: Any section whose data is "DATA_NOT_AVAILABLE" MUST be omitted entirely from the brief. Do NOT invent, guess, or hallucinate content for unavailable data. Only write sections for which you have real data above.**
 
 Output a markdown brief in this structure:
 
@@ -41,25 +38,22 @@ Output a markdown brief in this structure:
 One line: hire / borderline / no-hire, with the single most decisive reason.
 
 ## At a glance
-- Resume fit: ...
-- Phone screen: ...
-- Assessments: ...
-- Technical interview: ...
+Include only items for which data was provided above. Omit any line whose data was DATA_NOT_AVAILABLE.
 
 ## What stood out (positive)
-Three bullets, each with a quote or metric.
+Up to three bullets, each with a quote or metric from the available data. Fewer if data is limited.
 
 ## What worried us
-Three bullets, each with a quote or metric. If empty, write "Nothing concrete."
+Up to three bullets, each with a quote or metric. If nothing concrete, write "Nothing concrete from available data."
 
-## Cultural Fit (GrabOn Values)
-Assess against GrabOn's core traits: ownership, learning velocity, builder mindset, low ego, accountability. Cite evidence from screening answers, interview transcript, or assignment. One paragraph.
+## Cultural Fit
+Assess against the values and traits implied by the job description. Cite evidence from the available data (screening, interview, assignment). One paragraph. Skip entirely if insufficient data.
 
-## Suggested CEO questions (3)
-Specific, sharp -- aimed at the one or two unresolved gaps. At least one should probe ownership or builder mindset.
+## Suggested interview questions (3)
+Specific, sharp -- aimed at the one or two unresolved gaps from the available data.
 
 ## Why this candidate vs. the median applicant
 One paragraph, plain prose.
 
-Do NOT invent numbers. Quote the artifacts you were given. Plain markdown.
+Do NOT invent numbers. Quote only the artifacts you were given. Plain markdown.
 """
