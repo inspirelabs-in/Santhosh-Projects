@@ -34,6 +34,7 @@ from src.models.v1 import (
 from src.config import get_settings
 from src.services.file_storage import download
 from src.services.resume_extraction import extract_resume_text
+from src.services.scoring_context import scoring_prompt_vars
 from src.services.submission_enrichment import (
     check_deployed_url,
     enrich_github,

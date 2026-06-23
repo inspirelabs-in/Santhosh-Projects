@@ -67,6 +67,14 @@ async def chat_role_draft(
         conversation=_format_conversation(history),
         user_message=user_message[:3000],
     )
+    from src.config import get_settings as _gs
+    _company = _gs().voice_agent_company_name
+    _sys = get_prompt("role_draft_system", fallback=ROLE_DRAFT_SYSTEM)
+    try:
+        _sys = _sys.format(company_name=_company)
+    except (KeyError, IndexError):
+        _sys = _sys.replace("{company_name}", _company)
+
     client = get_llm_client()
     result = await client.complete(
         prompt=prompt,
@@ -74,7 +82,7 @@ async def chat_role_draft(
         model=model_for(Stage.ROLE_DRAFT_CHAT),
         trace_name="role_draft_chat",
         prompt_version=ROLE_DRAFT_VERSION,
-        system=get_prompt("role_draft_system", fallback=ROLE_DRAFT_SYSTEM),
+        system=_sys,
         max_tokens=2000,
     )
     return result.parsed
@@ -142,6 +150,15 @@ async def generate_linkedin_post(
         jd_text=(jd_text or "")[:5000],
         apply_url=apply_url or "(not provided)",
     )
+    from src.config import get_settings as _gs2
+    _company2 = _gs2().voice_agent_company_name
+    _apply_email = "careers@" + _company2.lower().replace(" ", "") + ".in"
+    _li_sys = get_prompt("linkedin_post_system", fallback=LINKEDIN_POST_SYSTEM)
+    try:
+        _li_sys = _li_sys.format(company_name=_company2, apply_email=_apply_email)
+    except (KeyError, IndexError):
+        _li_sys = _li_sys.replace("{company_name}", _company2).replace("{apply_email}", _apply_email)
+
     client = get_llm_client()
     result = await client.complete(
         prompt=prompt,
@@ -149,7 +166,7 @@ async def generate_linkedin_post(
         model=model_for(Stage.LINKEDIN_POST),
         trace_name="linkedin_post",
         prompt_version=LINKEDIN_POST_VERSION,
-        system=get_prompt("linkedin_post_system", fallback=LINKEDIN_POST_SYSTEM),
+        system=_li_sys,
         max_tokens=900,
     )
     return result.parsed

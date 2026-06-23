@@ -67,6 +67,11 @@ async def dispatch_meeting_bot(
         await set_stage(
             session, application_id, _ROUND_TO_STAGE[round], force=True
         )
+        from src.models.pipeline import StageStatus
+        _stage_key = {"technical": "technical", "ceo": "ceo", "hr": "hr"}.get(round, round)
+        if app is not None:
+            app.current_stage_key = _stage_key
+            app.stage_status = str(StageStatus.SCHEDULED)
         await log_audit(
             session,
             application_id=application_id,
