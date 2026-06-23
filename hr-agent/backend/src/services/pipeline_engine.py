@@ -10,8 +10,12 @@ The flow a JD defines is fixed at JD time: an ordered list of stages, each with 
 ``mode`` (auto | manual). The engine just maps the candidate's current stage to
 the next one and says what to do:
 
-  - an **auto** "fire" stage (screening / voice_screen / assignment / offer)
-    → the engine dispatches that stage's activity.
+  - a "fire" stage (screening / voice_screen / assignment) → the engine dispatches
+    that stage's activity. Its outbound work belongs to *entering* the stage, so it
+    runs whether the stage is auto or manual; ``mode`` governs only the move to the
+    NEXT stage, and these outbound stages pause for the candidate's response rather
+    than auto-advancing, so there is nothing for ``manual`` to gate. (``offer`` is the
+    exception: firing it is terminal — HIRED — so a manual offer parks for HR.)
   - a **manual** gate (assessment_review / interview / decision)
     → the engine PARKS the candidate at that stage and raises a distinct
       ``requires_action`` item (so "schedule the HR round" can never be confused
@@ -59,7 +63,6 @@ _FIRE_ACTIONS: dict[str, StageAction] = {
 
 # Human gates, mapped to their park action.
 _GATE_ACTIONS: dict[str, StageAction] = {
-    StageType.ASSESSMENT_REVIEW.value: StageAction.PARK_REVIEW,
     StageType.INTERVIEW.value: StageAction.PARK_SCHEDULE,
     StageType.DECISION.value: StageAction.PARK_DECISION,
 }
@@ -78,8 +81,17 @@ _INLINE_TYPES: frozenset[str] = frozenset(
 # An ``interview`` is never auto-advanced: someone has to actually run it, so it
 # always parks for scheduling.
 _AUTO_ADVANCEABLE_GATES: frozenset[str] = frozenset(
-    {StageType.ASSESSMENT_REVIEW.value, StageType.DECISION.value}
+    {StageType.DECISION.value}
 )
+
+# Fire stages where ``manual`` mode genuinely gates the dispatch, because firing is a
+# *terminal* action HR should trigger explicitly. Every OTHER fire stage does its own
+# outbound work on entry regardless of mode -- ``mode`` only governs whether we
+# auto-advance to the NEXT stage, and these outbound stages don't auto-advance anyway
+# (they pause for the candidate's response: a submitted assignment, a placed screen
+# call), so there is nothing for ``manual`` to gate. ``offer`` is the exception: firing
+# it is the terminal HIRED action, so a manual offer parks for HR to trigger.
+_MANUAL_GATED_FIRE_TYPES: frozenset[str] = frozenset({StageType.OFFER.value})
 
 _AUTO = "auto"
 _MANUAL = "manual"
@@ -132,9 +144,14 @@ def _action_for(stage: StageView) -> StageAction | None:
         return None  # handled during intake; skip forward
 
     if stype in _FIRE_ACTIONS:
-        if mode == _AUTO:
+        # A fire stage's outbound work (send the assignment, place the screen call,
+        # email the questionnaire) is intrinsic to *entering* the stage, so it runs
+        # whether the stage is auto or manual -- mode only gates the move to the NEXT
+        # stage. The lone exception is a terminal fire-stage (offer): there, firing
+        # IS the advance, so a manual one parks for HR to trigger.
+        if mode == _AUTO or stype not in _MANUAL_GATED_FIRE_TYPES:
             return _FIRE_ACTIONS[stype]
-        return StageAction.PARK_MANUAL  # manual "fire" stage → HR triggers it
+        return StageAction.PARK_MANUAL  # manual terminal fire-stage (offer) → HR triggers
 
     if stype in _GATE_ACTIONS:
         if mode == _AUTO and stype in _AUTO_ADVANCEABLE_GATES:

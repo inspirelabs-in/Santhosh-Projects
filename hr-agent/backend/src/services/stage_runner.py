@@ -51,6 +51,7 @@ async def advance_candidate(
     application_id: UUID,
     completed_stage_key: str | None = None,
     verdict: StageVerdict | str = StageVerdict.PASS,
+    score: float | int | None = None,
     result_ref: Any | None = None,
 ) -> str:
     """Record the completed stage's verdict, then move the candidate forward.
@@ -58,6 +59,13 @@ async def advance_candidate(
     Returns a short decision string (mirrors auto_progress): "advanced:<...>",
     "rejected:<stage>", "held:<stage>", "skipped:<reason>".
     """
+    # If a raw 0-100 score is supplied, the shared router decides the verdict
+    # (pass/needs_review/reject) -- one consistent rule for every stage. The
+    # prompt never sees the threshold; routing lives here.
+    if score is not None:
+        from src.services.evaluation import route_score
+
+        verdict = route_score(score)
     verdict_val = verdict.value if isinstance(verdict, StageVerdict) else str(verdict)
 
     # 1. Record the verdict on the stage that just finished (idempotent overlay write).
@@ -75,6 +83,12 @@ async def advance_candidate(
     if verdict_val == StageVerdict.ON_GOING.value:
         return f"held:{completed_stage_key or 'current'}"
 
+    # 2b. NEEDS_REVIEW -> park at this stage for a human. Never auto-advance and
+    # never auto-reject a borderline candidate; HR's pass/reject drives the move.
+    if verdict_val == StageVerdict.NEEDS_REVIEW.value:
+        await _park_for_review(application_id, completed_stage_key, result_ref)
+        return f"needs_review:{completed_stage_key or 'current'}"
+
     # 3. FAIL -> reject (auto lane sends the rejection email via the existing path).
     if verdict_val == StageVerdict.FAIL.value:
         from src.services.auto_progress import auto_reject_if_configured
@@ -90,6 +104,30 @@ async def advance_candidate(
 
     decision = await auto_progress(application_id=application_id)
     return f"advanced:{decision}"
+
+
+async def complete_assignment_submission(
+    application_id: UUID, *, result_ref: Any | None = None
+) -> str:
+    """The candidate submitted their take-home. Decide what "done" means for THIS
+    role's pipeline -- the one place the "auto-send on entry, review on submit" rule
+    lives, so the careers form (pipeline/v1) and the agentic apply path stay in sync:
+
+    - If the role still has a separate ``assessment_review`` gate (a legacy
+      pipeline), PASS the assignment so that gate performs the human review.
+    - Otherwise (the merged single-stage model) PARK the assignment itself for HR
+      review: the candidate stays on ``assignment`` until a recruiter approves or
+      rejects via the needs-review resolve endpoint. No second stage required.
+    """
+    # ASSESSMENT_REVIEW is deprecated — all new pipelines use the merged model
+    # where the assignment stage itself parks for HR review on submit.
+    verdict = StageVerdict.NEEDS_REVIEW
+    return await advance_candidate(
+        application_id=application_id,
+        completed_stage_key="assignment",
+        verdict=verdict,
+        result_ref=result_ref,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -142,3 +180,65 @@ async def _role_has_stage(session, role_id: UUID, stage_key: str) -> bool:
     from src.db.repositories import role_pipeline_stage as _stage_repo
 
     return await _stage_repo.get_stage(session, role_id, stage_key) is not None
+
+
+async def _park_for_review(
+    application_id: UUID, completed_stage_key: str | None, result_ref: Any | None
+) -> None:
+    """Park a borderline candidate at the stage that just scored and raise a
+    ``needs_review`` requires_action item for HR. Mirrors auto_progress._park_gate
+    but for a SCORED stage (not a configured human gate): the candidate stays put
+    until HR confirms pass (advance) or reject. Independent of the stage's
+    auto|manual mode -- a review-band score always needs a human."""
+    from src.db.base import Application
+    from src.db.events import emit_event
+    from src.db.repositories.audit import log_audit
+    from src.models.events import ActionType, EventType
+    from src.models.pipeline import StageStatus
+    from src.services.events import publish_event
+
+    async with session_scope() as session:
+        app = await session.get(Application, application_id, with_for_update=True)
+        if app is None:
+            return
+        if completed_stage_key:
+            app.current_stage_key = completed_stage_key
+        app.stage_status = str(StageStatus.PARKED)
+
+        await emit_event(
+            session,
+            type=EventType.STAGE_CHANGED,
+            org_id=app.org_id,
+            application_id=application_id,
+            role_id=app.role_id,
+            payload={"to": completed_stage_key, "status": str(StageStatus.PARKED), "reason": "needs_review"},
+            actor="agent",
+        )
+        await emit_event(
+            session,
+            type=ActionType.NEEDS_REVIEW.value,
+            org_id=app.org_id,
+            application_id=application_id,
+            role_id=app.role_id,
+            payload={
+                "stage_key": completed_stage_key,
+                "result_ref": result_ref,
+                "note": "borderline score -- HR confirms pass or reject",
+            },
+            actor="agent",
+            requires_action=True,
+        )
+        await log_audit(
+            session,
+            application_id=application_id,
+            action="parked_needs_review",
+            actor="agent",
+            details={"stage_key": completed_stage_key, "result_ref": result_ref},
+        )
+
+    try:
+        await publish_event(
+            application_id, event="needs_review", data={"stage_key": completed_stage_key}
+        )
+    except Exception:  # noqa: BLE001
+        pass

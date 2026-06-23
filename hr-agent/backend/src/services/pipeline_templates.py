@@ -11,6 +11,11 @@ Step definitions live here so both the API (validation, presets endpoint)
 and the auto-progress engine share the same source of truth.
 """
 
+# DEPRECATED: This module is retained for backward-compatible validation
+# and preset lookup by the roles API and recruiter_agent tools. The real
+# pipeline is driven by role_pipeline_stages rows (see pipeline_engine.py).
+# Do NOT add new logic here.
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -85,6 +90,11 @@ _reg(StepDef(
     action="assessment",
 ))
 
+# [TODO] cognitive_test = an external test LINK (cognitive/aptitude) the candidate
+# completes ALONGSIDE the take-home assignment. NOT YET IMPLEMENTED: there is no
+# dispatcher that sends the link, so this step currently behaves as a manual review
+# gate (see _STEP_TYPE in recruiter_agent/tools.py). When building it, send the link
+# together with the assignment email rather than as a separate auto-fired stage.
 _reg(StepDef(
     id="cognitive_test",
     label="Cognitive Test",
