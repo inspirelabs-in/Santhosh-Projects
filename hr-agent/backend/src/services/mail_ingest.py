@@ -69,8 +69,14 @@ async def _match_role(subject: str | None, body: str | None) -> UUID | None:
         return None
     import re as _re
 
-    _STOP = {"engineer", "developer", "manager", "lead", "junior", "senior",
-             "analyst", "the", "for", "role", "position", "job", "a", "an"}
+    # Grammatical filler ONLY. Seniority + role-type words (junior/senior/
+    # engineer/developer/manager/...) are the SIGNAL that distinguishes similar
+    # roles, so they are kept, not stopped. (Stopping them made "Junior Full
+    # Stack" and "Full Stack Engineer" both collapse to [full, stack] and match
+    # arbitrarily.)
+    _STOP = {"the", "for", "a", "an", "at", "to", "of", "role", "position",
+             "job", "opening", "vacancy", "application", "applying", "apply",
+             "applicant", "regarding", "re", "fwd"}
 
     async with session_scope() as session:
         roles = await list_open_roles(session)
@@ -85,13 +91,24 @@ async def _match_role(subject: str | None, body: str | None) -> UUID | None:
                 title_tokens = [t for t in _re.findall(r"[a-z0-9]+", title)]
                 if not title_tokens:
                     continue
-                significant = [t for t in title_tokens if t not in _STOP]
-                required = significant or title_tokens
+                # Require ALL meaningful title tokens (incl. seniority/role-type)
+                # to be present. Drop only grammatical filler -- but never drop
+                # everything.
+                required = [t for t in title_tokens if t not in _STOP] or title_tokens
                 if all(t in haystack_tokens for t in required):
-                    candidates.append((len(title_tokens), role.id))
+                    candidates.append((len(required), role.id))
             if not candidates:
                 return None
+            # Most-specific full match wins (a longer fully-matched title beats a
+            # shorter one it contains, e.g. "Senior Backend Engineer" over
+            # "Backend Engineer").
             candidates.sort(key=lambda x: x[0], reverse=True)
+            # Ambiguous: the top two match equally specifically (e.g. the subject
+            # names both "Junior Full Stack" and "Full Stack Engineer") -> do NOT
+            # guess. Return None so the application is created unassigned for HR to
+            # route, instead of being silently sent to the wrong role.
+            if len(candidates) > 1 and candidates[0][0] == candidates[1][0]:
+                return None
             return candidates[0][1]
 
         if subject:

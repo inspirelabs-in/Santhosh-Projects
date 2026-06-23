@@ -82,9 +82,13 @@ async def run_classify(payload: ClassifyInput) -> ClassifyOutput:
                 "(one resume uploaded)" if candidate.status != "intake" else "(pending upload)"
             )
 
+    from src.config import get_settings as _gs
+    company_name = _gs().voice_agent_company_name
+
     prompt = compile_prompt(
         "classify_email",
         fallback=CLASSIFY_EMAIL_V1,
+        company_name=company_name,
         open_roles_list=open_roles_list,
         subject=subject,
         sender_email=sender_email,

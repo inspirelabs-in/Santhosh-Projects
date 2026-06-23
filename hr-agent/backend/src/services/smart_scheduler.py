@@ -789,6 +789,10 @@ async def book_confirmed_meeting(
             ms.round, PipelineStage.NEEDS_HR_REVIEW
         )
         await set_stage(session, ms.application_id, scheduled_stage, force=True)
+        from src.models.pipeline import StageStatus
+        _stage_key = {"technical": "technical", "ceo": "ceo", "hr": "hr"}.get(ms.round, ms.round)
+        app.current_stage_key = _stage_key
+        app.stage_status = str(StageStatus.SCHEDULED)
 
         # 4. Audit + events
         await log_audit(
