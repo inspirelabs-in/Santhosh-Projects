@@ -53,6 +53,8 @@ class RoleRead(BaseModel):
     has_problem_doc: bool
     pipeline_template: list[str] | None
     screening_modality: str
+    evaluation_spec: dict[str, Any] | None = None
+    company_context: dict[str, Any] | None = None
     created_at: datetime
 
 
@@ -74,6 +76,8 @@ class RoleWrite(BaseModel):
     assignment_instructions: str | None = None
     assignment_deadline_days: int = Field(7, ge=1, le=60)
     pipeline_template: list[str] | None = None
+    evaluation_spec: dict[str, Any] | None = None
+    company_context: dict[str, Any] | None = None
 
 
 class RolePatch(BaseModel):
@@ -122,6 +126,8 @@ def _to_read(r: Role) -> RoleRead:
         has_problem_doc=bool(r.assignment_problem_doc_key),
         pipeline_template=r.pipeline_template,
         screening_modality=r.screening_modality,
+        evaluation_spec=r.evaluation_spec,
+        company_context=r.company_context,
         created_at=r.created_at,
     )
 
@@ -175,6 +181,8 @@ async def create_role(
             assignment_instructions=payload.assignment_instructions,
             assignment_deadline_days=payload.assignment_deadline_days,
             pipeline_template=payload.pipeline_template,
+            evaluation_spec=payload.evaluation_spec,
+            company_context=payload.company_context,
         )
         if payload.pipeline_template:
             from src.services.pipeline_templates import validate_template
@@ -183,6 +191,11 @@ async def create_role(
                 raise HTTPException(status_code=422, detail={"pipeline_template_errors": errors})
         session.add(role)
         await session.flush()
+
+        # Seed role_pipeline_stages (the real pipeline source of truth).
+        from src.db.repositories import role_pipeline_stage as stage_repo
+        await stage_repo.seed_default(session, role_id=role.id)
+
         await log_audit(
             session,
             action="role_created",
@@ -228,6 +241,10 @@ async def update_role(
             if errors:
                 raise HTTPException(status_code=422, detail={"pipeline_template_errors": errors})
         role.pipeline_template = payload.pipeline_template
+        if payload.evaluation_spec is not None:
+            role.evaluation_spec = payload.evaluation_spec
+        if payload.company_context is not None:
+            role.company_context = payload.company_context
         await log_audit(
             session,
             action="role_updated",

@@ -121,6 +121,7 @@ async def manual_schedule_meeting(
         "hr": PipelineStage.HR_MEETING_SCHEDULED,
     }
     async with session_scope() as session:
+        from src.models.pipeline import StageStatus
         meeting_row = await create_session(
             session,
             application_id=application_id,
@@ -134,6 +135,10 @@ async def manual_schedule_meeting(
         await set_stage(
             session, application_id, _ROUND_TO_STAGE[body.round], force=True
         )
+        _app = await session.get(Application, application_id)
+        if _app is not None:
+            _app.current_stage_key = body.round
+            _app.stage_status = str(StageStatus.SCHEDULED)
         await log_audit(
             session,
             application_id=application_id,

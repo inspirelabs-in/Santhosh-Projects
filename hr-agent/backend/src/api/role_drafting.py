@@ -122,8 +122,6 @@ async def _maybe_generate_assignment(
         brief = await gen_assignment(
             role_title=title,
             jd_text=jd_text,
-            candidate_profile={},
-            screening_answers=None,
             time_budget_hours=int(draft.get("assignment_deadline_days") or 6),
             deadline_days=int(draft.get("assignment_deadline_days") or 7),
             application_id=synthetic_id,
@@ -146,15 +144,10 @@ async def _maybe_generate_assignment(
 
 
 class RoleDefaults(BaseModel):
-    panel_emails_technical: list[str]
-    panel_emails_ceo: list[str]
-    panel_emails_hr: list[str]
-    common_timezone: str
     common_remote_policy: str | None
     common_locations: list[str]
     common_ctc_min: float | None
     common_ctc_max: float | None
-    durations: dict[str, int]
 
 
 @router.get("/defaults", response_model=RoleDefaults)
@@ -170,13 +163,8 @@ async def _build_role_memory() -> dict[str, Any]:
 
 
 async def _build_role_memory_typed() -> RoleDefaults:
-    panel_tech: Counter[str] = Counter()
-    panel_ceo: Counter[str] = Counter()
-    panel_hr: Counter[str] = Counter()
-    timezones: Counter[str] = Counter()
     locations: Counter[str] = Counter()
     remotes: Counter[str] = Counter()
-    durations = {"technical": 60, "ceo": 30, "hr": 30}
     ctc_mins: list[float] = []
     ctc_maxs: list[float] = []
 
@@ -196,66 +184,15 @@ async def _build_role_memory_typed() -> RoleDefaults:
             ctc_mins.append(float(r.ctc_min_lpa))
         if r.ctc_max_lpa is not None:
             ctc_maxs.append(float(r.ctc_max_lpa))
-        rubric = r.scoring_rubric if isinstance(r.scoring_rubric, dict) else {}
-        sched = rubric.get("scheduling") if isinstance(rubric, dict) else None
-        if not isinstance(sched, dict):
-            continue
-        tz = sched.get("panel_timezone")
-        if isinstance(tz, str):
-            timezones[tz] += 1
-        rounds = sched.get("rounds") or {}
-        for round_key, bucket in [
-            ("technical", panel_tech),
-            ("ceo", panel_ceo),
-            ("hr", panel_hr),
-        ]:
-            block = rounds.get(round_key) or {}
-            for email in block.get("panel_emails") or []:
-                if isinstance(email, str) and "@" in email:
-                    bucket[email] += 1
-            d = block.get("duration_minutes")
-            if isinstance(d, int) and d > 0:
-                durations[round_key] = d
 
     def top(c: Counter[str], n: int = 5) -> list[str]:
         return [k for k, _ in c.most_common(n)]
 
-    # Workspace PanelMember directory takes priority over historical role
-    # rubrics: HR maintains it explicitly, so we surface those emails first.
-    from src.db.base import PanelMember
-
-    panel_directory: dict[str, list[str]] = {"technical": [], "ceo": [], "hr": []}
-    async with session_scope() as session:
-        members = (
-            await session.execute(
-                select(PanelMember).where(PanelMember.is_active.is_(True))
-            )
-        ).scalars().all()
-    for m in members:
-        bucket = panel_directory.get(m.role_type)
-        if bucket is None:
-            continue
-        bucket.append(m.email)
-
-    def merge(directory: list[str], history: list[str]) -> list[str]:
-        seen: set[str] = set()
-        out: list[str] = []
-        for e in directory + history:
-            if e not in seen:
-                seen.add(e)
-                out.append(e)
-        return out[:8]
-
     return RoleDefaults(
-        panel_emails_technical=merge(panel_directory["technical"], top(panel_tech)),
-        panel_emails_ceo=merge(panel_directory["ceo"], top(panel_ceo)),
-        panel_emails_hr=merge(panel_directory["hr"], top(panel_hr)),
-        common_timezone=timezones.most_common(1)[0][0] if timezones else "Asia/Kolkata",
         common_remote_policy=remotes.most_common(1)[0][0] if remotes else None,
         common_locations=top(locations),
         common_ctc_min=min(ctc_mins) if ctc_mins else None,
         common_ctc_max=max(ctc_maxs) if ctc_maxs else None,
-        durations=durations,
     )
 
 
