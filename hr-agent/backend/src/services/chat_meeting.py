@@ -306,6 +306,11 @@ async def book_meeting(
         }
         meeting_session_id = meeting_row.id
         await set_stage(session, application_id, _ROUND_TO_STAGE[round], force=True)
+        from src.models.pipeline import StageStatus
+        _app = await session.get(Application, application_id)
+        if _app is not None:
+            _app.current_stage_key = round
+            _app.stage_status = str(StageStatus.SCHEDULED)
         await log_audit(
             session,
             application_id=application_id,

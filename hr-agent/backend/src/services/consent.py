@@ -16,7 +16,7 @@ from src.models.audit import ConsentChannel, ConsentType
 
 PRIVACY_NOTICE_VERSION = "v1"
 
-PRIVACY_NOTICE_TEXT_V1 = """GrabOn (Inspirelabs Solutions Pvt. Ltd.) processes your application for
+PRIVACY_NOTICE_TEXT_V1 = """GrabOn (GrabOn Solutions Pvt. Ltd.) processes your application for
 recruitment purposes under India's Digital Personal Data Protection Act 2023.
 
 Your data (name, contact details, resume, and application context) is used to:
