@@ -29,7 +29,6 @@ import {
   ArrowRight,
   Loader2,
   CheckCircle2,
-  Send,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -40,7 +39,9 @@ import { StatusTag, type Stage } from "@/components/status-tag";
 import { SkeletonLines } from "@/components/skeleton";
 import { swrFetcher, api } from "@/lib/api";
 import { ActivityTimeline } from "@/components/candidate-detail/activity-timeline";
+import { PipelineStepper } from "@/components/candidate-detail/pipeline-stepper";
 import { AdminReviewPanel } from "@/components/admin-review-panel";
+import type { StageViewEntry } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 /* ------------------------------------------------------------------ */
@@ -1154,39 +1155,51 @@ function EvidenceAndDecisions({ data }: { data: any }) {
 /*  Proceed to Next Round                                             */
 /* ------------------------------------------------------------------ */
 
-const ROUND_TRANSITIONS: Record<string, { targetStage: string; nextRound: string; label: string; description: string }> = {
-  // After assignment evaluation → Technical Interview
-  assignment_submitted: { targetStage: "assessment_evaluated", nextRound: "technical", label: "Proceed to Technical Interview", description: "Panel members will receive an email to confirm their availability for the technical round." },
-  assessment_completed: { targetStage: "assessment_evaluated", nextRound: "technical", label: "Proceed to Technical Interview", description: "Panel members will receive an email to confirm their availability for the technical round." },
-  assessment_pending_review: { targetStage: "assessment_evaluated", nextRound: "technical", label: "Proceed to Technical Interview", description: "Panel members will receive an email to confirm their availability for the technical round." },
-  report_ready: { targetStage: "assessment_evaluated", nextRound: "technical", label: "Proceed to Technical Interview", description: "Panel members will receive an email to confirm their availability for the technical round." },
-  // After technical evaluation → CEO Interview
-  technical_meeting_completed: { targetStage: "technical_evaluated", nextRound: "ceo", label: "Proceed to CEO Interview", description: "CEO panel members will receive an email to confirm their availability." },
-  technical_evaluated: { targetStage: "technical_evaluated", nextRound: "ceo", label: "Proceed to CEO Interview", description: "CEO panel members will receive an email to confirm their availability." },
-  technical_pending_approval: { targetStage: "technical_evaluated", nextRound: "ceo", label: "Proceed to CEO Interview", description: "CEO panel members will receive an email to confirm their availability." },
-  // After CEO meeting → HR Discussion
-  ceo_meeting_completed: { targetStage: "ceo_meeting_completed", nextRound: "hr", label: "Proceed to HR Discussion", description: "HR panel members will receive an email to confirm their availability." },
-  ceo_pending_approval: { targetStage: "ceo_meeting_completed", nextRound: "hr", label: "Proceed to HR Discussion", description: "HR panel members will receive an email to confirm their availability." },
-};
-
 function ProceedToNextRound({
   applicationId,
   currentStage,
+  stageView,
   onChanged,
 }: {
   applicationId: string;
   currentStage: string;
+  stageView?: StageViewEntry[] | null;
   onChanged: () => void;
 }) {
-  const transition = ROUND_TRANSITIONS[currentStage];
+  // Derive dynamic transition from stage_view when available.
+  let transition: { targetStage: string; nextRound: string; label: string; description: string } | undefined;
+  if (stageView && stageView.length > 0) {
+    const currentIdx = stageView.findIndex((s) => s.stage_key === currentStage || s.is_current);
+    if (currentIdx >= 0) {
+      const nextEnabled = stageView.slice(currentIdx + 1).find((s) => s.is_enabled);
+      if (nextEnabled) {
+        transition = {
+          targetStage: nextEnabled.stage_key,
+          nextRound: nextEnabled.label,
+          label: `Proceed to ${nextEnabled.label}`,
+          description: `Advance candidate to the ${nextEnabled.label} stage.`,
+        };
+      }
+    }
+  }
+  // Fallback to hardcoded transitions
+  if (!transition) {
+    const ROUND_TRANSITIONS: Record<string, { targetStage: string; nextRound: string; label: string; description: string }> = {
+      assignment_submitted: { targetStage: "assessment_evaluated", nextRound: "technical", label: "Proceed to Technical Interview", description: "Advance candidate to the technical interview stage." },
+      assessment_completed: { targetStage: "assessment_evaluated", nextRound: "technical", label: "Proceed to Technical Interview", description: "Advance candidate to the technical interview stage." },
+      assessment_pending_review: { targetStage: "assessment_evaluated", nextRound: "technical", label: "Proceed to Technical Interview", description: "Advance candidate to the technical interview stage." },
+      report_ready: { targetStage: "assessment_evaluated", nextRound: "technical", label: "Proceed to Technical Interview", description: "Advance candidate to the technical interview stage." },
+      technical_meeting_completed: { targetStage: "technical_evaluated", nextRound: "ceo", label: "Proceed to CEO Interview", description: "Advance candidate to the CEO interview stage." },
+      technical_evaluated: { targetStage: "technical_evaluated", nextRound: "ceo", label: "Proceed to CEO Interview", description: "Advance candidate to the CEO interview stage." },
+      technical_pending_approval: { targetStage: "technical_evaluated", nextRound: "ceo", label: "Proceed to CEO Interview", description: "Advance candidate to the CEO interview stage." },
+      ceo_meeting_completed: { targetStage: "ceo_meeting_completed", nextRound: "hr", label: "Proceed to HR Discussion", description: "Advance candidate to the HR discussion stage." },
+      ceo_pending_approval: { targetStage: "ceo_meeting_completed", nextRound: "hr", label: "Proceed to HR Discussion", description: "Advance candidate to the HR discussion stage." },
+    };
+    transition = ROUND_TRANSITIONS[currentStage];
+  }
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Test panel email
-  const [testingEmail, setTestingEmail] = useState(false);
-  const [testResult, setTestResult] = useState<string | null>(null);
-  const [testError, setTestError] = useState<string | null>(null);
 
   if (!transition && !done) return null;
 
@@ -1208,25 +1221,6 @@ function ProceedToNextRound({
     }
   };
 
-  const handleTestEmail = async () => {
-    const round = transition?.nextRound;
-    if (!round) return;
-    setTestingEmail(true);
-    setTestError(null);
-    setTestResult(null);
-    try {
-      const res = await api.post<{ message: string; meeting_session_id: string }>(
-        `/dashboard/v1/candidates/${applicationId}/trigger-panel-availability`,
-        { round },
-      );
-      setTestResult(res.message || `Panel emails sent for ${round} round`);
-    } catch (e: any) {
-      setTestError(e.message || "Failed to send test emails");
-    } finally {
-      setTestingEmail(false);
-    }
-  };
-
   if (done) {
     return (
       <Card className="border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/20">
@@ -1235,9 +1229,6 @@ function ProceedToNextRound({
           <div>
             <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">
               Candidate advanced to {transition?.nextRound} round
-            </p>
-            <p className="text-xs text-emerald-600/80 dark:text-emerald-400/80">
-              Panel members will receive availability confirmation emails shortly.
             </p>
           </div>
         </CardContent>
@@ -1254,17 +1245,6 @@ function ProceedToNextRound({
             <p className="text-xs text-muted-foreground mt-0.5">{transition!.description}</p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleTestEmail}
-              disabled={testingEmail}
-              className="gap-1.5"
-              title="Send panel availability emails without changing the candidate's stage"
-            >
-              {testingEmail ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-              Test Panel Email
-            </Button>
             <Button onClick={handleProceed} disabled={loading} className="gap-1.5">
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
               {transition!.label}
@@ -1275,16 +1255,6 @@ function ProceedToNextRound({
         {error && (
           <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
             <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> {error}
-          </div>
-        )}
-        {testError && (
-          <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-            <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> {testError}
-          </div>
-        )}
-        {testResult && (
-          <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/20 dark:text-emerald-300">
-            <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> {testResult}
           </div>
         )}
       </CardContent>
@@ -1357,12 +1327,23 @@ export default function CandidateDetailPage() {
             <StatusTag stage={data.current_stage as Stage} />
           </div>
 
+          {/* Pipeline stepper */}
+          {data.stage_view?.length > 0 && (
+            <Card>
+              <CardContent className="p-4">
+                <PipelineStepper stages={data.stage_view as StageViewEntry[]} />
+              </CardContent>
+            </Card>
+          )}
+
           {isRejected && <RejectionReasonBanner audit={data.audit ?? []} voiceEvaluation={data.voice_evaluation} />}
 
           {/* Admin review panel */}
           <AdminReviewPanel
             applicationId={id}
             currentStage={data.current_stage}
+            stageStatus={data.stage_status}
+            stageView={data.stage_view as StageViewEntry[] | null | undefined}
             meetingReports={data.meeting_reports}
             adminReview={data.admin_review}
             onChanged={() => mutate()}
@@ -1440,10 +1421,47 @@ export default function CandidateDetailPage() {
           {/* Assignment */}
           <AssignmentSection submission={data.assignment_submission} role={role} />
 
+          {/* Journey Report (CEO brief) */}
+          {data.journey_report && (
+            <Collapsible title="CEO Brief" icon={<FileSearch className="h-4 w-4" />} defaultOpen={false}>
+              <div className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap">
+                {data.journey_report}
+              </div>
+            </Collapsible>
+          )}
+
+          {/* Original Application */}
+          {data.application_mail && (
+            <Collapsible title="Original Application" icon={<Mail className="h-4 w-4" />} defaultOpen={false}>
+              <div className="space-y-3">
+                {data.application_mail.subject && (
+                  <p className="text-sm font-medium">{data.application_mail.subject}</p>
+                )}
+                {data.application_mail.body_preview && (
+                  <div className="max-h-60 overflow-y-auto rounded-lg border bg-muted/30 p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap">
+                    {data.application_mail.body_preview}
+                  </div>
+                )}
+                {data.application_mail.forwarder_name && (
+                  <p className="text-xs text-muted-foreground">
+                    Forwarded by {data.application_mail.forwarder_name}
+                    {data.application_mail.forwarder_email && ` (${data.application_mail.forwarder_email})`}
+                  </p>
+                )}
+                {data.application_mail.source && (
+                  <p className="text-xs text-muted-foreground">
+                    Source: {data.application_mail.source}
+                  </p>
+                )}
+              </div>
+            </Collapsible>
+          )}
+
           {/* Proceed to next round */}
           <ProceedToNextRound
             applicationId={id}
             currentStage={data.current_stage}
+            stageView={data.stage_view as StageViewEntry[] | null | undefined}
             onChanged={() => mutate()}
           />
 

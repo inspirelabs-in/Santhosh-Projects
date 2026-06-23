@@ -41,7 +41,10 @@ interface Candidate {
   email: string | null;
   role_title: string | null;
   current_stage: Stage;
+  current_stage_key: string;
   screening_score: number | null;
+  fit_score: number | null;
+  fit_tier: string | null;
   updated_at: string;
 }
 
@@ -371,11 +374,11 @@ export default function CandidatesPage() {
                         onQuickView={() => setQuickViewId(c.application_id)}
                       >
                       <li
-                        className={cn(
-                          "grid grid-cols-[auto_1fr_auto] items-center gap-4 p-4 transition hover:bg-background/70 md:grid-cols-[auto_1fr_180px_140px_auto]",
-                          isSel && "bg-background/60",
-                          isRecentlyProcessed && "agent-processing",
-                        )}
+                          className={cn(
+                            "grid grid-cols-[auto_1fr_auto] items-center gap-4 p-4 transition hover:bg-background/70 md:grid-cols-[auto_1fr_180px_80px_140px_auto]",
+                            isSel && "bg-background/60",
+                            isRecentlyProcessed && "agent-processing",
+                          )}
                       >
                         <input
                           type="checkbox"
@@ -412,6 +415,16 @@ export default function CandidatesPage() {
                           className="hidden font-mono text-[11px] text-muted-foreground md:block"
                         >
                           {new Date(c.updated_at).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" })}
+                        </Link>
+                        <Link href={`/candidates/${c.application_id}`} className="hidden items-center gap-1 md:flex">
+                          {c.fit_score != null && (
+                            <span className={cn(
+                              "font-mono text-xs font-semibold",
+                              (c.fit_tier === "green") ? "text-emerald-600" : (c.fit_tier === "red" ? "text-red-500" : "text-amber-600"),
+                            )}>
+                              {c.fit_score}
+                            </span>
+                          )}
                         </Link>
                         <Link href={`/candidates/${c.application_id}`} className="flex items-center gap-2">
                           <StatusTag stage={c.current_stage} />
