@@ -1,29 +1,21 @@
 """Prompt: generate take-home assignment brief.
 
 Split into two parts:
-  Part 1 — Company persona (InspireLabs / GrabOn context)
+  Part 1 — Company persona ({company_persona}, injected from the org row in DB)
   Part 2 — Problem statement generation (driven by JD + role)
 
-The model reads the JD, extracts the actual skills/domain/challenges,
-and generates problems that test THOSE specific requirements. No
-hardcoded project names.
+The company persona and name are NOT hardcoded: ``gen_assignment`` fetches them
+from ``organizations`` (name + settings.org_context.summary + hiring_persona)
+and passes ``{company_persona}`` / ``{company_name}`` to ``compile_prompt``. The
+model reads the JD, extracts the actual skills/domain/challenges, and generates
+problems that test THOSE specific requirements. No hardcoded project names.
 """
 
-ASSIGNMENT_GEN_VERSION = "v3"
+ASSIGNMENT_GEN_VERSION = "v9"  # role-level only: dropped candidate/screening inputs
 
-# ─── Part 1: Company Persona ─────────────────────────────────────
+# ─── Part 1 + Part 2: persona is injected at compile time ────────
 
-_COMPANY_PERSONA = """# Company: GrabOn (InspireLabs Solutions Pvt. Ltd.)
-
-GrabOn is India's largest coupon and savings platform. 40M+ monthly users, 1,000+ merchant partners, headquartered in Hyderabad. Part of InspireLabs Solutions Pvt. Ltd.
-
-Culture: Ownership-driven, builder-first. We hire people who take ambiguous problems and ship working solutions. No hand-holding. Weekly deploys. High autonomy, high accountability.
-
-Use "GrabOn" as the company name in all candidate-facing text. Never invent fictional company names."""
-
-# ─── Part 2: Problem Generation ──────────────────────────────────
-
-ASSIGNMENT_GEN_V1 = _COMPANY_PERSONA + """
+ASSIGNMENT_GEN_V1 = """{company_persona}
 
 # Your Task
 
@@ -50,7 +42,7 @@ STEP 2 — Generate problems that directly test JD requirements:
       "DevOps + Kubernetes" → design and implement infra automation
       "Data engineering + Spark" → build a data pipeline with transformations
       "Mobile + React Native" → build a mobile feature with offline support
-    Ground the scenario in GrabOn's domain where natural, but the TECH must match the JD.
+    Ground the scenario in {company_name}'s domain where natural, but the TECH must match the JD.
 
   FOR NON-TECHNICAL ROLES (marketing, sales, HR, finance, ops, design, PM, legal):
     Problems should involve analysis, strategy, or deliverables relevant to the function.
@@ -62,7 +54,7 @@ STEP 2 — Generate problems that directly test JD requirements:
       "Finance" → build a financial model or variance analysis
       "HR" → design an onboarding program or comp benchmarking exercise
       "Content" → create a content calendar with distribution strategy
-    Use GrabOn as the business context, but the WORK must match what the JD describes.
+    Use {company_name} as the business context, but the WORK must match what the JD describes.
 
   FOR HYBRID ROLES (technical PM, data analyst, UX researcher, growth engineer):
     One problem should be analytical/strategic, one should involve hands-on execution.
@@ -75,16 +67,12 @@ STEP 3 — Verify before outputting:
 
 # Inputs
 
+This brief is generated at the ROLE level, before any candidate applies. There is NO candidate data. Base everything on the JD and role below; never reference a specific candidate, resume, or prior answers.
+
 Role: {role_title}
 
 Job Description (THIS IS YOUR PRIMARY INPUT — base ALL problems on this):
 {jd_text}
-
-Candidate profile (parsed resume, may be empty for role-level briefs):
-{candidate_profile_json}
-
-Candidate screening answers (use to calibrate difficulty, may be empty):
-{screening_answers_json}
 
 Constraints:
   * Total candidate time budget: {time_budget_hours} hours across ALL problems combined; candidate picks ONE.
@@ -105,20 +93,20 @@ Banned:
   * "Build a CRUD app" with no strategic framing.
   * Vague deliverables ("build something cool").
   * Two problems that test the same skill set.
-  * Generic company names. Always use GrabOn.
+  * Generic company names. Always use {company_name}.
   * Repeating the same problem across different roles. Each role's JD is unique; problems must be unique.
 
 # Text Rules
   * ALL text must be PLAIN TEXT only. No HTML tags. No HTML entities.
-  * The company is ALWAYS "GrabOn". Never invent names.
+  * The company is ALWAYS "{company_name}". Never invent names.
   * Write like a senior hiring manager who has shipped real systems.
 
 # Cover-page fields
 
-cover_title: "GrabOn | {{role_title}} Challenge" — exactly this format.
+cover_title: "{company_name} | {role_title} Challenge" — exactly this format.
 confidential_tag: "CONFIDENTIAL".
-company_context: 2 short paragraphs (~80 words) about GrabOn. What it does, scale, culture.
-new_initiatives: 1 short paragraph (~50 words). Infer what GrabOn is building from the JD's domain. If JD mentions ML, talk about AI initiatives. If JD mentions growth, talk about user acquisition. Match the JD.
+company_context: 2 short paragraphs (~80 words) about {company_name}. What it does, scale, culture.
+new_initiatives: 1 short paragraph (~50 words). Infer what {company_name} is building from the JD's domain. If JD mentions ML, talk about AI initiatives. If JD mentions growth, talk about user acquisition. Match the JD.
 strategic_context: 1 short paragraph (~40 words). Strategic levers relevant to THIS role's function.
 what_we_look_for: 4 bullets, 1 sentence each. Reflect qualities the JD asks for.
 
@@ -126,11 +114,11 @@ what_we_look_for: 4 bullets, 1 sentence each. Reflect qualities the JD asks for.
 
 For EACH problem produce ALL of:
   * id: "p1" or "p2".
-  * title: 5-9 words. Derived from JD requirements, grounded in GrabOn context.
+  * title: 5-9 words. Derived from JD requirements, grounded in {company_name} context.
   * vertical: 3-6 words (the business area this problem maps to).
   * tags: 4 short tech/skill chips. MUST match skills from the JD.
   * difficulty: "Hard — 2.5 to 3 days".
-  * challenge: 2-3 sentences. Business problem at GrabOn tied to this role, then what to build.
+  * challenge: 2-3 sentences. Business problem at {company_name} tied to this role, then what to build.
   * why_it_matters: 2-3 sentences. One business impact, one strategic hook.
   * technical_requirements: 6 bullets. Each 15-25 words. For technical roles: specific APIs, schemas, metrics. For non-technical: specific deliverables, frameworks, analysis methods.
   * statement: 80-120 word problem statement.
@@ -146,7 +134,14 @@ submission_requirements: 4 bullets. For technical roles: GitHub repo + README + 
 
 # Rubric
 
-evaluation_rubric.criteria: 5 dimensions, each weight 20.
+evaluation_rubric.criteria: an ARRAY of 5 OBJECTS. Each object MUST have exactly these keys:
+  * name: the dimension name (string).
+  * weight: integer, all five sum to 100 (use 20 each).
+  * description: 1 sentence on what a strong answer on this dimension looks like.
+Do NOT output bare strings. Each criterion is an object, e.g.:
+  {"name": "Technical Depth", "weight": 20, "description": "Handles edge cases and scale, not just the happy path."}
+
+Dimension names to use:
 For technical roles: Technical Depth, Product Thinking, Demo Quality, AI/Tool Usage, Code Quality & Documentation.
 For non-technical roles: Strategic Thinking, Analytical Rigor, Communication Quality, Creativity & Insight, Practical Feasibility.
 For hybrid roles: mix dimensions from both.

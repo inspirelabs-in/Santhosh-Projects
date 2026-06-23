@@ -38,6 +38,27 @@ def _truncate(s: str, n: int) -> str:
     return s if len(s) <= n else s[:n] + "...[truncated]"
 
 
+async def _company_persona() -> tuple[str, str]:
+    """Fetch the org's company persona block + name from DB for prompt injection.
+
+    Never raises: on any failure returns a minimal block so assignment
+    generation still proceeds (degraded grounding beats a hard failure).
+    """
+    try:
+        from src.db.connection import session_scope
+        from src.db.repositories import organization as org_repo
+
+        async with session_scope() as session:
+            return await org_repo.company_persona_block(session)
+    except Exception:  # noqa: BLE001
+        logger.warning("company_persona fetch failed; using minimal block", exc_info=True)
+        return (
+            "# Company\n\nUse the company name in all candidate-facing text. "
+            "Never invent fictional company names.",
+            "the company",
+        )
+
+
 # [SCRAPE] dead: gen_tailored_questions (Chat-V2). KEEP gen_assignment (live).
 async def gen_tailored_questions(
     *,
@@ -72,20 +93,29 @@ async def gen_assignment(
     *,
     role_title: str,
     jd_text: str,
-    candidate_profile: dict[str, Any],
-    screening_answers: dict[str, Any] | None,
     time_budget_hours: int,
     deadline_days: int,
     application_id: UUID,
     candidate_id: UUID,
 ) -> AssignmentBriefOut:
+    """Generate a ROLE-level take-home brief from the JD.
+
+    There is no candidate at generation time (the brief is produced when the
+    role is created/applied), so no candidate profile or screening answers are
+    used. ``application_id``/``candidate_id`` are role-scoped UUIDs used only for
+    LLM tracing.
+    """
+    # Company persona is org-scoped and editable in DB (organizations row), not
+    # hardcoded in the prompt. Fetch + inject it so each org grounds assignments
+    # in its own context. Falls back to a minimal block if the org is unset.
+    company_persona, company_name = await _company_persona()
     prompt = compile_prompt(
         "assignment_gen",
         fallback=ASSIGNMENT_GEN_V1,
+        company_persona=company_persona,
+        company_name=company_name,
         role_title=role_title,
         jd_text=_truncate(jd_text, 8000),
-        candidate_profile_json=json.dumps(candidate_profile, ensure_ascii=False)[:4000],
-        screening_answers_json=json.dumps(screening_answers or {}, ensure_ascii=False)[:3000],
         time_budget_hours=time_budget_hours,
         deadline_days=deadline_days,
     )

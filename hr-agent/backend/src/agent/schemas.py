@@ -66,7 +66,7 @@ class SubmissionFormat(BaseModel):
 class RubricCriterion(BaseModel):
     name: str
     weight: int = Field(ge=1, le=100)
-    description: str
+    description: str = ""
 
 
 class EvaluationRubric(BaseModel):
@@ -75,7 +75,14 @@ class EvaluationRubric(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _normalise_criteria(cls, data):
-        """LLMs sometimes return criteria as {name: description} dicts."""
+        """Coerce the criteria shapes LLMs actually emit into RubricCriterion.
+
+        The assignment prompt lists criteria as bare dimension NAMES, so the
+        model commonly returns ``["Demo Quality", "AI/Tool Usage", ...]`` (plain
+        strings) or ``[{name: description}]`` single-key dicts. Both must become
+        ``{name, weight, description}`` objects rather than raising
+        ``Input should be a valid dictionary or instance of RubricCriterion``.
+        """
         if not isinstance(data, dict):
             return data
         raw = data.get("criteria")
@@ -84,9 +91,15 @@ class EvaluationRubric(BaseModel):
         normalised = []
         equal_weight = max(1, 100 // len(raw))
         for item in raw:
-            if isinstance(item, dict) and "name" not in item and len(item) == 1:
+            if isinstance(item, str):
+                # Bare dimension name -> object with an even weight.
+                normalised.append({"name": item, "weight": equal_weight, "description": ""})
+            elif isinstance(item, dict) and "name" not in item and len(item) == 1:
                 name, desc = next(iter(item.items()))
                 normalised.append({"name": name, "weight": equal_weight, "description": str(desc)})
+            elif isinstance(item, dict) and "weight" not in item and item.get("name"):
+                # Object missing only the weight -> backfill an even weight.
+                normalised.append({**item, "weight": equal_weight})
             else:
                 normalised.append(item)
         data["criteria"] = normalised
