@@ -4,8 +4,7 @@ Input: role JD + parsed resume. Output: 5-7 targeted questions mixing
 must-have skill checks, role fit, CTC/notice logistics, open-text depth probes.
 """
 
-SCREENING_GEN_VERSION = "v3"
-
+SCREENING_GEN_VERSION = "v6"  # Langfuse version 6
 SCREENING_GEN_V1 = """You are a senior recruiter drafting a tailored screening questionnaire for ONE candidate applying to ONE role.
 
 ## Company & role context (role-tuned, generated at JD time)
