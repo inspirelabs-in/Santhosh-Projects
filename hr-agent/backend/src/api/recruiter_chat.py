@@ -362,7 +362,11 @@ async def apply_artifact(
         role_id = role.id
 
         if draft.pipeline:
+            seen_keys: set[str] = set()
             for pos, st in enumerate(draft.pipeline):
+                if st.stage_key in seen_keys:
+                    continue
+                seen_keys.add(st.stage_key)
                 session.add(
                     RolePipelineStage(
                         role_id=role_id,
@@ -382,28 +386,65 @@ async def apply_artifact(
 
         await artifact_repo.set_status(session, artifact_id, ArtifactStatus.APPLIED)
         assignment_cfg = draft.assignment
+        conversation_id = art.conversation_id
+        role_title = draft.title
 
     # Assignment generation runs in its own session after the role is committed.
+    # Reliable + audited (ensure_role_assignment retries + records the outcome):
+    # a transient LLM failure no longer silently leaves the role brief-less, which
+    # is what made dispatch_assessment skip the candidate email.
     assignment_result = None
+    assignment_error = None
     if assignment_cfg and assignment_cfg.enabled:
-        try:
-            from src.recruiter_agent.tools import generate_assignment_for_role
+        from src.recruiter_agent.tools import ensure_role_assignment
 
-            assignment_result = await generate_assignment_for_role(
-                role_id=str(role_id),
-                n_problems=assignment_cfg.n_problems,
-                time_budget_hours=assignment_cfg.time_budget_hours,
-                deadline_days=assignment_cfg.deadline_days,
-                save=True,
+        assignment_result = await ensure_role_assignment(
+            role_id=str(role_id),
+            n_problems=assignment_cfg.n_problems,
+            time_budget_hours=assignment_cfg.time_budget_hours,
+            deadline_days=assignment_cfg.deadline_days,
+            source="artifact_apply",
+        )
+        if not assignment_result.get("ok"):
+            assignment_error = assignment_result.get("error")
+            logger.warning(
+                "assignment generation failed on apply for role %s: %s",
+                role_id, assignment_error,
             )
-        except Exception as e:  # noqa: BLE001
-            logger.warning("assignment generation failed on apply: %s", e)
+
+    # Re-offer the LinkedIn post (and surface the assignment outcome) as a chat
+    # message. The artifact "Apply" is a plain endpoint with no agent turn, so
+    # without this the conversational LinkedIn follow-up that the old confirm-card
+    # create flow provided silently disappeared. The user's "yes" then runs the
+    # existing draft_linkedin_post tool path on the next turn.
+    if assignment_error:
+        asg_line = " Heads up: the take-home couldn't be generated, I can retry that."
+    elif assignment_result and assignment_result.get("ok"):
+        asg_line = " The take-home assignment is attached."
+    else:
+        asg_line = ""
+    follow_up = (
+        f"Created '{role_title}' and opened it for applications.{asg_line} "
+        "Want me to draft a LinkedIn post for this role?"
+    )
+    try:
+        async with session_scope() as session:
+            await repo.append_message(
+                session,
+                conversation_id=conversation_id,
+                role="assistant",
+                content=follow_up,
+            )
+    except Exception:  # noqa: BLE001
+        logger.warning("failed to persist apply follow-up message", exc_info=True)
 
     return {
         "ok": True,
         "role_id": str(role_id),
         "role_url": f"/roles/{role_id}",
         "assignment": assignment_result,
+        "assignment_error": assignment_error,
+        "follow_up": follow_up,
     }
 
 

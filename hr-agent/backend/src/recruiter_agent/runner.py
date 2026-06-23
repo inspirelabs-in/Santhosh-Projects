@@ -66,7 +66,13 @@ logger = logging.getLogger(__name__)
 _settings = get_settings()
 
 
-_COMPANY_NAME = "GrabOn"
+def _get_company_name() -> str:
+    try:
+        from src.config import get_settings
+        return get_settings().voice_agent_company_name
+    except Exception:
+        return "the company"
+
 _MAX_TOOL_HOPS = 5  # raised so Pulse can chain defaults -> draft -> action
 _MAX_HISTORY_TURNS = 20
 _CONFIRM_TTL_SECONDS = 600  # 10 min to confirm before pending entry expires
@@ -289,8 +295,6 @@ async def _prerender_for_confirm(tool_name: str, args: dict[str, Any]) -> dict[s
         brief = await gen_assignment(
             role_title=args.get("title") or "Role",
             jd_text=args.get("jd_text") or "",
-            candidate_profile={},
-            screening_answers=None,
             time_budget_hours=int(args.get("time_budget_hours") or 6),
             deadline_days=int(args.get("deadline_days") or 7),
             application_id=synthetic_id,
@@ -460,9 +464,16 @@ async def _execute_confirmed(
             "LinkedIn post for this role?'"
         )
     elif tool_name == "create_role" and result.get("ok"):
-        nudge = (
-            " Then ask: 'Want a 5-problem take-home assignment for this role too?'"
-        )
+        _asg = result.get("assignment")
+        if isinstance(_asg, dict) and _asg.get("ok"):
+            nudge = (
+                " The take-home assignment was auto-generated and attached to the "
+                "role; say so in one line."
+            )
+        else:
+            nudge = (
+                " Then ask: 'Want a 5-problem take-home assignment for this role too?'"
+            )
     elif tool_name == "draft_linkedin_post" and result.get("ok"):
         nudge = " Mention they can copy or open LinkedIn from the card."
     follow_up_msgs = [
@@ -540,7 +551,7 @@ async def _recent_events(limit: int = 10) -> str:
 
 async def _system_prompt(actor_hash: str | None = None) -> str:
     base = RECRUITER_SYSTEM_V1.format(
-        company_name=_COMPANY_NAME,
+        company_name=_get_company_name(),
         today=datetime.now(tz=UTC).strftime("%Y-%m-%d"),
     )
     if actor_hash:
@@ -1102,7 +1113,7 @@ async def run_recruiter_turn(
 
             # ---- Direct execution ----
             yield {"type": "tool_call", "id": c["id"], "name": name, "arguments": args}
-            result = await call_tool(name, args, actor_hash=actor_hash)
+            result = await call_tool(name, args, actor_hash=actor_hash, conversation_id=str(conversation_id))
 
             # ---- Artifact-writing tools: upsert the conversation's artifact and
             # open the editable side panel instead of rendering an inline block.
