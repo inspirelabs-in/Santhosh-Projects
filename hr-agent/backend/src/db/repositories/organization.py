@@ -49,6 +49,55 @@ async def create_org(
     return org
 
 
+async def company_persona_block(
+    session: AsyncSession, org_id: UUID | None = None
+) -> tuple[str, str]:
+    """Render the org's company persona as a plain-text block for prompt
+    injection (assignment generation, etc.), plus the company name.
+
+    Sources, in order of preference, from ``organizations``:
+      * ``name`` -> the company name used in candidate-facing text.
+      * ``settings.org_context.summary`` -> the grounding paragraph.
+      * ``hiring_persona.hiring_philosophy`` / ``.tone`` -> the culture line.
+
+    Returns ``(persona_block, company_name)``. Never raises: when the org or its
+    context is unset, returns a minimal block so the prompt still compiles.
+    Resolves the default org when ``org_id`` is omitted (single-tenant phase).
+    """
+    org = (
+        await session.get(Organization, org_id)
+        if org_id is not None
+        else await get_default(session)
+    )
+    if org is None:
+        block = (
+            "# Company\n\n"
+            "Use the company name in all candidate-facing text. "
+            "Never invent fictional company names."
+        )
+        return block, "the company"
+
+    name = (org.name or "the company").strip()
+    settings = org.settings if isinstance(org.settings, dict) else {}
+    ctx = settings.get("org_context") if isinstance(settings, dict) else None
+    summary = (ctx.get("summary") if isinstance(ctx, dict) else None) or ""
+    persona = org.hiring_persona if isinstance(org.hiring_persona, dict) else {}
+    culture = (persona.get("hiring_philosophy") or persona.get("tone") or "").strip()
+
+    lines = [f"# Company: {name}", ""]
+    if summary.strip():
+        lines.append(summary.strip())
+        lines.append("")
+    if culture:
+        lines.append(f"Culture: {culture}")
+        lines.append("")
+    lines.append(
+        f'Use "{name}" as the company name in all candidate-facing text. '
+        "Never invent fictional company names."
+    )
+    return "\n".join(lines), name
+
+
 async def set_persona(
     session: AsyncSession, org_id: UUID, persona: dict
 ) -> Organization | None:

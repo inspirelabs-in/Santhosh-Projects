@@ -171,11 +171,22 @@ def _register_supervisor_tools(registry: ToolRegistry) -> None:
 
     async def advance_stage(*, application_id: str, target_stage: str) -> dict[str, Any]:
         from uuid import UUID
+        from src.db.base import Application
         from src.db.connection import session_scope
         from src.db.repositories.v1_application import set_stage
         from src.models.v1 import PipelineStage
+        from src.services.state_machine import legacy_stage_to_key
+        target = PipelineStage(target_stage)
+        app_id = UUID(application_id)
         async with session_scope() as session:
-            await set_stage(session, UUID(application_id), PipelineStage(target_stage))
+            await set_stage(session, app_id, target)
+            # set_stage is legacy-only now; advance the V2 cursor too so progression
+            # reads the correct stage instead of a stale key (stale-cursor fix).
+            app = await session.get(Application, app_id)
+            _skey, _sstatus = legacy_stage_to_key(target)
+            if app is not None and _skey:
+                app.current_stage_key = _skey
+                app.stage_status = _sstatus
         return {"success": True, "new_stage": target_stage}
 
     async def escalate_to_hr(

@@ -53,9 +53,16 @@ async def set_stage(
         from src.services.state_machine import legacy_stage_to_key
 
         skey, sstatus = legacy_stage_to_key(new_stage)
-        if skey:
-            app.current_stage_key = skey
-            app.stage_status = sstatus
+        # V1->V2 migration: set_stage is now LEGACY-ONLY. It still writes the
+        # fine-grained current_stage (read by 40+ dashboards / voice prompts /
+        # journey report / workers) but NO LONGER writes current_stage_key /
+        # stage_status -- V2 (advance_candidate / auto_progress) is the SOLE owner
+        # of the pipeline cursor. This removes the dual-write race that re-sent
+        # assignments (V1->V2-migration bug #1). skey/sstatus are kept only for the
+        # informational domain event below.
+        # if skey:
+        #     app.current_stage_key = skey
+        #     app.stage_status = sstatus
 
         from src.db.events import emit_event
 
