@@ -39,7 +39,7 @@ from src.db.base import Application, Candidate, MeetingSession, Role, VoiceCall
 from src.db.connection import session_scope
 from src.db.repositories.audit import log_audit
 from src.db.repositories.meeting_session import create_session, attach_bot
-from src.db.repositories.v1_application import set_stage
+from src.db.repositories.v1_application import set_stage, claim_stage_processing, record_stage_verdict, mark_stage_failed
 from src.db.repositories.voice_call import create_voice_call, mark_dispatched
 from src.models.scheduling import RoleScheduling
 from src.models.v1 import MeetingRound, PipelineStage, VoiceCallStatus
@@ -285,7 +285,15 @@ async def schedule_meeting(
         meeting_session_id = meeting_row.id
         meeting_row.bot_id = ms_meeting_id  # store Graph meeting id alongside the bot id slot
         if round in _ROUND_TO_STAGE:
+            # Claim processing BEFORE committing the stage advance (P-1).
+            stage_key = {"technical": "technical", "ceo": "ceo", "hr": "hr"}.get(round, round)
+            await claim_stage_processing(session, application_id, stage_key)
             await set_stage(session, application_id, _ROUND_TO_STAGE[round], force=True)
+            from src.models.pipeline import StageStatus
+            _app = await session.get(Application, application_id)
+            if _app is not None:
+                _app.current_stage_key = stage_key
+                _app.stage_status = str(StageStatus.SCHEDULED)
         await log_audit(
             session,
             application_id=application_id,
@@ -346,6 +354,18 @@ async def schedule_meeting(
             )
     except Exception as exc:  # noqa: BLE001
         logger.warning("invite email failed: %s", exc)
+
+    # Meeting booked + invites sent -> record on_going verdict (P-1).
+    _sk = {"technical": "technical", "ceo": "ceo", "hr": "hr"}.get(round, round)
+    try:
+        async with session_scope() as session:
+            await record_stage_verdict(
+                session, application_id, _sk,
+                verdict="on_going",
+                result_ref={"meeting_session_id": str(meeting_session_id)},
+            )
+    except Exception:  # noqa: BLE001
+        logger.debug("stage verdict write failed for %s (non-fatal)", _sk)
 
     # Confirmation call to the candidate (gated). V1 default: skip — candidate
     # already got the meeting invite email + Teams link, no need for a phone
