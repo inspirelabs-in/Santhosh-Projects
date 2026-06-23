@@ -3,7 +3,7 @@
 # Architecture:
 #   Candidate browser / ElevenLabs / Twilio
 #         |
-#         v   https://chili-congested-brethren.ngrok-free.dev
+#         v   https://unlearned-helping-tinsel.ngrok-free.dev
 #       ngrok
 #         |
 #         v   http://host.docker.internal:8080  (or localhost:8080 from host)
@@ -30,7 +30,7 @@
 #   caddy run --config "D:/HR Agent/Caddyfile"
 #
 # Then point ngrok at port 8080 (NOT 8000) so this proxy gets first crack:
-#   ngrok http --domain=chili-congested-brethren.ngrok-free.dev 8080
+#   ngrok http --domain=unlearned-helping-tinsel.ngrok-free.dev 8080
 
 {
     # Disable Caddy's auto-HTTPS; ngrok terminates TLS upstream.
