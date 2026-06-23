@@ -16,7 +16,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from src.models.context import RoleContext
 from src.models.evaluation import EvaluationSpec
@@ -38,9 +38,16 @@ class RoleDraftAssignment(BaseModel):
     on apply, not stored in the draft)."""
 
     enabled: bool = True
-    n_problems: int = Field(default=2, ge=1, le=8)
-    time_budget_hours: int = Field(default=6, ge=1, le=40)
-    deadline_days: int = Field(default=7, ge=1, le=60)
+    n_problems: int = Field(default=2)
+    time_budget_hours: int = Field(default=6)
+    deadline_days: int = Field(default=7)
+
+    @model_validator(mode="after")
+    def _clamp(self) -> "RoleDraftAssignment":
+        self.n_problems = max(1, min(8, self.n_problems))
+        self.time_budget_hours = max(1, min(40, self.time_budget_hours))
+        self.deadline_days = max(1, min(60, self.deadline_days))
+        return self
 
 
 class RoleDraftContent(BaseModel):

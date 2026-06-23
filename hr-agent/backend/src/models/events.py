@@ -42,6 +42,7 @@ class ActionType(StrEnum):
     SCHEDULE_INTERVIEW = "schedule_interview"
     RESCHEDULE_REQUEST = "reschedule_request"
     REVIEW_INTERVIEW_ANALYSIS = "review_interview_analysis"
+    NEEDS_REVIEW = "needs_review"  # borderline stage score -> HR confirms pass/reject
     HIRE_OR_REJECT = "hire_or_reject"
     VOICE_CALL_FAILED = "voice_call_failed"
     CANDIDATE_EMAIL_REPLY = "candidate_email_reply"

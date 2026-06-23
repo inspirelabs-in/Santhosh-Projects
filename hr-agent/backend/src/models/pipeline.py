@@ -31,7 +31,7 @@ class StageType(StrEnum):
     SCREENING = "screening"  # resume / written screening — removable per role
     VOICE_SCREEN = "voice_screen"
     ASSIGNMENT = "assignment"
-    ASSESSMENT_REVIEW = "assessment_review"  # first human gate
+    # ASSESSMENT_REVIEW = "assessment_review"  # DEPRECATED: folded into the assignment stage (which now parks for review on submit). Kept so legacy pipelines/rows still resolve; no longer seeded into new roles.
     INTERVIEW = "interview"  # repeatable: technical / system_design / ceo / hr ...
     DECISION = "decision"
     OFFER = "offer"
@@ -70,6 +70,7 @@ class StageVerdict(StrEnum):
     PENDING = "pending"      # not started / not reached
     ON_GOING = "on_going"    # started, awaiting a decision (call placed, meeting booked)
     PASS = "pass"            # cleared -> the runner advances
+    NEEDS_REVIEW = "needs_review"  # borderline score -> park for HR; HR's pass/reject decides
     FAIL = "fail"            # failed -> the runner rejects (+ rejection email on auto lane)
 
 
@@ -119,9 +120,10 @@ class PipelineStageDef(BaseModel):
 
 
 # Default pipeline seeded onto roles with none (and on the migration backfill).
-# Mirrors the ideal flow: auto from intake through assignment-send ("till voice +
-# assignment, no HR intervention"); manual from assessment_review onward
-# ("post that we need it"). Voice screen IS the screen — there is no separate
+# Mirrors the ideal flow: auto from intake through voice screen, no HR
+# intervention. The assignment stage auto-sends the take-home when the candidate
+# reaches it and then parks for HR review once they submit (mode=manual), so there
+# is no separate review stage. Voice screen IS the screen — there is no separate
 # written-screening stage by default (a role can add one). Reorder / remove /
 # duplicate stages per role to customise.
 DEFAULT_PIPELINE: list[dict] = [
@@ -129,8 +131,7 @@ DEFAULT_PIPELINE: list[dict] = [
     {"stage_key": "parse", "stage_type": "parse", "label": "Resume Parse", "mode": "auto"},
     {"stage_key": "fit", "stage_type": "fit", "label": "Fit Score", "mode": "auto"},
     {"stage_key": "voice_screen", "stage_type": "voice_screen", "label": "Voice Screen", "mode": "auto"},
-    {"stage_key": "assignment", "stage_type": "assignment", "label": "Assignment", "mode": "auto"},
-    {"stage_key": "assessment_review", "stage_type": "assessment_review", "label": "Assessment Review", "mode": "manual"},
+    {"stage_key": "assignment", "stage_type": "assignment", "label": "Assignment", "mode": "manual"},
     {"stage_key": "technical", "stage_type": "interview", "label": "Technical Interview", "mode": "manual"},
     {"stage_key": "ceo", "stage_type": "interview", "label": "CEO Interview", "mode": "manual"},
     {"stage_key": "hr", "stage_type": "interview", "label": "HR Interview", "mode": "manual"},
