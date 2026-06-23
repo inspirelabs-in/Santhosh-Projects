@@ -5,8 +5,7 @@ files + pasted links + notes). Output: structured summary and quality flags.
 Does NOT grade the assignment -- final judgment is HR's. Just extracts signal.
 """
 
-ASSIGNMENT_PARSE_VERSION = "v3"
-
+ASSIGNMENT_PARSE_VERSION = "v6"  # Langfuse version 6
 ASSIGNMENT_PARSE_V1 = """You are reviewing a candidate's submitted assignment. Your job is to extract signal for the HR reviewer, NOT to grade.
 
 ## Company & role context (role-tuned, generated at JD time)

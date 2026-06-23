@@ -1,7 +1,6 @@
 """PARSE_RESUME_V3 -- Structured resume extraction. No vision — text only."""
 
-PARSE_RESUME_VERSION = "v3"
-
+PARSE_RESUME_VERSION = "v8"  # Langfuse version 8
 PARSE_RESUME_V1 = """You are a precise resume parser. Extract EVERYTHING present in this resume into the schema below. Resumes follow wildly different templates; capture whatever is there.
 
 # TEXT EXTRACTION RULES
