@@ -94,12 +94,59 @@ def _determine_tier(
     return FitTier.RED
 
 
+def _tier_from_verdict(verdict) -> FitTier:
+    """Map the shared StageVerdict to the legacy fit_tier the UI renders:
+    pass -> green, needs_review -> amber, reject -> red."""
+    from src.models.pipeline import StageVerdict
+
+    v = verdict.value if hasattr(verdict, "value") else str(verdict)
+    if v == StageVerdict.PASS.value:
+        return FitTier.GREEN
+    if v == StageVerdict.NEEDS_REVIEW.value:
+        return FitTier.AMBER
+    return FitTier.RED
+
+
+async def _get_medium_data(session, application_id: UUID) -> str:
+    """The candidate's own words from how they reached us (inbound email body or
+    careers-form text), read from the intake audit. Empty string if none.
+    Best-effort + read-only -- never blocks scoring."""
+    try:
+        from sqlalchemy import select
+        from src.db.base import AuditLog
+
+        row = (
+            await session.execute(
+                select(AuditLog)
+                .where(AuditLog.application_id == application_id)
+                .where(AuditLog.action == "intake_completed")
+                .order_by(AuditLog.created_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if row is None or not isinstance(row.details, dict):
+            return ""
+        d = row.details
+        parts: list[str] = []
+        if d.get("subject"):
+            parts.append(f"Subject: {d['subject']}")
+        if d.get("body_preview"):
+            parts.append(str(d["body_preview"]))
+        return "\n".join(parts)[:4000]
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def _compute_weighted_score(assessment: FitAssessment, weights: dict[str, int]) -> int:
     """Compute overall score from only dimensions that have real data."""
     scored_dims: list[tuple[str, int, int]] = []
     dims = assessment.dimensions
 
-    for dim_field, weight_key in _DIM_KEY_MAP.items():
+    # Comp/logistics are FLAGS, never score-drivers: the overall is skills +
+    # experience only, so a salary or notice mismatch can never lower the score
+    # (the risk is losing good candidates). ctc_fit/location_notice_fit are still
+    # scored on the assessment for display, but excluded from the overall.
+    for dim_field, weight_key in (("skills_match", "skills"), ("experience_level", "experience")):
         dim_score = getattr(dims, dim_field, None)
         if dim_score is not None and dim_score.is_scored:
             scored_dims.append((dim_field, dim_score.score, weights.get(weight_key, 0)))
@@ -141,7 +188,7 @@ async def run_fit_score(payload: FitScoreInput) -> FitScoreOutput:
                 candidate_id=payload.candidate_id,
                 application_id=payload.application_id,
                 overall_score=0,
-                tier=FitTier.RED,
+                tier=FitTier.AMBER,  # our gap, not the candidate's -> park for HR, never auto-reject
                 knock_outs=["role_jd_missing"],
                 trace_id=None,
             )
@@ -168,7 +215,7 @@ async def run_fit_score(payload: FitScoreInput) -> FitScoreOutput:
                 candidate_id=payload.candidate_id,
                 application_id=payload.application_id,
                 overall_score=no_profile_score,
-                tier=FitTier.RED,
+                tier=FitTier.AMBER,  # resume parse missing -> park for HR, never auto-reject
                 knock_outs=[],
                 trace_id=None,
             )
@@ -187,6 +234,10 @@ async def run_fit_score(payload: FitScoreInput) -> FitScoreOutput:
             "evaluation_spec": role.evaluation_spec or {},
             "company_context": role.company_context or {},
         }
+
+        # The candidate's own words (inbound email / form text) -- fed to the
+        # prompt alongside the parsed profile.
+        medium_data = await _get_medium_data(session, payload.application_id)
 
     ko_result = check_hard_knockouts(
         expected_ctc=profile.expected_ctc_lpa,
@@ -211,6 +262,7 @@ async def run_fit_score(payload: FitScoreInput) -> FitScoreOutput:
         role_location=role_snapshot["location"] or "n/a",
         remote_policy=role_snapshot["remote_policy"],
         candidate_profile_json=json.dumps(profile.model_dump(mode="json"), ensure_ascii=False, indent=2),
+        medium_data=(medium_data or "(none provided)"),
         skills_weight=weights["skills"],
         experience_weight=weights["experience"],
         ctc_weight=weights["ctc"],
@@ -236,20 +288,22 @@ async def run_fit_score(payload: FitScoreInput) -> FitScoreOutput:
     overall = _compute_weighted_score(assessment, weights)
     assessment.overall_score = overall
 
-    deterministic_tier = _determine_tier(
-        overall, knock_outs,
-        green_threshold=green_threshold,
-    )
-    tier_matches_model = deterministic_tier == assessment.recommended_tier
+    # Score-only contract: the shared asymmetric band decides the verdict.
+    # Knockouts (comp/notice/location) are recorded as FLAGS, never auto-rejects
+    # -- the risk is losing good candidates, so logistics never sink the verdict.
+    from src.services.evaluation import route_score
+
+    verdict = route_score(overall)
+    fit_tier = _tier_from_verdict(verdict)
 
     async with session_scope() as session:
         application = await get_application(session, payload.application_id)
         if application is not None:
             application.fit_score = overall
-            application.fit_tier = deterministic_tier.value
+            application.fit_tier = fit_tier.value
             application.status = (
                 ApplicationStatus.REJECTED.value
-                if deterministic_tier == FitTier.RED
+                if fit_tier == FitTier.RED
                 else ApplicationStatus.SCORED.value
             )
 
@@ -268,9 +322,8 @@ async def run_fit_score(payload: FitScoreInput) -> FitScoreOutput:
                 "red_flags": assessment.red_flags,
                 "green_flags": assessment.green_flags,
                 "pending_verification": pending,
-                "llm_tier": assessment.recommended_tier.value,
-                "deterministic_tier": deterministic_tier.value,
-                "tier_agreement": tier_matches_model,
+                "verdict": verdict.value,
+                "fit_tier": fit_tier.value,
                 "knock_outs": knock_outs,
                 "summary": assessment.summary,
                 "weights_used": weights,
@@ -350,11 +403,11 @@ async def run_fit_score(payload: FitScoreInput) -> FitScoreOutput:
                 application_id=payload.application_id,
                 candidate_id=payload.candidate_id,
                 decision_type="fit_score",
-                outcome=deterministic_tier.value,
+                outcome=verdict.value,
                 outcome_value={
                     "overall_score": overall,
                     "knock_outs": knock_outs,
-                    "llm_tier": assessment.recommended_tier.value,
+                    "fit_tier": fit_tier.value,
                     "pending_verification": pending,
                 },
                 evidence_ids=[e.id for e in saved_evidence],
@@ -365,39 +418,25 @@ async def run_fit_score(payload: FitScoreInput) -> FitScoreOutput:
                 prompt_version=result.prompt_version,
             )
 
-    if not payload.suppress_notifications:
-        if deterministic_tier == FitTier.GREEN:
-            await teams_channel.notify_hr(
-                title=f"Green-tier candidate: {role_snapshot['title']}",
-                text=(
-                    f"*Score:* {overall}/100\n"
-                    f"*Summary:* {assessment.summary}"
-                ),
-                fields={
-                    "application_id": str(payload.application_id),
-                    "candidate_id": str(payload.candidate_id),
-                    "green_flags": ", ".join(assessment.green_flags) or "—",
-                },
-            )
-        if not tier_matches_model:
-            await teams_channel.notify_alerts(
-                title="Tier disagreement (agent vs rule)",
-                text=(
-                    f"LLM said `{assessment.recommended_tier.value}`, "
-                    f"deterministic rule says `{deterministic_tier.value}`. "
-                    f"Score: {overall}."
-                ),
-                fields={
-                    "application_id": str(payload.application_id),
-                    "knock_outs": ", ".join(knock_outs) or "none",
-                },
-            )
+    if not payload.suppress_notifications and fit_tier == FitTier.GREEN:
+        await teams_channel.notify_hr(
+            title=f"Green-tier candidate: {role_snapshot['title']}",
+            text=(
+                f"*Score:* {overall}/100\n"
+                f"*Summary:* {assessment.summary}"
+            ),
+            fields={
+                "application_id": str(payload.application_id),
+                "candidate_id": str(payload.candidate_id),
+                "green_flags": ", ".join(assessment.green_flags) or "-",
+            },
+        )
 
     return FitScoreOutput(
         candidate_id=payload.candidate_id,
         application_id=payload.application_id,
         overall_score=overall,
-        tier=deterministic_tier,
+        tier=fit_tier,
         knock_outs=knock_outs,
         trace_id=result.trace_id,
     )
