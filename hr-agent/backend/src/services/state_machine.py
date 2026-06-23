@@ -61,6 +61,8 @@ _LEGACY_STAGE_KEY: dict[str, tuple[str, str]] = {
     "hr_meeting_in_progress": ("hr", "in_progress"),
     "hr_meeting_completed": ("hr", "completed"),
     "hr_evaluated": ("hr", "completed"),
+    "decision": ("decision", "active"),
+    "offer": ("offer", "active"),
     "hired": ("offer", "passed"),
     "rejected": ("decision", "failed"),
 }

@@ -166,6 +166,23 @@ async def _execute_plan(application_id: UUID, plan: Plan, *, role_id: UUID) -> s
 
     assert plan.stage is not None  # FIRE_*/PARK_* always carry a stage
 
+    # V2 owns the cursor: advance current_stage_key to the stage being fired BEFORE
+    # dispatching it. Progression no longer depends on the dispatch activity's
+    # legacy set_stage() dual-writing the key -- that dual-write was the race
+    # (V1->V2-migration bug #1, the re-sent assignment). The dispatch is just the
+    # side-effect of being AT this stage.
+    if plan.action in (
+        StageAction.FIRE_VOICE_SCREEN,
+        StageAction.FIRE_ASSIGNMENT,
+        StageAction.FIRE_SCREENING,
+        StageAction.FIRE_OFFER,
+    ):
+        async with session_scope() as session:
+            app = await session.get(Application, application_id, with_for_update=True)
+            if app is not None:
+                app.current_stage_key = plan.stage.stage_key
+                app.stage_status = str(StageStatus.ACTIVE)
+
     if plan.action == StageAction.FIRE_VOICE_SCREEN:
         return await _fire_voice_screen(application_id)
     if plan.action == StageAction.FIRE_ASSIGNMENT:
