@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { PI_PERSONAS } from "@/lib/pi-personas";
 import { MeetingReportCard } from "@/components/meeting-report-card";
+import type { StageViewEntry } from "@/lib/types";
 
 type Stage = string;
 
@@ -32,6 +33,8 @@ interface RoundReview {
 interface Props {
   applicationId: string;
   currentStage: Stage;
+  stageStatus?: string | null;
+  stageView?: StageViewEntry[] | null;
   meetingReports?: {
     technical?: MeetingReport | null;
     ceo?: MeetingReport | null;
@@ -41,7 +44,7 @@ interface Props {
   onChanged: () => void;
 }
 
-export function AdminReviewPanel({ applicationId, currentStage, meetingReports, adminReview, onChanged }: Props) {
+export function AdminReviewPanel({ applicationId, currentStage, stageStatus, stageView, meetingReports, adminReview, onChanged }: Props) {
   const [busy, setBusy] = useState(false);
   const [notes, setNotes] = useState("");
   const [piLink, setPiLink] = useState("");
@@ -60,6 +63,44 @@ export function AdminReviewPanel({ applicationId, currentStage, meetingReports, 
           {adminReview[stageRound].reviewer ? ` by ${adminReview[stageRound].reviewer}` : ""}
         </div>
       </div>
+    );
+  }
+
+  // Generic borderline-review gate: any scoring stage (fit/screening/voice/
+  // interview) can land in `needs_review`, which PARKS the candidate and records
+  // verdict="needs_review" on that stage. HR confirms pass (advance) or reject.
+  const reviewStage = (stageView ?? []).find((s) => s.verdict === "needs_review");
+  if (reviewStage && stageStatus === "parked") {
+    return (
+      <Panel title={`${reviewStage.label || reviewStage.stage_key} — borderline, needs review`}>
+        <p className="text-sm text-muted-foreground">
+          This candidate scored in the borderline band at the{" "}
+          <span className="font-medium text-foreground">
+            {reviewStage.label || reviewStage.stage_key}
+          </span>{" "}
+          stage and was parked for a human call. Pass advances them through the
+          pipeline; reject ends the application.
+        </p>
+        <NotesField notes={notes} setNotes={setNotes} />
+        <ActionRow
+          busy={busy}
+          error={error}
+          onApprove={() =>
+            submit(`/dashboard/v1/candidates/${applicationId}/resolve-review`, {
+              decision: "pass",
+              note: notes || null,
+            })
+          }
+          onReject={() =>
+            submit(`/dashboard/v1/candidates/${applicationId}/resolve-review`, {
+              decision: "reject",
+              note: notes || null,
+            })
+          }
+          approveLabel="Pass"
+          rejectLabel="Reject"
+        />
+      </Panel>
     );
   }
 

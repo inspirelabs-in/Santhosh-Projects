@@ -11,7 +11,7 @@ export function StatusBadge({ status }: { status: string | null | undefined }) {
   if (!status) return <Badge variant="muted">—</Badge>;
   const terminal = ["rejected", "withdrawn", "erased"].includes(status);
   const success = ["shortlisted", "offered", "scheduled", "interviewed"].includes(status);
-  const warn = ["needs_hr_review", "role_unclear", "awaiting_hr_decision", "cold", "scheduling_stalled"].includes(status);
+  const warn = ["needs_hr_review", "needs_review", "role_unclear", "awaiting_hr_decision", "cold", "scheduling_stalled"].includes(status);
   const variant = terminal ? "destructive" : success ? "success" : warn ? "warning" : "secondary";
   return <Badge variant={variant as any}>{status.replace(/_/g, " ")}</Badge>;
 }
