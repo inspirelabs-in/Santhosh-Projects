@@ -10,6 +10,8 @@ don't duplicate auth / business logic.
 
 from __future__ import annotations
 
+import contextvars
+import json
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -22,11 +24,18 @@ from src.db.base import (
     AssignmentRow,
     AuditLog,
     Candidate,
+    RecruiterMessage,
     Role,
 )
 from src.db.connection import session_scope
 from src.llm.model_registry import Stage, model_for
 from src.models.artifacts import RoleDraftContent
+
+# Allows propose_role_draft to know which conversation it belongs to without
+# changing the tool schema visible to the LLM.
+_conversation_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "tool_conversation_id", default=None
+)
 
 logger = logging.getLogger(__name__)
 
@@ -339,6 +348,8 @@ async def create_role_with_assignment(
     remote_policy: str | None = None,
     max_notice_days: int | None = None,
     screening_modality: str = "voice",
+    evaluation_spec: dict | None = None,
+    company_context: dict | None = None,
     pipeline_template: list[str] | None = None,
     time_budget_hours: int = 6,
     deadline_days: int = 7,
@@ -360,7 +371,10 @@ async def create_role_with_assignment(
         remote_policy=remote_policy,
         max_notice_days=max_notice_days,
         screening_modality=screening_modality,
+        evaluation_spec=evaluation_spec,
+        company_context=company_context,
         pipeline_template=pipeline_template,
+        auto_assignment=False,  # this tool generates the assignment itself below
     )
     if "error" in role_resp:
         return role_resp
@@ -437,8 +451,6 @@ async def generate_assignment_for_role(
         brief = await gen_assignment(
             role_title=role.title,
             jd_text=role.jd_text or "",
-            candidate_profile={},
-            screening_answers=None,
             time_budget_hours=int(time_budget_hours),
             deadline_days=int(deadline_days),
             application_id=rid,  # role-scoped; reuse generator with role uuid
@@ -557,6 +569,73 @@ async def _persist_assignment(
         "pdf_attached": bool(pdf_key),
         "pdf_filename": pdf_filename,
     }
+
+
+async def ensure_role_assignment(
+    *,
+    role_id: str,
+    n_problems: int = 2,
+    time_budget_hours: int = 6,
+    deadline_days: int = 7,
+    source: str = "create",
+    attempts: int = 2,
+) -> dict[str, Any]:
+    """Generate + persist a take-home for a role *reliably*.
+
+    Wraps ``generate_assignment_for_role(save=True)`` with a retry and a durable
+    audit trail on BOTH success (``assignment_generated``) and failure
+    (``assignment_generation_failed``). This closes the silent-failure hole that
+    left roles brief-less: ``generate_assignment_for_role`` returns
+    ``{"error": ...}`` (it does not raise) on an LLM hiccup, so callers that only
+    wrapped it in try/except never noticed, and dispatch_assessment then skipped
+    the candidate email. Never raises; returns ``{"ok": bool, "error"?: str, ...}``.
+    """
+    from src.db.connection import session_scope
+    from src.db.repositories.audit import log_audit
+
+    last_err: str | None = None
+    for attempt in range(1, max(1, attempts) + 1):
+        try:
+            res = await generate_assignment_for_role(
+                role_id=role_id,
+                n_problems=n_problems,
+                time_budget_hours=time_budget_hours,
+                deadline_days=deadline_days,
+                save=True,
+            )
+        except Exception as e:  # noqa: BLE001
+            last_err = str(e)
+            logger.warning("ensure_role_assignment attempt %d failed for %s: %s", attempt, role_id, e)
+            continue
+        if res.get("ok") and res.get("brief_md"):
+            async with session_scope() as session:
+                await log_audit(
+                    session,
+                    action="assignment_generated",
+                    actor="agent",
+                    details={
+                        "role_id": role_id,
+                        "source": source,
+                        "attempt": attempt,
+                        "problem_count": res.get("problem_count"),
+                        "pdf_attached": res.get("pdf_attached"),
+                    },
+                )
+            return res
+        last_err = str(res.get("error") or "no_brief_returned")
+        logger.warning(
+            "ensure_role_assignment attempt %d for %s returned no brief: %s",
+            attempt, role_id, last_err,
+        )
+
+    async with session_scope() as session:
+        await log_audit(
+            session,
+            action="assignment_generation_failed",
+            actor="agent",
+            details={"role_id": role_id, "source": source, "error": (last_err or "unknown")[:300]},
+        )
+    return {"ok": False, "role_id": role_id, "error": f"assignment_generation_failed: {last_err}"}
 
 
 # ---------------------------------------------------------------------------
@@ -986,10 +1065,19 @@ async def create_role(
     remote_policy: str | None = None,
     max_notice_days: int | None = None,
     screening_modality: str = "voice",
+    evaluation_spec: dict | None = None,
+    company_context: dict | None = None,
     pipeline_template: list[str] | None = None,
+    auto_assignment: bool = True,
     **_extra: Any,
 ) -> dict[str, Any]:
-    """Persist a new role. Returns the created row's id + URL."""
+    """Persist a new role. Returns the created row's id + URL.
+
+    When ``auto_assignment`` is True (default) and the role's pipeline includes an
+    ``assignment`` stage, a take-home brief is generated + persisted right after
+    creation, so the role is never left brief-less. ``create_role_with_assignment``
+    passes ``auto_assignment=False`` because it owns assignment generation itself.
+    """
     screening_modality = "voice"
     title = (title or "").strip()
     jd_text = (jd_text or "").strip()
@@ -1023,17 +1111,91 @@ async def create_role(
             remote_policy=remote_policy,
             max_notice_days=max_notice_days,
             screening_modality=screening_modality,
+            evaluation_spec=evaluation_spec,
+            company_context=company_context,
             pipeline_template=resolved_template,
             status="open",
         )
         session.add(role)
         await session.flush()
         role_id = role.id
+
+        # Seed role_pipeline_stages (the real pipeline source of truth).
+        from src.db.repositories import role_pipeline_stage as stage_repo
+
+        if resolved_template:
+            from src.services.pipeline_templates import STEP_REGISTRY
+            from src.db.base import RolePipelineStage
+
+            _STEP_TYPE = {
+                "fit_score": "fit", "voice_screen": "voice_screen",
+                "assignment": "assignment",
+                # [TODO] cognitive_test is a future EXTERNAL TEST LINK (e.g. a
+                # cognitive/aptitude test) the candidate does ALONGSIDE the
+                # take-home assignment -- not yet implemented. Until it is, route
+                # it as a manual review gate so it never misfires the take-home
+                # dispatcher (it previously mapped to "assignment" and silently
+                # skipped). When built, send the link with the assignment email.
+                "cognitive_test": "assessment_review",
+                "technical_interview": "interview", "hiring_manager": "interview",
+                "ceo_interview": "interview", "hr_interview": "interview",
+                "panel_interview": "interview", "bar_raiser": "interview",
+                "reference_check": "decision", "background_check": "decision",
+                "offer": "offer",
+            }
+            _STEP_KEY = {
+                "fit_score": "fit", "voice_screen": "voice_screen",
+                "assignment": "assignment", "cognitive_test": "cognitive_test",
+                "technical_interview": "technical", "hiring_manager": "technical",
+                "ceo_interview": "ceo", "hr_interview": "hr",
+                "panel_interview": "panel", "bar_raiser": "bar_raiser",
+                "reference_check": "reference_check",
+                "background_check": "background_check",
+                "offer": "offer",
+            }
+            for pos, step_id in enumerate(resolved_template):
+                step_def = STEP_REGISTRY.get(step_id)
+                label = step_def.label if step_def else step_id
+                stype = _STEP_TYPE.get(step_id, "interview")
+                skey = _STEP_KEY.get(step_id, step_id)
+                mode = (
+                    "auto"
+                    if stype in ("fit", "voice_screen", "assignment", "offer")
+                    else "manual"
+                )
+                session.add(
+                    RolePipelineStage(
+                        role_id=role_id,
+                        position=pos,
+                        stage_type=stype,
+                        stage_key=skey,
+                        label=label,
+                        mode=mode,
+                    )
+                )
+            await session.flush()
+        else:
+            await stage_repo.seed_default(session, role_id=role_id)
+
+    # Generate the take-home iff the seeded pipeline actually has an assignment
+    # stage (authoritative -- works whether the pipeline came from a template or
+    # the default). Mirrors the artifact-apply path so no create path leaves a
+    # role brief-less. Reliable + audited via ensure_role_assignment.
+    assignment_result = None
+    if auto_assignment:
+        async with session_scope() as session:
+            seeded = await stage_repo.for_role(session, role_id, enabled_only=False)
+        if any(str(getattr(s, "stage_type", "")) == "assignment" for s in seeded):
+            assignment_result = await ensure_role_assignment(
+                role_id=str(role_id), source="create_role_tool",
+            )
+
     return {
         "ok": True,
         "id": str(role_id),
         "title": title,
         "url": f"/roles/{role_id}",
+        "assignment": assignment_result,
         "message": f"Created role '{title}'.",
     }
 
@@ -1124,6 +1286,16 @@ async def override_stage(
             await set_stage(session, app_id, target, force=True)
         except Exception as e:  # noqa: BLE001
             return {"error": f"set_stage_failed: {e}"}
+        # set_stage is legacy-only now (writes current_stage only). Advance the V2
+        # cursor too, or the auto_progress() call below plans from a STALE
+        # current_stage_key and can re-dispatch the wrong stage. (V1->V2 migration
+        # stale-cursor bug.)
+        from src.services.state_machine import legacy_stage_to_key
+
+        _skey, _sstatus = legacy_stage_to_key(target)
+        if _skey:
+            app.current_stage_key = _skey
+            app.stage_status = _sstatus
         await log_audit(
             session,
             application_id=app_id,
@@ -1604,27 +1776,189 @@ async def recall(
     }
 
 
+async def _format_conversation_for_draft(conversation_id: str) -> str:
+    """Pull recruiter + assistant messages from the conversation and format as
+    a compact transcript the LLM can read to infer role details."""
+    from src.db.repositories import recruiter_chat as chat_repo
+
+    lines: list[str] = []
+    async with session_scope() as session:
+        msgs = await chat_repo.list_messages(session, UUID(conversation_id))
+    for m in msgs:
+        if m.role == "user":
+            text = (m.content or "").strip()
+            if text:
+                lines.append(f"RECRUITER: {text}")
+        elif m.role == "assistant" and not m.tool_calls:
+            text = (m.content or "").strip()
+            if text:
+                lines.append(f"PULSE: {text}")
+    return "\n".join(lines[-20:])  # last 20 exchanges at most
+
+
+async def _complete_draft_from_context(
+    conversation_id: str, partial: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Generate a COMPLETE, strictly-validated ``RoleDraftContent`` from the
+    conversation transcript.
+
+    The model previously failed because its prompt never described the nested
+    shapes ``RoleDraftContent`` requires (``PipelineStageDef`` needs a
+    ``stage_type`` from a fixed enum + ``position``; ``EvaluationSpec`` weights
+    must sum to ~100; ``RoleContext.intensity`` is a literal), so it emitted
+    plausible-but-invalid JSON and the whole draft was rejected -> empty JD.
+
+    Fix: the prompt below spells out the EXACT schema -- every field, the
+    allowed enum values, a copy-paste standard pipeline, and the weight /
+    intensity rules -- so the model produces output that passes STRICT
+    validation. Returns None only when there is no transcript or validation
+    still fails after retries (logged loudly, never swallowed silently).
+    """
+    transcript = await _format_conversation_for_draft(conversation_id)
+    if not transcript.strip():
+        logger.warning("auto_complete_draft: empty transcript for %s", conversation_id)
+        return None
+
+    from src.llm.client import get_llm_client
+    from src.models.artifacts import RoleDraftContent
+
+    # Full schema spec. Plain string (NOT an f-string) so the literal JSON
+    # braces are safe; only ``partial`` + ``transcript`` are interpolated below.
+    schema_spec = """You are a senior hiring partner. From the conversation below, produce a COMPLETE, publish-ready role draft as STRICT JSON. Fill EVERY field. Output ONLY this JSON object:
+
+{
+  "title": "role title incl. seniority, e.g. \\"Full Stack Engineer (Fresher)\\"",
+  "jd_text": "a FULL 300-400 word JD in markdown: a framing paragraph, then 4-6 responsibilities, 4-6 requirements, and nice-to-haves. THE MOST IMPORTANT FIELD. Never empty or thin.",
+  "ctc_min_lpa": 6,
+  "ctc_max_lpa": 6,
+  "location": "Hyderabad",
+  "remote_policy": "onsite",
+  "max_notice_days": 0,
+  "pipeline": [
+    {"stage_key": "fit",          "stage_type": "fit",          "label": "Fit Score",            "position": 0, "mode": "auto"},
+    {"stage_key": "voice_screen", "stage_type": "voice_screen", "label": "Voice Screen",         "position": 1, "mode": "auto"},
+    {"stage_key": "assignment",   "stage_type": "assignment",   "label": "Assignment",           "position": 2, "mode": "manual"},
+    {"stage_key": "technical",    "stage_type": "interview",    "label": "Technical Interview",  "position": 3, "mode": "manual"},
+    {"stage_key": "hr",           "stage_type": "interview",    "label": "HR Interview",         "position": 4, "mode": "manual"},
+    {"stage_key": "offer",        "stage_type": "offer",        "label": "Offer",                "position": 5, "mode": "manual"}
+  ],
+  "evaluation_spec": {
+    "dimensions": [
+      {"key": "snake_case_key", "label": "Human Label", "weight": 20, "what_good_looks_like": ["..."], "anti_signals": ["..."]}
+    ]
+  },
+  "company_context": {
+    "intensity": "standard",
+    "summary": "1-2 sentence grounding a scorer reads before judging candidates for THIS role.",
+    "what_matters_here": ["signal 1", "signal 2"],
+    "hiring_bar": "what clearing the bar looks like for this role"
+  },
+  "assignment": {"enabled": true, "n_problems": 2, "time_budget_hours": 6, "deadline_days": 7}
+}
+
+HARD RULES:
+- jd_text MUST be a full, substantial JD. Never empty.
+- pipeline: COPY the array above as-is (adjust labels/keys only if the conversation clearly calls for it). Every stage MUST have stage_key, label, integer position, mode ("auto" or "manual"), and a stage_type from EXACTLY this set: intake, parse, fit, screening, voice_screen, assignment, interview, decision, offer. Never invent other stage_type values (e.g. "technical_interview" is INVALID; use "interview").
+- evaluation_spec.dimensions: 3 to 6 role-specific dimensions. weight is an integer; the weights MUST sum to 100 (e.g. five 20s, or four 25s).
+- company_context.intensity MUST be exactly one of: light, standard, high, critical (scale it with the seniority/stakes of the role).
+- Honor explicit input (e.g. "6 LPA" -> ctc_min_lpa and ctc_max_lpa = 6; "fresher" -> max_notice_days 0). Infer sensible defaults for anything unsaid.
+"""
+
+    client = get_llm_client()
+    try:
+        result = await client.complete(
+            prompt=(
+                schema_spec
+                + f"\nPARTIAL DATA ALREADY KNOWN (merge these in, fill the rest):\n"
+                + json.dumps(partial, indent=2)
+                + f"\n\nCONVERSATION:\n{transcript}\n\n"
+                + "Respond with ONLY the JSON object specified above, fully filled."
+            ),
+            response_model=RoleDraftContent,
+            model=model_for(Stage.ROLE_DRAFT_CHAT),
+            trace_name="recruiter.auto_complete_draft",
+            prompt_version="v3",
+            temperature=0.4,
+            max_tokens=4000,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning(
+            "auto_complete_draft failed for %s (strict RoleDraftContent validation): %s",
+            conversation_id, e, exc_info=True,
+        )
+        return None
+
+    draft = result.parsed
+    if not (draft.jd_text and draft.jd_text.strip()):
+        logger.warning("auto_complete_draft produced empty jd_text for %s", conversation_id)
+        return None
+    if not draft.title and isinstance(partial, dict):
+        draft.title = partial.get("title")
+    return {
+        "ok": True,
+        "artifact_type": "role_draft",
+        "title": draft.title or "Role draft",
+        "content": draft.model_dump(mode="json"),
+    }
+
+
 async def propose_role_draft(
     *, content: dict[str, Any] | None = None, **fields: Any
 ) -> dict[str, Any]:
     """Write/replace the role draft for the current conversation.
 
-    Call this with the FULL current draft (not a patch) once you've gathered
-    enough context. The runner upserts it into the conversation's artifact and
-    opens the editable panel; call again with updated content to revise the same
-    artifact. Accepts a nested ``content`` object or the fields at top level.
+    Call this once you've gathered enough context. The runner upserts it into
+    the conversation's artifact and opens the editable panel; call again to
+    revise the same artifact.
 
+    If you pass empty or partial data, the system auto-completes the draft from
+    the conversation history (title, JD, pipeline, evaluation, company context).
     Does not persist a Role -- that happens only when the user clicks Apply on
-    the artifact panel. This tool is not confirm-gated (writing a draft is not
-    destructive).
+    the artifact panel. This tool is not confirm-gated.
     """
     raw = dict(content) if isinstance(content, dict) else {}
     if not raw and fields:
         raw = {k: v for k, v in fields.items() if v is not None}
+
+    # If the model handed us a SUBSTANTIVE inline draft, trust it and return
+    # directly. A thin/truncated jd_text (the model tried to write the JD into
+    # the tool call and the streaming token cap clipped it) is NOT trusted: we
+    # fall through to the conversation-driven completer, which writes a full JD.
+    _jd = (raw.get("jd_text") or "").strip()
+    if raw.get("title") and len(_jd) >= 200:
+        try:
+            draft = RoleDraftContent.model_validate(raw)
+        except Exception as e:  # noqa: BLE001
+            return {"error": f"invalid_role_draft: {e}"}
+        return {
+            "ok": True,
+            "artifact_type": "role_draft",
+            "title": draft.title or "Role draft",
+            "content": draft.model_dump(mode="json"),
+        }
+
+    # Auto-complete from conversation history when the LLM passes empty/partial args.
+    conv_id = _conversation_id_var.get()
+    if conv_id:
+        completed = await _complete_draft_from_context(conv_id, raw)
+        if completed:
+            return completed
+
+    # Last resort: wrap whatever the model passed inline. If there is no usable
+    # JD (auto-complete found no transcript or failed), surface an error instead
+    # of silently opening an empty panel -- the agent then asks for more detail.
     try:
         draft = RoleDraftContent.model_validate(raw)
     except Exception as e:  # noqa: BLE001
         return {"error": f"invalid_role_draft: {e}"}
+    if not (draft.jd_text and draft.jd_text.strip()):
+        return {
+            "error": "could_not_draft",
+            "message": (
+                "Couldn't build the draft yet -- I need a bit more about the role "
+                "(what they'll own, the must-have skills) before I can write the JD."
+            ),
+        }
     return {
         "ok": True,
         "artifact_type": "role_draft",
@@ -1690,6 +2024,7 @@ async def call_tool(
     args: dict[str, Any],
     *,
     actor_hash: str | None = None,
+    conversation_id: str | None = None,
 ) -> dict[str, Any]:
     fn = TOOLS.get(name)
     if fn is None:
@@ -1699,6 +2034,13 @@ async def call_tool(
         if not actor_hash:
             return {"error": "actor_hash_missing"}
         args["actor_hash"] = actor_hash
+    # Inject conversation context for propose_role_draft auto-completion.
+    if name == "propose_role_draft" and conversation_id:
+        token = _conversation_id_var.set(conversation_id)
+        try:
+            return await fn(**args)
+        finally:
+            _conversation_id_var.reset(token)
     try:
         return await fn(**args)
     except TypeError as e:

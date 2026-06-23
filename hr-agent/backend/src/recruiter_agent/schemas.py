@@ -135,9 +135,11 @@ RECRUITER_TOOLS: list[dict] = [
                     "ctc_min_lpa": {"type": "number"},
                     "ctc_max_lpa": {"type": "number"},
                     "location": {"type": "string"},
-                    "remote_policy": {"type": "string", "enum": ["on_site", "hybrid", "remote"]},
+                    "remote_policy": {"type": "string", "enum": ["onsite", "hybrid", "remote"]},
                     "max_notice_days": {"type": "integer"},
                     "screening_modality": {"type": "string", "enum": ["voice"], "default": "voice"},
+                    "evaluation_spec": {"type": "object", "description": "Evaluation dimensions and knockouts for fit scoring. Include dimension keys, weights, rubrics."},
+                    "company_context": {"type": "object", "description": "Role-specific grounding context — what matters here, hiring bar, intensity."},
                     "pipeline_template": {
                         "type": "array",
                         "items": {"type": "string"},
@@ -162,7 +164,7 @@ RECRUITER_TOOLS: list[dict] = [
                     "ctc_min_lpa": {"type": "number"},
                     "ctc_max_lpa": {"type": "number"},
                     "location": {"type": "string"},
-                    "remote_policy": {"type": "string"},
+                    "remote_policy": {"type": "string", "enum": ["onsite", "hybrid", "remote"]},
                     "max_notice_days": {"type": "integer"},
                     "screening_modality": {"type": "string", "enum": ["voice"]},
                     "status": {"type": "string", "enum": ["open", "closed", "draft"]},
@@ -482,9 +484,11 @@ RECRUITER_TOOLS: list[dict] = [
                     "ctc_min_lpa": {"type": "number"},
                     "ctc_max_lpa": {"type": "number"},
                     "location": {"type": "string"},
-                    "remote_policy": {"type": "string", "enum": ["on_site", "hybrid", "remote"]},
+                    "remote_policy": {"type": "string", "enum": ["onsite", "hybrid", "remote"]},
                     "max_notice_days": {"type": "integer"},
                     "screening_modality": {"type": "string", "enum": ["voice"], "default": "voice"},
+                    "evaluation_spec": {"type": "object", "description": "Evaluation dimensions and knockouts for fit scoring. Include dimension keys, weights, rubrics."},
+                    "company_context": {"type": "object", "description": "Role-specific grounding context — what matters here, hiring bar, intensity."},
                     "pipeline_template": {
                         "type": "array",
                         "items": {"type": "string"},
@@ -576,13 +580,12 @@ RECRUITER_TOOLS: list[dict] = [
         "function": {
             "name": "propose_role_draft",
             "description": (
-                "Write the role draft as an editable artifact (opens a side panel). "
-                "Call this ONLY after you've gathered enough context over the conversation "
-                "(role, seniority/experience, the ideal-candidate profile, must-have vs nice-to-have "
-                "skills, comp, location/remote, deal-breakers). Pass the FULL draft each time -- to "
-                "revise, call again with the updated content (it edits the same artifact). Derive the "
-                "evaluation dimensions from what the user said they want in a candidate (NOT generic "
-                "defaults). Does NOT create the role; the user applies it from the panel."
+                "Trigger a role draft (opens an editable side panel). "
+                "Call this after you have gathered enough context (seniority, comp, location, "
+                "must-haves). The system auto-generates the complete draft (title, JD, pipeline, "
+                "evaluation spec, company context) from your conversation. You can pass partial "
+                "fields if you want, but it's not required. Call again to revise the same artifact. "
+                "Does NOT create the role; the user applies it from the panel."
             ),
             "parameters": {
                 "type": "object",
@@ -596,7 +599,7 @@ RECRUITER_TOOLS: list[dict] = [
                     "max_notice_days": {"type": "integer"},
                     "pipeline": {
                         "type": "array",
-                        "description": "Ordered stages. Each: {stage_key, stage_type, label, position, mode (auto|manual), is_enabled}. stage_type in: intake, parse, fit, screening, voice_screen, assignment, assessment_review, interview, decision, offer. Multiple 'interview' stages allowed (e.g. technical, ceo, hr).",
+                        "description": "Ordered stages. Each: {stage_key, stage_type, label, position, mode (auto|manual), is_enabled}. stage_type in: intake, parse, fit, screening, voice_screen, assignment, interview, decision, offer. The assignment stage auto-sends the take-home and then parks the candidate for HR review on submit (there is no separate review stage). Multiple 'interview' stages allowed (e.g. technical, ceo, hr).",
                         "items": {"type": "object"},
                     },
                     "evaluation_spec": {
@@ -613,7 +616,7 @@ RECRUITER_TOOLS: list[dict] = [
                     },
                     "notes": {"type": "string"},
                 },
-                "required": ["title", "jd_text"],
+                "required": [],
             },
         },
     },
