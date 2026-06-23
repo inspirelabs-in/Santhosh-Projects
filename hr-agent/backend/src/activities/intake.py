@@ -28,6 +28,9 @@ from temporalio import activity
 
 from src.channels.email import send_email
 from src.db.connection import session_scope
+from sqlalchemy import select
+
+from src.db.base import Application
 from src.db.repositories.audit import log_audit
 from src.db.repositories.candidate import (
     create_application,
@@ -63,7 +66,19 @@ async def run_intake(payload: IntakePayload) -> IntakeResult:
             name=payload.sender_name,
             city=None,
         )
-        was_duplicate = existing_id is not None
+        # Only treat as duplicate if candidate exists AND has an application for
+        # the same role.  The same person applying for a different role is NOT a
+        # duplicate — they still get consent capture + acknowledgement email.
+        same_role_dup = False
+        if existing_id is not None and payload.role_id_hint is not None:
+            existing = await session.scalar(
+                select(Application).where(
+                    Application.candidate_id == existing_id,
+                    Application.role_id == payload.role_id_hint,
+                )
+            )
+            same_role_dup = existing is not None
+        was_duplicate = same_role_dup
 
         # 2. Upsert candidate
         candidate = await upsert_candidate(

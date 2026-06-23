@@ -277,52 +277,35 @@ async def run_apply_to_screening(
     from src.models.pipeline import StageVerdict
 
     await record_email_filter_passed(application_id)
+
+    # Fit routes through the shared verdict (the stage-runner owns advance/park/
+    # reject): green = pass (advance to the role's next stage), amber = needs_review
+    # (park for HR -- never auto-dropped), red = reject. Comp/logistics are flags in
+    # the score, never a reason to drop a candidate here.
     if fit_tier is not None:
-        await record_fit_verdict(application_id, tier=fit_tier.value)
-
-    # Auto-reject reds (fit verdict=fail -> runner rejects + sends rejection email).
-    if fit_tier == FitTier.RED:
+        _fit_verdict = {
+            FitTier.GREEN: StageVerdict.PASS,
+            FitTier.AMBER: StageVerdict.NEEDS_REVIEW,
+            FitTier.RED: StageVerdict.FAIL,
+        }[fit_tier]
         try:
             async with session_scope() as session:
                 await log_audit(
                     session,
                     application_id=application_id,
                     candidate_id=candidate_id,
-                    action="auto_rejected_fit",
+                    action="fit_routed",
                     actor="agent",
-                    details={"reason": "fit_tier=red"},
+                    details={"fit_tier": fit_tier.value, "verdict": _fit_verdict.value},
                 )
             await advance_candidate(
                 application_id=application_id,
                 completed_stage_key="fit",
-                verdict=StageVerdict.FAIL,
-                result_ref={"fit_tier": "red"},
-            )
-        except Exception as e:  # noqa: BLE001
-            await _log_error(application_id, candidate_id, "auto_reject_fit", e)
-        return
-
-    # Green/amber fit: PASS -> the runner advances to whatever the role configured
-    # as the next stage (voice / assignment / interview / offer ...).
-    if fit_tier in {FitTier.GREEN, FitTier.AMBER}:
-        try:
-            async with session_scope() as session:
-                await log_audit(
-                    session,
-                    application_id=application_id,
-                    candidate_id=candidate_id,
-                    action="auto_shortlisted",
-                    actor="agent",
-                    details={"fit_tier": fit_tier.value},
-                )
-            await advance_candidate(
-                application_id=application_id,
-                completed_stage_key="fit",
-                verdict=StageVerdict.PASS,
+                verdict=_fit_verdict,
                 result_ref={"fit_tier": fit_tier.value},
             )
         except Exception as e:  # noqa: BLE001
-            await _log_error(application_id, candidate_id, "auto_shortlist_voice", e)
+            await _log_error(application_id, candidate_id, "fit_route", e)
         return
 
     # If we land here, fit tier was not GREEN/AMBER (shouldn't happen after
@@ -385,76 +368,12 @@ async def run_screening_evaluation(
         await llm_fallback(application_id, candidate_id, "evaluate_screening", str(e))
         return
 
-    # Self-consistency guard: even if LLM returned clear_pass, downgrade to
-    # needs_hr_review if the per-question signal doesn't support that verdict.
-    # Protects against a hallucinated pass (e.g. all-empty submissions that
-    # somehow slipped through the answer-validation layer in apply.py).
-    low_relevance_count = sum(
-        1 for pq in evaluation.per_question if pq.relevance == "low"
-    )
-    zero_score_count = sum(1 for pq in evaluation.per_question if pq.score == 0)
-    forced_review = (
-        evaluation.verdict == "clear_pass"
-        and (
-            low_relevance_count >= 2
-            or zero_score_count >= 1
-            or len(evaluation.red_flags) > 0
-            or not (
-                evaluation.logistics_check.ctc_in_range
-                and evaluation.logistics_check.notice_acceptable
-                and evaluation.logistics_check.location_workable
-            )
-        )
-    )
-    if forced_review:
-        logger.info(
-            "downgrading clear_pass to needs_hr_review for %s "
-            "(low_rel=%d zero_score=%d red_flags=%d)",
-            application_id, low_relevance_count, zero_score_count,
-            len(evaluation.red_flags),
-        )
-        async with session_scope() as session:
-            await log_audit(
-                session,
-                application_id=application_id,
-                candidate_id=candidate_id,
-                action="verdict_downgraded",
-                actor="agent",
-                details={
-                    "original_verdict": evaluation.verdict,
-                    "new_verdict": "needs_hr_review",
-                    "low_relevance_count": low_relevance_count,
-                    "zero_score_count": zero_score_count,
-                    "red_flag_count": len(evaluation.red_flags),
-                },
-            )
-
-    # Generic routing: map the screening verdict -> a StageVerdict on the
-    # "screening" stage, then let the stage-runner advance to whatever the ROLE
-    # configured next (voice / assignment / interview / offer ...). No hardcoded
-    # "assignment is next". A forced_review or low-confidence verdict holds the
-    # candidate (on_going) so a human reviews via the inbox.
+    # Score-only routing: the shared asymmetric band (services/evaluation.route_score,
+    # applied inside advance_candidate) decides pass / needs_review / reject from the
+    # fair overall_score. No self-consistency guard and no confidence gate -- the
+    # prompt scores empty/weak answers low and the band sends borderline candidates
+    # to a human instead of auto-dropping them. Comp/logistics stay flags only.
     from src.services.stage_runner import advance_candidate
-    from src.models.pipeline import StageVerdict
-
-    if evaluation.verdict == "clear_reject":
-        stage_verdict = StageVerdict.FAIL
-        routed = "reject"
-    elif evaluation.verdict == "clear_pass" and not forced_review:
-        stage_verdict = StageVerdict.PASS
-        routed = "pass"
-    else:
-        async with session_scope() as session:
-            from src.services.confidence_gate import should_auto_advance_gate
-            can_skip = await should_auto_advance_gate(
-                session, application_id, "screening_evaluated", role_id=role_id,
-            )
-        if can_skip and not forced_review:
-            stage_verdict = StageVerdict.PASS
-            routed = "confidence_pass"
-        else:
-            stage_verdict = StageVerdict.ON_GOING
-            routed = "hr_review"
 
     async with session_scope() as session:
         await log_audit(
@@ -464,19 +383,16 @@ async def run_screening_evaluation(
             action="screening_routed",
             actor="agent",
             details={
-                "verdict": evaluation.verdict,
                 "overall_score": evaluation.overall_score,
-                "routed": routed,
-                "forced_review": forced_review,
-                "red_flags": [f for f in evaluation.red_flags] if evaluation.red_flags else [],
+                "red_flags": list(evaluation.red_flags) if evaluation.red_flags else [],
             },
         )
 
     await advance_candidate(
         application_id=application_id,
         completed_stage_key="screening",
-        verdict=stage_verdict,
-        result_ref={"verdict": evaluation.verdict, "overall_score": evaluation.overall_score},
+        score=evaluation.overall_score,
+        result_ref={"overall_score": evaluation.overall_score},
     )
 
 
@@ -515,8 +431,27 @@ async def run_assignment_processing(
         logger.exception("journey_report failed for %s", application_id)
         await _log_error(application_id, candidate_id, "journey_report", e)
 
+    # Candidate submitted: park the assignment for HR review (merged single-stage
+    # model), or pass through to a legacy assessment_review gate if the role still
+    # has one. complete_assignment_submission owns that decision so the careers
+    # form and the agentic apply path behave identically.
+    try:
+        from src.services.stage_runner import complete_assignment_submission
+
+        await complete_assignment_submission(
+            application_id,
+            result_ref={"stage": "assignment", "report": "ready"},
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.exception("assignment advance failed for %s", application_id)
+        await _log_error(application_id, candidate_id, "assignment_advance", e)
+
+    # Set V1 legacy current_stage without overwriting the V2 stage_key
+    # (advance_candidate already set it to the correct next stage).
     async with session_scope() as session:
-        await set_stage(session, application_id, PipelineStage.REPORT_READY, force=True)
+        app = await session.get(Application, application_id)
+        if app:
+            app.current_stage = PipelineStage.REPORT_READY.value
 
     # Notify candidate their application is under final review
     try:
@@ -530,23 +465,6 @@ async def run_assignment_processing(
     except Exception as e:  # noqa: BLE001
         logger.exception("tech_panel_review request failed for %s", application_id)
         await _log_error(application_id, candidate_id, "tech_panel_review_request", e)
-
-    # Record the assignment verdict and advance generically. The runner parks at
-    # the next manual gate (e.g. assessment_review) or fires the next auto stage --
-    # whatever the role configured. No hardcoded "technical round is next".
-    try:
-        from src.services.stage_runner import advance_candidate
-        from src.models.pipeline import StageVerdict
-
-        await advance_candidate(
-            application_id=application_id,
-            completed_stage_key="assignment",
-            verdict=StageVerdict.PASS,
-            result_ref={"stage": "assignment", "report": "ready"},
-        )
-    except Exception as e:  # noqa: BLE001
-        logger.exception("assignment advance failed for %s", application_id)
-        await _log_error(application_id, candidate_id, "assignment_advance", e)
 
 
 async def _request_tech_panel_review(application_id: UUID) -> None:
