@@ -15,6 +15,7 @@ from src.llm.prompts.rejection_message import REJECTION_MESSAGE_V1, REJECTION_ME
 from src.llm.prompts.score_open_text import SCORE_OPEN_TEXT_V1, SCORE_OPEN_TEXT_VERSION
 from src.llm.prompts.screening_eval import SCREENING_EVAL_V1, SCREENING_EVAL_VERSION
 from src.llm.prompts.screening_gen import SCREENING_GEN_V1, SCREENING_GEN_VERSION
+from src.llm.prompts.voice_screen_eval_audio import VOICE_SCREEN_EVAL_AUDIO_V1, VOICE_SCREEN_EVAL_AUDIO_VERSION
 
 __all__ = [
     "ASSIGNMENT_PARSE_V1",
@@ -37,4 +38,6 @@ __all__ = [
     "SCREENING_EVAL_VERSION",
     "SCREENING_GEN_V1",
     "SCREENING_GEN_VERSION",
+    "VOICE_SCREEN_EVAL_AUDIO_V1",
+    "VOICE_SCREEN_EVAL_AUDIO_VERSION",
 ]
