@@ -128,57 +128,12 @@ async def analyze_meeting(*, meeting_session_id: UUID) -> MeetingAnalysis:
             ],
         )
 
-        # Generic, verdict-based routing (no hardcoded round chain). We map the
-        # analysis verdict -> a StageVerdict on the candidate's CURRENT interview
-        # stage (whatever the role configured -- technical/ceo/hr/custom), then let
-        # the stage-runner + engine decide the next move. This is what makes any
-        # configured pipeline work and kills the tech->ceo->hr->offer stall (P-0).
-        #
-        # clear_pass -> pass (advance to the next configured stage)
-        # clear_reject -> fail (reject + rejection email)
-        # anything else (needs_hr_review / low confidence) -> on_going + park for
-        #   a human, unless the role's confidence gate says auto-advance.
-        from src.models.pipeline import StageVerdict
-        from src.db.repositories import role_pipeline_stage as _stage_repo
-
+        # Resolve completed_stage_key: use the application's current stage when
+        # present; fall back to the round-name mapping for legacy rows.
         completed_stage_key = (
             application.current_stage_key
             or _round_to_stage_key(round_value)
         )
-
-        # Mode of THIS interview stage decides what a pass does:
-        #   auto   -> act on the verdict automatically (pass advances, reject rejects)
-        #   manual -> park for human approval even on a pass (the approval gate)
-        stage_mode = "manual"
-        if application.role_id is not None:
-            _st = await _stage_repo.get_stage(
-                session, application.role_id, completed_stage_key
-            )
-            if _st is not None:
-                stage_mode = (_st.mode or "manual").lower()
-
-        if analysis.verdict == "clear_reject":
-            # A reject always acts immediately, regardless of mode.
-            stage_verdict = StageVerdict.FAIL
-            transition = "reject"
-        elif stage_mode == "auto" and analysis.verdict == "clear_pass":
-            stage_verdict = StageVerdict.PASS
-            transition = "pass"
-        elif stage_mode == "auto":
-            # Ambiguous on an auto stage: use the confidence gate to decide.
-            from src.services.confidence_gate import should_auto_advance_gate
-            can_skip = await should_auto_advance_gate(
-                session, application.id, "technical_evaluated",
-                role_id=application.role_id,
-                role_rubric=role.scoring_rubric if role else None,
-            )
-            stage_verdict = StageVerdict.PASS if can_skip else StageVerdict.ON_GOING
-            transition = "pass" if can_skip else "hr_review"
-        else:
-            # Manual stage: record the analysis outcome but HOLD for human approval
-            # (the /technical|ceo/approve endpoint advances). Inbox card raised below.
-            stage_verdict = StageVerdict.ON_GOING
-            transition = "hr_review"
 
         audit_row = await log_audit(
             session,
@@ -189,7 +144,7 @@ async def analyze_meeting(*, meeting_session_id: UUID) -> MeetingAnalysis:
             details={
                 "meeting_session_id": str(meeting_session_id),
                 "round": round_value,
-                "verdict": analysis.verdict,
+                "verdict": analysis.verdict,  # Optional[str]; None when routing via score
                 "overall_score": analysis.overall_score,
                 "trace_id": result.trace_id,
             },
@@ -245,7 +200,7 @@ async def analyze_meeting(*, meeting_session_id: UUID) -> MeetingAnalysis:
                 application_id=application.id,
                 candidate_id=candidate_id,
                 decision_type=f"meeting_{round_value}",
-                outcome=analysis.verdict,
+                outcome=analysis.verdict or "pending_routing",
                 outcome_value={
                     "overall_score": analysis.overall_score,
                     "summary": analysis.summary[:500],
@@ -266,30 +221,30 @@ async def analyze_meeting(*, meeting_session_id: UUID) -> MeetingAnalysis:
     except Exception:
         logger.warning("auto feedback request failed", exc_info=True)
 
-    # Hand-off to the generic stage-runner: record the verdict on the interview
-    # stage that just finished, then advance / reject / hold per the verdict. The
-    # engine decides the next stage from the role's pipeline -- no hardcoding.
+    # Hand-off to the generic stage-runner: pass the raw 0-100 score so
+    # route_score() decides pass/needs_review/reject uniformly -- no verdict
+    # string interpretation here. The engine then advances / parks / rejects
+    # from the role's pipeline; no hardcoding of successor stages.
     from src.services.stage_runner import advance_candidate
 
     decision = await advance_candidate(
         application_id=application.id,
         completed_stage_key=completed_stage_key,
-        verdict=stage_verdict,
+        score=analysis.overall_score,
         result_ref={
             "round": round_value,
-            "verdict": analysis.verdict,
             "overall_score": analysis.overall_score,
-            "meeting_session_id": str(meeting_session_id),
         },
     )
     logger.info(
-        "meeting %s round=%s verdict=%s -> %s",
-        meeting_session_id, round_value, analysis.verdict, decision,
+        "meeting %s round=%s overall_score=%s -> %s",
+        meeting_session_id, round_value, analysis.overall_score, decision,
     )
 
-    # If the candidate is held for a human (on_going), raise a durable inbox item
-    # + notify admins the round is analysed and awaiting an approve/reject.
-    if transition == "hr_review":
+    # When the runner parks the candidate for HR review (needs_review band),
+    # also emit the meeting-specific REVIEW_INTERVIEW_ANALYSIS event and notify
+    # admins that the round is complete and awaiting human approval.
+    if decision.startswith("needs_review:"):
         try:
             from src.db.connection import session_scope as _scope
             from src.db.events import emit_event
@@ -306,7 +261,6 @@ async def analyze_meeting(*, meeting_session_id: UUID) -> MeetingAnalysis:
                     payload={
                         "stage_key": completed_stage_key,
                         "round": round_value,
-                        "verdict": analysis.verdict,
                         "overall_score": analysis.overall_score,
                         "note": f"review the {round_value} interview and approve/reject",
                     },

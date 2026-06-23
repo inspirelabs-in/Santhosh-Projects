@@ -20,8 +20,7 @@ from src.db.repositories.evidence import record_decision, record_evidence_batch_
 from src.db.repositories.policy import resolve_policy
 from src.db.repositories.v1_application import set_stage
 from src.db.repositories.voice_call import get_voice_call, save_evaluation
-from src.activities.rejection import RejectionInput, run_rejection
-from src.services.auto_progress import auto_progress
+from src.services.scoring_context import scoring_prompt_vars
 from src.llm.client import get_llm_client
 from src.llm.model_registry import Stage, model_for
 from src.llm.prompt_manager import compile_prompt
@@ -287,68 +286,9 @@ async def evaluate_voice_call(
         # values, which the recruiter already curated.
         await _apply_extracted_facts(session, application, score.extracted_facts)
 
-        if score.verdict == "clear_pass":
-            await set_stage(session, application.id, PipelineStage.VOICE_SCREEN_EVALUATED)
-            transition = "pass"
-        elif score.verdict == "needs_hr_review":
-            await set_stage(session, application.id, PipelineStage.NEEDS_HR_REVIEW, force=True)
-            transition = "hr_review"
-            await log_audit(
-                session,
-                candidate_id=application.candidate_id,
-                application_id=application.id,
-                action="voice_screen_needs_hr_review",
-                actor="agent",
-                details={
-                    "reason": score.verdict_rationale,
-                    "overall_score": score.overall_score,
-                    "eval_model": model_used,
-                },
-            )
-            # NB-5: the supervisor bus (the old notification path) is retired, so
-            # raise a durable, reload-safe actionable inbox item instead. Without
-            # this the borderline candidate parks silently and HR is never told.
-            try:
-                from src.db.events import emit_event
-                from src.models.events import EventType
-
-                await emit_event(
-                    session,
-                    type=EventType.VOICE_EVALUATED,
-                    org_id=getattr(application, "org_id", None),
-                    application_id=application.id,
-                    role_id=application.role_id,
-                    payload={
-                        "verdict": "needs_hr_review",
-                        "overall_score": score.overall_score,
-                        "verdict_rationale": (score.verdict_rationale or "")[:500],
-                        "note": "voice screen is borderline -- review and decide",
-                    },
-                    actor="agent",
-                    requires_action=True,
-                )
-            except Exception:  # noqa: BLE001
-                logger.warning(
-                    "NB-5: failed to emit needs_hr_review action event for app=%s",
-                    application.id, exc_info=True,
-                )
-        else:
-            await set_stage(session, application.id, PipelineStage.REJECTED, force=True)
-            application.status = "rejected"
-            transition = "rejected"
-            await log_audit(
-                session,
-                candidate_id=application.candidate_id,
-                application_id=application.id,
-                action="candidate_rejected",
-                actor="agent",
-                details={
-                    "reason": score.verdict_rationale,
-                    "source": "voice_screening",
-                    "overall_score": score.overall_score,
-                    "red_flags": score.red_flags[:5] if score.red_flags else [],
-                },
-            )
+        # Legacy back-compat display: always write VOICE_SCREEN_EVALUATED so the
+        # Pulse UI shows this stage as processed regardless of routing outcome.
+        await set_stage(session, application.id, PipelineStage.VOICE_SCREEN_EVALUATED)
 
         audit_row = await log_audit(
             session,
@@ -358,7 +298,7 @@ async def evaluate_voice_call(
             actor="agent",
             details={
                 "voice_call_id": str(voice_call_id),
-                "verdict": score.verdict,
+                "verdict": score.verdict if score.verdict is not None else "score_routed",
                 "overall_score": score.overall_score,
                 "eval_model": model_used,
                 "trace_id": trace_id,
@@ -410,10 +350,10 @@ async def evaluate_voice_call(
                 application_id=application.id,
                 candidate_id=application.candidate_id,
                 decision_type="voice_screening",
-                outcome=score.verdict,
+                outcome=score.verdict if score.verdict is not None else "score_routed",
                 outcome_value={
                     "overall_score": score.overall_score,
-                    "verdict_rationale": score.verdict_rationale[:500],
+                    "verdict_rationale": (score.verdict_rationale or "")[:500],
                 },
                 evidence_ids=[e.id for e in saved_evidence],
                 audit_log_id=audit_row.id,
@@ -422,74 +362,24 @@ async def evaluate_voice_call(
                 prompt_version=VOICE_SCREEN_EVAL_VERSION,
             )
 
-    # Re-score fit with enriched profile data (CTC, notice, location from voice).
-    # Runs outside the DB session so it reads the committed profile updates.
-    try:
-        from src.activities.fit_score import FitScoreInput, run_fit_score
-        rescore_result = await run_fit_score(FitScoreInput(
-            candidate_id=application.candidate_id,
-            application_id=application.id,
-            suppress_notifications=True,
-        ))
-        logger.info(
-            "fit re-score after voice: app=%s score=%d tier=%s",
-            application.id, rescore_result.overall_score, rescore_result.tier.value,
-        )
-        if transition in ("pass", "hr_review") and rescore_result.tier.value == "red":
-            logger.warning(
-                "fit re-score RED after voice %s — rejecting: app=%s knockouts=%s",
-                transition, application.id, rescore_result.knock_outs,
-            )
-            async with session_scope() as sess:
-                await set_stage(sess, application.id, PipelineStage.REJECTED, force=True)
-                app_obj = await sess.get(Application, application.id)
-                if app_obj:
-                    app_obj.status = "rejected"
-            transition = "rejected"
-    except Exception:
-        logger.exception("fit re-score after voice failed for app=%s — non-fatal", application.id)
-
-    # Hand-off to the generic stage-runner. The voice_screen verdict drives the
-    # next move per the ROLE's configured pipeline -- no assumption that assignment
-    # (or anything) is next.
+    # Route via the shared score-router. advance_candidate calls route_score(score)
+    # internally (pass/needs_review/reject), then drives advance/park/reject.
+    # Comp/CTC/notice/location must NEVER reject a candidate here -- they are
+    # extracted as facts for profile backfill only. No verdict-string branching;
+    # the runner owns all routing decisions.
     from src.services.stage_runner import advance_candidate
-    from src.models.pipeline import StageVerdict
 
-    result_ref = {"verdict": score.verdict, "overall_score": score.overall_score}
+    result_ref = {
+        "overall_score": score.overall_score,
+        "verdict": score.verdict if score.verdict is not None else "score_routed",
+    }
 
-    if transition == "rejected":
-        try:
-            await run_rejection(RejectionInput(
-                candidate_id=application.candidate_id,
-                application_id=application.id,
-                stage="screening",
-                internal_red_flags=list(score.red_flags or [])[:5],
-                internal_knock_outs=[score.verdict_rationale[:200]] if score.verdict_rationale else None,
-            ))
-        except Exception:
-            logger.exception("failed to send rejection email for app=%s", application.id)
-        await advance_candidate(
-            application_id=application.id,
-            completed_stage_key="voice_screen",
-            verdict=StageVerdict.FAIL,
-            result_ref=result_ref,
-        )
-    elif transition == "pass":
-        await advance_candidate(
-            application_id=application.id,
-            completed_stage_key="voice_screen",
-            verdict=StageVerdict.PASS,
-            result_ref=result_ref,
-        )
-    elif transition == "hr_review":
-        # Held for a human: record on_going (the requires_action inbox event was
-        # already raised above, NB-5). No advance, no rejection email.
-        await advance_candidate(
-            application_id=application.id,
-            completed_stage_key="voice_screen",
-            verdict=StageVerdict.ON_GOING,
-            result_ref=result_ref,
-        )
+    await advance_candidate(
+        application_id=application.id,
+        completed_stage_key="voice_screen",
+        score=score.overall_score,
+        result_ref=result_ref,
+    )
     return score
 
 
