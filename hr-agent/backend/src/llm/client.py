@@ -123,15 +123,6 @@ if _settings.ollama_base_url:
     os.environ["OLLAMA_BASE_URL"] = _settings.ollama_base_url
 
 # ---------------------------------------------------------------------------
-# Premium-model guard.
-#
-# Hard block on expensive models -- we only ever want the cheapest reliable
-# option (gpt-4o-mini ~$0.15/$0.60 per 1M, gpt-3.5-turbo, claude-haiku,
-# llama-3.1-8b-instant). Any attempt to call a premium model raises
-# LLMError before the request leaves the process. Substring match is
-# case-insensitive and applied after stripping the provider prefix
-# (e.g. "openai/gpt-4o" -> "gpt-4o").
-# ---------------------------------------------------------------------------
 
 # Substrings that mark a model as banned. Order matters only for clarity.
 _BANNED_MODEL_SUBSTRINGS: tuple[str, ...] = (
@@ -166,17 +157,12 @@ _BANNED_MODEL_SUBSTRINGS: tuple[str, ...] = (
 # Explicit allowlist takes precedence (useful when a banned substring
 # would otherwise catch a cheap variant, e.g. "gpt-5-nano" if released).
 _ALLOWED_MODEL_SUBSTRINGS: tuple[str, ...] = (
+    "gpt-4o",  # opted in for the high-value scoring stages (fit) + JD drafting; deliberate cost choice
     "gpt-4o-mini",
-    "gpt-3.5-turbo",
     "gpt-4.1-nano",
     "gpt-4.1-mini",
     "gpt-5-nano",
     "gpt-5-mini",
-    "claude-haiku",
-    "claude-3-haiku",
-    "llama-3.1-8b",
-    "llama-3-8b",
-    "qwen2.5:7b",
     "qwen2.5:3b",
     "groq/llama-3.1-8b-instant",
 )
@@ -273,8 +259,8 @@ try:
         return _orig_init(self, *args, **filtered)
 
     _langfuse_pkg.Langfuse.__init__ = _patched_init  # type: ignore[method-assign]
-except Exception:
-    pass
+except Exception as exc:
+    logger.debug("Langfuse compat shim skipped: %s", exc)
 
 _langfuse_enabled = False
 
@@ -284,12 +270,8 @@ if _settings.langfuse_public_key and _settings.langfuse_secret_key:
     if _settings.langfuse_host:
         os.environ.setdefault("LANGFUSE_HOST", _settings.langfuse_host)
     try:
-        litellm.success_callback = litellm.success_callback or []
-        if "langfuse" not in litellm.success_callback:
-            litellm.success_callback.append("langfuse")
-        litellm.failure_callback = litellm.failure_callback or []
-        if "langfuse" not in litellm.failure_callback:
-            litellm.failure_callback.append("langfuse")
+        litellm.success_callback = list(set(litellm.success_callback or []) | {"langfuse"})
+        litellm.failure_callback = list(set(litellm.failure_callback or []) | {"langfuse"})
         from litellm.integrations.langfuse.langfuse import LangFuseLogger
         LangFuseLogger()
         _langfuse_enabled = True

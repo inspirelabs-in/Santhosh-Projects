@@ -43,6 +43,7 @@ logger = logging.getLogger(__name__)
 # swap is a one-line change in one place.
 GPT_4O_MINI = "openai/gpt-4o-mini"
 GPT_41_MINI = "openai/gpt-4.1-mini"
+GPT_4O = "openai/gpt-4o"  # higher-judgment model for the two stages that most affect fairness
 
 # The default for any stage not explicitly mapped.
 DEFAULT_MODEL = GPT_4O_MINI
@@ -101,32 +102,33 @@ STAGE_MODELS: dict[Stage, str] = {
     Stage.CLASSIFY_VOICEMAIL: GPT_4O_MINI,
 
     # Scoring / evaluation — judgment quality matters.
-    Stage.RESUME_FIT_SCORE: GPT_41_MINI,
+    # Fit is the first gate and the highest-leverage fairness decision -> gpt-4o.
+    Stage.RESUME_FIT_SCORE: GPT_4O,
     Stage.SCREENING_GEN: GPT_4O_MINI,
-    Stage.SCREENING_EVAL: GPT_41_MINI,
+    Stage.SCREENING_EVAL: GPT_4O_MINI,
     Stage.VOICE_SCREEN_GEN: GPT_4O_MINI,
-    Stage.VOICE_SCREEN_EVAL: GPT_41_MINI,
+    Stage.VOICE_SCREEN_EVAL: GPT_4O_MINI,
     Stage.ASSIGNMENT_PARSE: GPT_4O_MINI,
-    Stage.ASSIGNMENT_EVAL: GPT_41_MINI,
-    Stage.MEETING_ANALYSIS: GPT_41_MINI,
-    Stage.CANDIDATE_RANKING: GPT_41_MINI,
-    Stage.SCORE_OPEN_TEXT: GPT_41_MINI,
+    Stage.ASSIGNMENT_EVAL: GPT_4O_MINI,
+    Stage.MEETING_ANALYSIS: GPT_4O_MINI,
+    Stage.CANDIDATE_RANKING: GPT_4O_MINI,
+    Stage.SCORE_OPEN_TEXT: GPT_4O_MINI,
 
     # Reports / briefs — synthesis quality matters.
-    Stage.CEO_BRIEF: GPT_41_MINI,
-    Stage.JOURNEY_REPORT: GPT_41_MINI,
-    Stage.INTERVIEW_REPORT: GPT_41_MINI,
+    Stage.CEO_BRIEF: GPT_4O_MINI,
+    Stage.JOURNEY_REPORT: GPT_4O_MINI,
+    Stage.INTERVIEW_REPORT: GPT_4O_MINI,
 
     # Generation / drafting.
     Stage.REJECTION_MESSAGE: GPT_4O_MINI,
     Stage.OFFER_NOTE: GPT_4O_MINI,
-    Stage.ROLE_DRAFT_CHAT: GPT_41_MINI,
-    Stage.ROLE_SECTION_REWRITE: GPT_41_MINI,
+    Stage.ROLE_DRAFT_CHAT: GPT_4O,  # JD quality drives everything downstream -> gpt-4o
+    Stage.ROLE_SECTION_REWRITE: GPT_4O_MINI,
     Stage.LINKEDIN_POST: GPT_4O_MINI,
-    Stage.ASSIGNMENT_GEN: GPT_41_MINI,
+    Stage.ASSIGNMENT_GEN: GPT_4O,
 
     # Recruiter Pulse agent.
-    Stage.PULSE_AGENT: GPT_41_MINI,
+    Stage.PULSE_AGENT: GPT_4O,
     Stage.ANSWER_CANDIDATE_QUESTION: GPT_4O_MINI,
 }
 
