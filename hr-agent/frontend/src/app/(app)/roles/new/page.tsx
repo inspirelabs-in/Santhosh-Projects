@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 /**
  * Metaview-style role creation.
@@ -219,6 +219,8 @@ export default function NewRoleChatPage() {
         assignment_deadline_days: draft.assignment_deadline_days ?? 7,
         screening_modality: draft.screening_modality ?? "voice",
         pipeline_template: draft.pipeline_template ?? null,
+        evaluation_spec: draft.evaluation_spec ?? null,
+        company_context: draft.company_context ?? null,
       };
       const created = await api.post<Role>("/dashboard/roles", role);
       if (problemDoc) {
@@ -331,7 +333,7 @@ export default function NewRoleChatPage() {
     <>
       <Topbar
         title="Create role"
-        subtitle="intake call Â· live document on the right"
+        subtitle="intake call · live document on the right"
       />
       <div className="relative flex flex-1 flex-col overflow-hidden bg-muted/20">
         {/* Top status bar */}
@@ -417,20 +419,7 @@ export default function NewRoleChatPage() {
                       {s}
                     </button>
                   ))}
-                  {defaults &&
-                    defaults.panel_emails_technical.length +
-                    defaults.panel_emails_ceo.length +
-                    defaults.panel_emails_hr.length >
-                    0 ? (
-                    <p className="pt-2 text-[11px] text-muted-foreground">
-                      I remember{" "}
-                      <span className="font-semibold text-primary">
-                        {defaults.panel_emails_technical.slice(0, 1).join("")}
-                      </span>{" "}
-                      and your usual panels” reusing them unless you say
-                      otherwise.
-                    </p>
-                  ) : null}
+
                 </div>
               ) : null}
 
@@ -473,7 +462,7 @@ export default function NewRoleChatPage() {
                 </Button>
               </div>
               <p className="mt-1.5 text-center text-[10px] text-muted-foreground">
-                Enter to send Â· Shift+Enter for newline
+                Enter to send · Shift+Enter for newline
               </p>
             </div>
           </section>
@@ -484,7 +473,7 @@ export default function NewRoleChatPage() {
               <div className="flex items-center gap-2 min-w-0">
                 <FileText className="h-4 w-4 text-primary" />
                 <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-                  Job description Â· live
+                  Job description · live
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -533,12 +522,12 @@ export default function NewRoleChatPage() {
                     {draft.location ? (
                       <Pill icon={MapPin}>
                         {draft.location}
-                        {draft.remote_policy ? ` Â· ${draft.remote_policy}` : ""}
+                        {draft.remote_policy ? ` · ${draft.remote_policy}` : ""}
                       </Pill>
                     ) : null}
                     {draft.ctc_min_lpa || draft.ctc_max_lpa ? (
                       <Pill icon={IndianRupee}>
-                        {draft.ctc_min_lpa ?? "?"} â€“ {draft.ctc_max_lpa ?? "?"}{" "}
+                        {draft.ctc_min_lpa ?? "?"} – {draft.ctc_max_lpa ?? "?"}{" "}
                         LPA
                       </Pill>
                     ) : null}
@@ -567,7 +556,7 @@ export default function NewRoleChatPage() {
                         Problem statement document
                       </p>
                       <span className="ml-auto font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-                        optional Â· sent with the assignment email
+                        optional · sent with the assignment email
                       </span>
                     </div>
                     {problemDoc ? (
@@ -803,7 +792,7 @@ function SectionCard({
             rows={3}
             value={directive}
             onChange={(e) => setDirective(e.target.value)}
-            placeholder='e.g. "make it shorter" Â· "add Kubernetes" Â· "drop the React mention"'
+            placeholder='e.g. "make it shorter" · "add Kubernetes" · "drop the React mention"'
             className="text-[13px]"
           />
           <div className="flex items-center justify-end gap-2">
@@ -930,7 +919,7 @@ function splitBlocks(body: string): Block[] {
       flushBullets();
       continue;
     }
-    const m = line.match(/^[-â€¢*]\s+(.*)$/);
+    const m = line.match(/^[-•*]\s+(.*)$/);
     if (m) {
       flushPara();
       bullets.push(m[1]);

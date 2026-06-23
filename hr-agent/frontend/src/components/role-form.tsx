@@ -24,7 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { Role } from "@/lib/types";
-import { PanelMemberPicker } from "@/components/panel-member-picker";
+// import { PanelMemberPicker } from "@/components/panel-member-picker";
 
 type RoleWritable = Omit<Role, "id" | "created_at"> & { id?: string };
 
@@ -583,12 +583,12 @@ function RoundConfigBlock({
       </p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="space-y-1.5 sm:col-span-2">
-          <Label>Panel members</Label>
+          {/* <Label>Panel members</Label>
           <PanelMemberPicker
             roleType={round}
             value={cfg.panel_emails || []}
             onChange={(emails) => onChange({ ...cfg, panel_emails: emails })}
-          />
+          /> */}
         </div>
         <div className="space-y-1.5">
           <Label>Duration (minutes)</Label>

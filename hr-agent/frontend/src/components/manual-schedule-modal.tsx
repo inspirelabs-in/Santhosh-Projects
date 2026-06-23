@@ -7,8 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api";
-import { PanelMemberPicker } from "@/components/panel-member-picker";
-import type { PanelRoleType } from "@/lib/api/panels";
+// import { PanelMemberPicker } from "@/components/panel-member-picker";
+// import type { PanelRoleType } from "@/lib/api/panels";
 
 /**
  * Manual scheduling override. Used when:
@@ -26,7 +26,7 @@ export function ManualScheduleModal({
   onSaved,
 }: {
   applicationId: string;
-  defaultRound?: PanelRoleType;
+  defaultRound?: "technical" | "ceo" | "hr";
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -44,7 +44,7 @@ export function ManualScheduleModal({
     setError(null);
     try {
       if (!whenLocal) throw new Error("pick a date + time");
-      if (emails.length === 0) throw new Error("pick at least one panel member");
+      // if (emails.length === 0) throw new Error("pick at least one panel member");
       // datetime-local is local timezone; convert to ISO with offset.
       const local = new Date(whenLocal);
       const iso = local.toISOString();
@@ -129,7 +129,7 @@ export function ManualScheduleModal({
               className="mt-1"
             />
           </div>
-          <div>
+          {/* <div>
             <Label>Panel members</Label>
             <div className="mt-1">
               <PanelMemberPicker
@@ -138,7 +138,7 @@ export function ManualScheduleModal({
                 onChange={setEmails}
               />
             </div>
-          </div>
+          </div> */}
 
           {error ? <p className="text-xs text-destructive">{error}</p> : null}
 
