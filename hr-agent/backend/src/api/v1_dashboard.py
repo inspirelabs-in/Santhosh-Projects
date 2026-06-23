@@ -19,7 +19,7 @@ from src.config import get_settings
 from src.db.base import Application, AuditLog, Candidate, CandidateProfileRow, Interview, MeetingSession, Role, VoiceCall
 from src.db.connection import session_scope
 from src.db.repositories.audit import log_audit
-from src.db.repositories.v1_application import set_stage
+from src.db.repositories.v1_application import candidate_stage_view, set_stage
 from src.models.v1 import PipelineStage
 from src.services.file_storage import presigned_get_url
 
@@ -168,7 +168,10 @@ class CandidateListItem(BaseModel):
     email: str | None
     role_title: str | None
     current_stage: str
+    current_stage_key: str
     screening_score: int | None
+    fit_score: int | None = None
+    fit_tier: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -231,7 +234,10 @@ async def list_candidates(
                     email=cand.email,
                     role_title=role.title if role else None,
                     current_stage=app.current_stage,
+                    current_stage_key=app.current_stage_key or app.current_stage,
                     screening_score=app.screening_score,
+                    fit_score=app.fit_score,
+                    fit_tier=app.fit_tier,
                     created_at=app.created_at,
                     updated_at=app.updated_at,
                 )
@@ -244,6 +250,9 @@ class CandidateDetail(BaseModel):
     candidate: dict[str, Any]
     role: dict[str, Any] | None
     current_stage: str
+    current_stage_key: str
+    stage_status: str | None = None
+    stage_view: list[dict[str, Any]] | None = None
     screening_questions: Any
     screening_evaluation: Any
     assignment_submission: Any
@@ -388,6 +397,13 @@ async def candidate_detail(
                 "transcript_url": await presigned_get_url(bucket, voice_row.transcript_r2_key, ttl_seconds=3600) if voice_row.transcript_r2_key else None,
             }
 
+        # Build stage_view
+        stage_view_data: list[dict[str, Any]] | None = None
+        try:
+            stage_view_data = await candidate_stage_view(session, application_id)
+        except Exception:
+            pass
+
         return CandidateDetail(
             application_id=application_id,
             candidate={
@@ -408,6 +424,9 @@ async def candidate_detail(
                 else None
             ),
             current_stage=app.current_stage,
+            current_stage_key=app.current_stage_key or app.current_stage,
+            stage_status=app.stage_status,
+            stage_view=stage_view_data,
             screening_questions=app.screening_questions,
             screening_evaluation=app.screening_evaluation,
             assignment_submission=app.assignment_submission,
@@ -769,11 +788,14 @@ async def reject_candidate(
         cand = await session.get(Candidate, app.candidate_id)
         role = await session.get(Role, app.role_id) if app.role_id else None
 
+        from src.config import get_settings as _gs
+        _company = _gs().voice_agent_company_name
         prompt = REJECTION_MESSAGE_V1.format(
-            name=(cand.name if cand else "") or "there",
+            candidate_name=(cand.name if cand else "") or "there",
             role_title=role.title if role else "the role",
             rejection_category=body.category,
             reason_template=body.reason_template or body.category,
+            company_name=_company,
         )
         client = get_llm_client()
         result = await client.complete(
@@ -867,6 +889,14 @@ async def bulk_set_stage(
                 continue
             try:
                 await set_stage(session, app_id, target, force=True)
+                # set_stage is legacy-only; advance the V2 cursor too so the move
+                # actually takes effect for progression (not just the display).
+                from src.services.state_machine import legacy_stage_to_key
+
+                _skey, _sstatus = legacy_stage_to_key(target)
+                if _skey:
+                    app.current_stage_key = _skey
+                    app.stage_status = _sstatus
                 await log_audit(
                     session,
                     application_id=app_id,
@@ -927,11 +957,13 @@ async def bulk_reject(
                 draft: str | None = None
 
                 if body.send_email and cand and cand.email:
+                    from src.config import get_settings as _gs2
                     prompt = REJECTION_MESSAGE_V1.format(
-                        name=(cand.name or "there"),
+                        candidate_name=(cand.name or "there"),
                         role_title=role.title if role else "the role",
                         rejection_category=body.category,
                         reason_template=body.reason_template or body.category,
+                        company_name=_gs2().voice_agent_company_name,
                     )
                     result = await client.complete(
                         prompt=prompt,
@@ -1226,6 +1258,17 @@ async def set_stage_action(
         raise HTTPException(status_code=400, detail="invalid_stage")
     async with session_scope() as session:
         await set_stage(session, application_id, target, force=True)
+        # set_stage is legacy-only; advance the V2 cursor too so the candidate can
+        # actually progress from a manual move and the side-effect dispatch below
+        # (auto_progress) plans from the right key, not a stale one.
+        from src.services.state_machine import legacy_stage_to_key
+
+        _skey, _sstatus = legacy_stage_to_key(target)
+        if _skey:
+            _app = await session.get(Application, application_id)
+            if _app is not None:
+                _app.current_stage_key = _skey
+                _app.stage_status = _sstatus
         await log_audit(
             session,
             application_id=application_id,
@@ -1410,6 +1453,51 @@ async def tech_decision(
         _stage_log.exception("advance after tech decision failed for %s", application_id)
 
     return {"status": "advanced", "ceo_recipients": recipients_sent}
+
+
+class ReviewResolveBody(BaseModel):
+    decision: str  # "pass" | "reject"
+    note: str | None = None
+
+
+@router.post("/candidates/{application_id}/resolve-review")
+async def resolve_needs_review(
+    application_id: UUID,
+    body: ReviewResolveBody,
+    actor: Annotated[str, Depends(require_recruiter)],
+) -> dict:
+    """Resolve a candidate parked with verdict ``needs_review`` (a borderline
+    score routed to a human). HR's ``pass`` advances the candidate through the
+    role's pipeline; ``reject`` rejects. Works for ANY stage that parked for
+    review -- the stage is taken from the application's current cursor."""
+    if body.decision not in {"pass", "reject"}:
+        raise HTTPException(status_code=400, detail="decision must be pass|reject")
+
+    from src.models.pipeline import StageVerdict
+    from src.services.stage_runner import advance_candidate
+
+    async with session_scope() as session:
+        app = await session.get(Application, application_id)
+        if app is None:
+            raise HTTPException(status_code=404, detail="application_not_found")
+        stage_key = app.current_stage_key
+        await log_audit(
+            session,
+            application_id=application_id,
+            candidate_id=app.candidate_id,
+            action="needs_review_resolved",
+            actor=actor,
+            details={"decision": body.decision, "stage_key": stage_key, "note": body.note},
+        )
+
+    verdict = StageVerdict.PASS if body.decision == "pass" else StageVerdict.FAIL
+    decision = await advance_candidate(
+        application_id=application_id,
+        completed_stage_key=stage_key,
+        verdict=verdict,
+        result_ref={"hr_decision": body.decision, "via": "needs_review_resolve"},
+    )
+    return {"ok": True, "decision": decision}
 
 
 class CEODecisionBody(BaseModel):

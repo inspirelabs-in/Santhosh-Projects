@@ -362,6 +362,17 @@ async def submit_assignment(
             )
         except Exception:  # noqa: BLE001
             pass
+        # The candidate submitted the take-home: park the assignment stage for HR
+        # review (or, on a legacy pipeline that still has a separate
+        # assessment_review gate, pass through to that gate). The set_stage calls
+        # above only write the legacy column; this advances the V2 cursor so
+        # progression does not mis-plan. See complete_assignment_submission.
+        from src.services.stage_runner import complete_assignment_submission
+        background.add_task(
+            complete_assignment_submission,
+            claims.application_id,
+            result_ref={"submitted": True, "agentic": True},
+        )
     else:
         background.add_task(
             run_assignment_processing,
