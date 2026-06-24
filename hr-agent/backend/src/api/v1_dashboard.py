@@ -417,8 +417,18 @@ async def candidate_detail(
                 {
                     "id": str(role.id),
                     "title": role.title,
+                    "jd_text": role.jd_text,
+                    "ctc_min_lpa": role.ctc_min_lpa,
+                    "ctc_max_lpa": role.ctc_max_lpa,
+                    "location": role.location,
+                    "remote_policy": role.remote_policy,
                     "assignment_brief": role.assignment_brief,
+                    "assignment_instructions": role.assignment_instructions,
                     "assignment_deadline_days": role.assignment_deadline_days,
+                    "assignment_problem_doc_filename": role.assignment_problem_doc_filename,
+                    "has_problem_doc": role.has_problem_doc,
+                    "evaluation_spec": role.evaluation_spec,
+                    "pipeline_template": role.pipeline_template,
                 }
                 if role
                 else None

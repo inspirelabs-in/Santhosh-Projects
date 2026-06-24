@@ -48,10 +48,10 @@ export default function DashboardPage() {
             <button
               onClick={() => (chat.artifactOpen ? chat.closeArtifact() : chat.openArtifact())}
               className="flex items-center gap-1.5 rounded-md border border-border/50 px-2.5 py-1.5 text-xs hover:bg-muted"
-              title="Open role draft"
+              title={chat.activeArtifact.status === "applied" ? "View published role draft" : "Open role draft"}
             >
               <FileText className="h-3.5 w-3.5 text-brand-green" />
-              Draft
+              {chat.activeArtifact.status === "applied" ? "Role" : "Draft"}
             </button>
           )}
           {chat.error && (

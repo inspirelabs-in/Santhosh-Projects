@@ -29,6 +29,7 @@ import {
   ArrowRight,
   Loader2,
   CheckCircle2,
+  Calendar,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -199,18 +200,28 @@ function FitBreakdownSection({ breakdown }: { breakdown: any }) {
   if (!breakdown) return null;
 
   const dims = breakdown.dimensions;
+  const weightsUsed: Record<string, number> = breakdown.weights_used ?? {};
   const dimArray = Array.isArray(dims)
     ? dims
     : dims && typeof dims === "object"
       ? Object.entries(dims)
           .filter(([k]) => k !== "cultural_fit")
-          .map(([k, v]: [string, any]) => ({
-            name: k.replace(/_/g, " "),
-            score: v?.score ?? v?.value ?? (typeof v === "number" ? v : null),
-            rationale: v?.rationale,
-            data_status: v?.data_status ?? "verified",
-            evidence: v?.evidence ?? [],
-          }))
+          .map(([k, v]: [string, any]) => {
+            // Map dimension key to weight key
+            const weightKey = k === "skills_match" ? "skills"
+              : k === "experience_level" ? "experience"
+              : k === "ctc_fit" ? "ctc"
+              : k === "location_notice_fit" ? "logistics"
+              : null;
+            return {
+              name: k.replace(/_/g, " "),
+              score: v?.score ?? v?.value ?? (typeof v === "number" ? v : null),
+              rationale: v?.rationale,
+              data_status: v?.data_status ?? "verified",
+              evidence: v?.evidence ?? [],
+              weight: weightKey ? weightsUsed[weightKey] : null,
+            };
+          })
       : [];
 
   const pendingItems: string[] = breakdown.pending_verification ?? [];
@@ -243,6 +254,11 @@ function FitBreakdownSection({ breakdown }: { breakdown: any }) {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium capitalize">{d.name}</span>
+                      {d.weight != null && (
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] font-semibold tabular-nums text-muted-foreground">
+                          w {d.weight}
+                        </span>
+                      )}
                       {isPending && (
                         <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-amber-700">
                           Pending
@@ -254,14 +270,19 @@ function FitBreakdownSection({ breakdown }: { breakdown: any }) {
                         </span>
                       )}
                     </div>
-                    {isPending ? (
-                      <span className="text-xs italic text-muted-foreground">No data</span>
-                    ) : (
-                      <span className={cn(
-                        "font-mono text-sm font-bold",
-                        (d.score ?? 0) >= 60 ? "text-emerald-600" : "text-red-600"
-                      )}>{d.score}</span>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {d.weight != null && (
+                        <span className="text-[10px] text-muted-foreground/60">×{d.weight}%</span>
+                      )}
+                      {isPending ? (
+                        <span className="text-xs italic text-muted-foreground">No data</span>
+                      ) : (
+                        <span className={cn(
+                          "font-mono text-sm font-bold",
+                          (d.score ?? 0) >= 60 ? "text-emerald-600" : "text-red-600"
+                        )}>{d.score}</span>
+                      )}
+                    </div>
                   </div>
                   {d.rationale && <p className="mt-1 text-xs text-muted-foreground">{d.rationale}</p>}
                   {d.evidence?.length > 0 && (
@@ -451,42 +472,103 @@ function AssignmentSection({
   const completeness = parseResult?.completeness;
   const quality = parseResult?.quality_signals;
   const submittedAt = submission?.submitted_at;
+  const hasSubmission = !!submission;
+  const hasParse = !!parseResult;
+
+  // Compute deadline
+  let deadlineLabel: string | null = null;
+  let deadlineOverdue = false;
+  if (role?.assignment_deadline_days) {
+    if (submittedAt) {
+      deadlineLabel = new Date(submittedAt).toLocaleString("en-IN", {
+        timeZone: "Asia/Kolkata", month: "short", day: "numeric", year: "numeric",
+      });
+    } else {
+      const sentAt = submission?.sent_at;
+      const from = sentAt ? new Date(sentAt) : new Date();
+      const due = new Date(from);
+      due.setDate(due.getDate() + role.assignment_deadline_days);
+      deadlineLabel = `Due ${due.toLocaleDateString("en-IN", { month: "short", day: "numeric", year: "numeric" })}`;
+      deadlineOverdue = due < new Date();
+    }
+  }
+
+  // Compute status badge
+  const badge = (() => {
+    if (hasParse) {
+      const ok = completeness?.followed_instructions;
+      return (
+        <span className={cn(
+          "rounded-full px-2.5 py-0.5 text-xs font-semibold",
+          ok ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
+        )}>
+          {ok ? "Complete" : "Incomplete"}
+        </span>
+      );
+    }
+    if (hasSubmission) {
+      return (
+        <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-700">
+          Submitted
+        </span>
+      );
+    }
+    if (role?.assignment_brief || role?.assignment_deadline_days) {
+      return (
+        <span className={cn(
+          "rounded-full px-2.5 py-0.5 text-xs font-semibold",
+          deadlineOverdue ? "bg-red-100 text-red-700" : "bg-muted text-muted-foreground"
+        )}>
+          {deadlineOverdue ? "Overdue" : "Pending"}
+        </span>
+      );
+    }
+    return undefined;
+  })();
 
   return (
     <Collapsible
       title="Assignment"
       icon={<ClipboardCheck className="h-4 w-4" />}
-      badge={
-        parseResult ? (
-          <span className={cn(
-            "rounded-full px-2.5 py-0.5 text-xs font-semibold",
-            completeness?.followed_instructions
-              ? "bg-emerald-100 text-emerald-700"
-              : "bg-amber-100 text-amber-700"
-          )}>
-            {completeness?.followed_instructions ? "Complete" : "Incomplete"}
-          </span>
-        ) : submission ? (
-          <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-700">Submitted</span>
-        ) : undefined
-      }
+      badge={badge}
       defaultOpen={true}
     >
       <div className="space-y-5">
+        {/* Deadline banner */}
+        {role?.assignment_deadline_days && !hasSubmission && (
+          <div className={cn(
+            "flex items-center gap-2 rounded-lg border p-3 text-sm",
+            deadlineOverdue
+              ? "border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/20 dark:text-red-400"
+              : "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-400"
+          )}>
+            <Clock className="h-4 w-4 shrink-0" />
+            <span>{deadlineLabel}</span>
+          </div>
+        )}
+
         {/* Submission metadata */}
         {submission && (
           <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
             <div className="flex items-center justify-between">
               <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Submission Details</h4>
-              {submittedAt && (
-                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                  <Clock className="h-3 w-3" />
-                  {new Date(submittedAt).toLocaleString("en-IN", {
-                    timeZone: "Asia/Kolkata", month: "short", day: "numeric",
-                    hour: "2-digit", minute: "2-digit", year: "numeric",
-                  })}
-                </span>
-              )}
+              <div className="flex items-center gap-3">
+                {deadlineLabel && hasSubmission && (
+                  <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                    <Calendar className="h-3 w-3" />
+                    {deadlineLabel}
+                  </span>
+                )}
+                {submittedAt && (
+                  <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                    <Clock className="h-3 w-3" />
+                    {new Date(submittedAt).toLocaleString("en-IN", {
+                      timeZone: "Asia/Kolkata", month: "short", day: "numeric",
+                      hour: "2-digit", minute: "2-digit", year: "numeric",
+                    })}
+                  </span>
+                )}
+              </div>
             </div>
 
             {submission.project_choice && (
@@ -677,11 +759,30 @@ function AssignmentSection({
           </div>
         )}
 
-        {/* Brief */}
+        {/* Brief & Instructions */}
         {role?.assignment_brief && (
           <div>
             <h4 className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Assignment Brief</h4>
             <p className="whitespace-pre-wrap text-sm text-muted-foreground">{role.assignment_brief}</p>
+          </div>
+        )}
+        {role?.assignment_instructions && (
+          <div>
+            <h4 className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Instructions</h4>
+            <p className="whitespace-pre-wrap text-sm text-muted-foreground">{role.assignment_instructions}</p>
+          </div>
+        )}
+        {role?.has_problem_doc && (
+          <div>
+            <a
+              href={`/dashboard/roles/${role.id}/problem-doc/download`}
+              className="inline-flex items-center gap-2 text-sm text-primary hover:underline"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <Download className="h-4 w-4" />
+              {role.assignment_problem_doc_filename || "Download Problem Document"}
+            </a>
           </div>
         )}
 

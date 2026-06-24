@@ -165,12 +165,14 @@ export function ArtifactPanel({
   }, [artifact.id, artifact.version]);
 
   const applied = artifact.status === "applied";
+  const readOnly = applied;
   const patch = useCallback(
     (p: Partial<Draft>) => {
+      if (readOnly) return;
       setDraft((d) => ({ ...d, ...p }));
       setDirty(true);
     },
-    [],
+    [readOnly],
   );
 
   const stages = draft.pipeline || [];
@@ -338,8 +340,8 @@ export function ArtifactPanel({
         </Button>
       </header>
 
-      {/* Scrollable body */}
-      <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
+      {/* Scrollable body — read-only when applied (view data, no editing) */}
+      <div className={cn("flex-1 space-y-3 overflow-y-auto px-4 py-4", readOnly && "pointer-events-none opacity-70")}>
         {/* ====== BASICS ====== */}
         <Section title="Basics" defaultOpen={true}>
           <div className="space-y-3">

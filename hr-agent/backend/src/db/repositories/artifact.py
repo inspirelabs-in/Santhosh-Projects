@@ -48,14 +48,26 @@ async def get(session: AsyncSession, artifact_id: UUID) -> RecruiterArtifact | N
 async def get_active_for_conversation(
     session: AsyncSession, conversation_id: UUID
 ) -> RecruiterArtifact | None:
-    """The most recent still-draft artifact for a conversation (the one the panel
-    shows). Returns None if there's no open draft."""
-    return await session.scalar(
+    """The most recent artifact for a conversation, preferring an open draft
+    if one exists, otherwise the most recently updated artifact (applied or
+    dismissed). Returns None only when the conversation has never had an
+    artifact — this allows the panel to show applied data on revisit."""
+    # Try draft first
+    draft = await session.scalar(
         select(RecruiterArtifact)
         .where(
             RecruiterArtifact.conversation_id == conversation_id,
             RecruiterArtifact.status == ArtifactStatus.DRAFT.value,
         )
+        .order_by(RecruiterArtifact.updated_at.desc())
+        .limit(1)
+    )
+    if draft is not None:
+        return draft
+    # Fall back to the latest applied/dismissed artifact
+    return await session.scalar(
+        select(RecruiterArtifact)
+        .where(RecruiterArtifact.conversation_id == conversation_id)
         .order_by(RecruiterArtifact.updated_at.desc())
         .limit(1)
     )
