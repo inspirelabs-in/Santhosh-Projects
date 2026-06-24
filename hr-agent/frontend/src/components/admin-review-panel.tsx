@@ -10,11 +10,19 @@ import type { StageViewEntry } from "@/lib/types";
 
 type Stage = string;
 
+interface ScoreRationale {
+  overall?: string;
+  technical?: string;
+  communication?: string;
+  confidence?: string;
+}
+
 interface MeetingReport {
   overall_score?: number | null;
   technical_score?: number | null;
   communication_score?: number | null;
   confidence_score?: number | null;
+  score_rationale?: ScoreRationale | null;
   verdict?: string | null;
   summary?: string | null;
   strengths?: string[] | null;
