@@ -130,15 +130,6 @@ function Score({ label, v, rationale }: { label: string; v?: number | null; rati
   );
 }
 
-function Score({ label, v }: { label: string; v?: number | null }) {
-  return (
-    <div className="rounded-md bg-muted px-2 py-1.5">
-      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
-      <div className="text-sm font-bold tabular-nums">{v ?? "—"}</div>
-    </div>
-  );
-}
-
 function Bullets({
   title,
   items,
