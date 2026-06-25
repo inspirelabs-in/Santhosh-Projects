@@ -68,6 +68,7 @@ class FitTier(StrEnum):
 
 
 class RoleStatus(StrEnum):
+    DRAFT = "draft"
     OPEN = "open"
     PAUSED = "paused"
     FILLED = "filled"

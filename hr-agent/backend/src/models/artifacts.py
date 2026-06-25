@@ -34,10 +34,20 @@ class ArtifactStatus(StrEnum):
 
 
 class RoleDraftAssignment(BaseModel):
-    """Assignment config carried in a role draft (the brief itself is generated
-    on apply, not stored in the draft)."""
+    """Assignment config carried in a role draft.
 
-    enabled: bool = True
+    ``brief`` / ``instructions`` carry the COMPANY'S OWN take-home, captured
+    verbatim from the scoping conversation when the hiring manager described one
+    or pasted their ideas. When ``brief`` is non-empty it is the source of truth:
+    on apply it is persisted directly (text only; no PDF is rendered and the role
+    stays in ``draft`` until the recruiter posts the assignment). Nothing is ever
+    auto-generated: an empty ``brief`` simply means no assignment yet -- the
+    recruiter uploads their own or explicitly asks Pulse to draft one.
+    """
+
+    enabled: bool = False
+    brief: str = ""           # company-provided take-home (markdown); empty => none yet
+    instructions: str = ""    # company-provided submission instructions (optional)
     n_problems: int = Field(default=2)
     time_budget_hours: int = Field(default=6)
     deadline_days: int = Field(default=7)

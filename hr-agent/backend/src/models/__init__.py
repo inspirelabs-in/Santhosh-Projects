@@ -14,7 +14,6 @@ from src.models.candidate import (
 )
 from src.models.llm_outputs import (
     ClassificationResult,
-    DimensionScore,
     FitAssessment,
     InterviewReport,
     OpenTextScore,
@@ -36,7 +35,6 @@ __all__ = [
     "CandidateRecord",
     "ClassificationResult",
     "ConsentArtifact",
-    "DimensionScore",
     "Education",
     "FieldConfidence",
     "FitAssessment",
