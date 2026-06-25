@@ -13,11 +13,15 @@ import {
   Database,
   Phone,
   ShieldCheck,
+  Building2,
+  ArrowUpRight,
 } from "lucide-react";
 import { Topbar } from "@/components/layout/topbar";
 import { swrFetcher } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import type { UiSettings } from "@/lib/types";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import type { Org, UiSettings } from "@/lib/types";
 import { configApi, type ConfigSchema } from "@/lib/configClient";
 
 export default function SettingsPage() {
@@ -33,6 +37,8 @@ export default function SettingsPage() {
           {s?.pipeline_readiness && (
             <PipelineReadiness readiness={s.pipeline_readiness} channels={s.channel_configured} />
           )}
+
+          <OrgSection />
 
           <ConfigGroupNav />
 
@@ -131,6 +137,29 @@ function MetricCard({
   );
 }
 
+
+function OrgSection() {
+  const { data: org } = useSWR<Org>("/dashboard/settings/org", swrFetcher);
+
+  return (
+    <section className="mt-8">
+      <SectionHeading label="org" title="Organization" />
+      <Link
+        href="/settings/org"
+        className="group mt-5 flex items-center justify-between rounded-lg border border-border bg-card p-5 transition hover:border-primary/40 hover:bg-accent/20"
+      >
+        <div className="flex items-center gap-3">
+          <Building2 className="h-5 w-5 text-muted-foreground" />
+          <div>
+            <p className="font-display text-base">{org?.name ?? "Loading..."}</p>
+            {org && <p className="text-xs text-muted-foreground">Manage hiring persona, mission, values & more</p>}
+          </div>
+        </div>
+        <ArrowUpRight className="h-4 w-4 text-muted-foreground transition group-hover:text-foreground" />
+      </Link>
+    </section>
+  );
+}
 
 function ConfigGroupNav() {
   const { data: schema } = useSWR<ConfigSchema>("config:schema", () => configApi.schema());

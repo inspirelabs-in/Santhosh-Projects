@@ -143,6 +143,21 @@ export default function RoleDetailPage() {
   const [jdDirty, setJdDirty] = useState(false);
   const [editingJd, setEditingJd] = useState(false);
 
+  // Evaluation spec editing
+  const [editingEvalSpec, setEditingEvalSpec] = useState(false);
+  const [evalSpecDims, setEvalSpecDims] = useState<
+    { key: string; label: string; weight: number; what_good_looks_like: string[]; anti_signals: string[] }[]
+  >([]);
+  const [evalSpecKnockouts, setEvalSpecKnockouts] = useState<{ key: string; rule: string }[]>([]);
+  const [evalDirty, setEvalDirty] = useState(false);
+
+  // Company context editing
+  const [editingCtx, setEditingCtx] = useState(false);
+  const [ctxDraft, setCtxDraft] = useState<{
+    intensity: string; summary: string; hiring_bar: string; what_matters_here: string[];
+  }>({ intensity: "standard", summary: "", hiring_bar: "", what_matters_here: [] });
+  const [ctxDirty, setCtxDirty] = useState(false);
+
   useEffect(() => {
     if (!role) return;
     setTitleDraft(role.title);
@@ -153,6 +168,21 @@ export default function RoleDetailPage() {
     setNoticeCap(role.max_notice_days != null ? String(role.max_notice_days) : "");
     setAssignmentBrief(role.assignment_brief ?? "");
     setJdText(role.jd_text ?? "");
+
+    const spec = role.evaluation_spec as Record<string, unknown> | undefined;
+    if (spec?.dimensions) {
+      setEvalSpecDims(spec.dimensions as any[]);
+      setEvalSpecKnockouts((spec.knockouts ?? []) as any[]);
+    }
+    const ctx = role.company_context as Record<string, unknown> | undefined;
+    if (ctx) {
+      setCtxDraft({
+        intensity: (ctx.intensity as string) ?? "standard",
+        summary: (ctx.summary as string) ?? "",
+        hiring_bar: (ctx.hiring_bar as string) ?? "",
+        what_matters_here: ((ctx.what_matters_here as string[]) ?? []),
+      });
+    }
   }, [role]);
 
   const flash = (type: "ok" | "err", text: string) => {
@@ -208,6 +238,58 @@ export default function RoleDetailPage() {
       flash("ok", "Details saved");
     } catch (e: any) {
       flash("err", e?.message ?? "Failed to save details");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveEvalSpec = async () => {
+    if (!id) return;
+    setSaving(true);
+    try {
+      await api.patch(`/dashboard/roles/${id}`, {
+        evaluation_spec: { dimensions: evalSpecDims, knockouts: evalSpecKnockouts },
+      });
+      setEditingEvalSpec(false);
+      setEvalDirty(false);
+      await mutate();
+      flash("ok", "Evaluation criteria saved");
+    } catch (e: any) {
+      flash("err", e?.message ?? "Failed to save evaluation criteria");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addDim = () => {
+    setEvalSpecDims((prev) => [
+      ...prev,
+      { key: `dim_${Date.now()}`, label: "New dimension", weight: 10, what_good_looks_like: [""], anti_signals: [""] },
+    ]);
+    setEvalDirty(true);
+  };
+
+  const updateDim = (i: number, field: string, value: unknown) => {
+    setEvalSpecDims((prev) => prev.map((d, idx) => (idx === i ? { ...d, [field]: value } : d)));
+    setEvalDirty(true);
+  };
+
+  const removeDim = (i: number) => {
+    setEvalSpecDims((prev) => prev.filter((_, idx) => idx !== i));
+    setEvalDirty(true);
+  };
+
+  const saveCtx = async () => {
+    if (!id) return;
+    setSaving(true);
+    try {
+      await api.patch(`/dashboard/roles/${id}`, { company_context: ctxDraft });
+      setEditingCtx(false);
+      setCtxDirty(false);
+      await mutate();
+      flash("ok", "Company context saved");
+    } catch (e: any) {
+      flash("err", e?.message ?? "Failed to save company context");
     } finally {
       setSaving(false);
     }
@@ -562,11 +644,331 @@ export default function RoleDetailPage() {
                       />
                     </div>
 
-                    {/* Screening — read-only */}
+                    {/* Screening — read-only, reflects the role's screening modality */}
                     <div>
                       <Label className="text-[11px] text-muted-foreground">Screening</Label>
                       <div className="mt-1 flex items-center gap-1.5 rounded-md border bg-muted/30 px-3 py-1.5 text-sm text-muted-foreground">
-                        Voice (AI phone screen)
+                        {(() => {
+                          const m = (role?.screening_modality || "").trim();
+                          if (!m || m === "none") return "No screening";
+                          return `${m.charAt(0).toUpperCase()}${m.slice(1)} screen`;
+                        })()}
+                      </div>
+                    </div>
+
+                    {/* Evaluation spec — editable */}
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <Label className="text-[11px] text-muted-foreground">Evaluation criteria</Label>
+                        {!editingEvalSpec && (
+                          <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => setEditingEvalSpec(true)}>
+                            <Pencil className="mr-1 h-3 w-3" /> Edit
+                          </Button>
+                        )}
+                      </div>
+                      <div className="mt-1 space-y-2 rounded-md border bg-muted/30 p-3 text-sm">
+                        {editingEvalSpec ? (
+                          <div className="space-y-3">
+                            {evalSpecDims.length === 0 && (
+                              <p className="text-muted-foreground italic text-xs">No dimensions defined</p>
+                            )}
+                            {evalSpecDims.map((d, i) => (
+                              <div key={d.key} className="border-b border-border/40 pb-3 last:border-0 last:pb-0 space-y-1.5">
+                                <div className="flex items-center gap-2">
+                                  <Input
+                                    value={d.label}
+                                    onChange={(e) => updateDim(i, "label", e.target.value)}
+                                    className="h-7 text-xs flex-1"
+                                    placeholder="Label"
+                                  />
+                                  <Input
+                                    type="number"
+                                    value={d.weight}
+                                    onChange={(e) => updateDim(i, "weight", parseInt(e.target.value) || 0)}
+                                    className="h-7 text-xs w-16"
+                                    placeholder="Wt"
+                                  />
+                                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-destructive" onClick={() => removeDim(i)}>
+                                    <X className="h-3 w-3" />
+                                  </Button>
+                                </div>
+                                <div>
+                                  <p className="text-[10px] text-emerald-600 mb-0.5">What good looks like</p>
+                                  {(d.what_good_looks_like?.length ? d.what_good_looks_like : [""]).map((s, si) => (
+                                    <div key={si} className="flex items-center gap-1 mb-0.5">
+                                      <textarea
+                                        value={s}
+                                        onChange={(e) => {
+                                          const arr = [...(d.what_good_looks_like || [""])];
+                                          arr[si] = e.target.value;
+                                          updateDim(i, "what_good_looks_like", arr);
+                                        }}
+                                        className="w-full text-[11px] rounded border border-border bg-background px-1.5 py-0.5 resize-none"
+                                        rows={2}
+                                      />
+                                      {si > 0 && (
+                                        <button
+                                          className="text-destructive hover:text-destructive/80 text-xs"
+                                          onClick={() => {
+                                            const arr = [...(d.what_good_looks_like || [])];
+                                            arr.splice(si, 1);
+                                            updateDim(i, "what_good_looks_like", arr);
+                                          }}
+                                        >
+                                          <X className="h-3 w-3" />
+                                        </button>
+                                      )}
+                                    </div>
+                                  ))}
+                                  <button
+                                    className="text-[10px] text-primary hover:underline mt-0.5"
+                                    onClick={() => {
+                                      updateDim(i, "what_good_looks_like", [...(d.what_good_looks_like || []), ""]);
+                                    }}
+                                  >
+                                    + Add signal
+                                  </button>
+                                </div>
+                                <div>
+                                  <p className="text-[10px] text-destructive mb-0.5">Anti-signals</p>
+                                  {(d.anti_signals?.length ? d.anti_signals : [""]).map((s, si) => (
+                                    <div key={si} className="flex items-center gap-1 mb-0.5">
+                                      <textarea
+                                        value={s}
+                                        onChange={(e) => {
+                                          const arr = [...(d.anti_signals || [""])];
+                                          arr[si] = e.target.value;
+                                          updateDim(i, "anti_signals", arr);
+                                        }}
+                                        className="w-full text-[11px] rounded border border-border bg-background px-1.5 py-0.5 resize-none"
+                                        rows={2}
+                                      />
+                                      {si > 0 && (
+                                        <button
+                                          className="text-destructive hover:text-destructive/80 text-xs"
+                                          onClick={() => {
+                                            const arr = [...(d.anti_signals || [])];
+                                            arr.splice(si, 1);
+                                            updateDim(i, "anti_signals", arr);
+                                          }}
+                                        >
+                                          <X className="h-3 w-3" />
+                                        </button>
+                                      )}
+                                    </div>
+                                  ))}
+                                  <button
+                                    className="text-[10px] text-primary hover:underline mt-0.5"
+                                    onClick={() => {
+                                      updateDim(i, "anti_signals", [...(d.anti_signals || []), ""]);
+                                    }}
+                                  >
+                                    + Add anti-signal
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                            <div className="flex items-center gap-2 pt-1">
+                              <Button variant="outline" size="sm" className="h-7 text-xs" onClick={addDim}>
+                                + Add dimension
+                              </Button>
+                              <div className="flex-1" />
+                              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => { setEditingEvalSpec(false); setEvalDirty(false); }}>
+                                Cancel
+                              </Button>
+                              <Button size="sm" className="h-7 text-xs" onClick={saveEvalSpec} disabled={saving || !evalDirty}>
+                                {saving ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Save className="mr-1 h-3 w-3" />}
+                                Save
+                              </Button>
+                            </div>
+                          </div>
+                        ) : role.evaluation_spec ? (
+                          (() => {
+                            const spec = role.evaluation_spec as Record<string, unknown>;
+                            const dims = (spec.dimensions ?? []) as Array<{
+                              key: string; label: string; weight: number;
+                              description?: string | null;
+                              what_good_looks_like?: string[];
+                              anti_signals?: string[];
+                            }>;
+                            const knockouts = (spec.knockouts ?? []) as Array<{ key: string; rule: string; }>;
+                            return (
+                              <>
+                                {dims.length === 0 ? (
+                                  <p className="text-muted-foreground italic">No dimensions defined</p>
+                                ) : dims.map((d) => (
+                                  <div key={d.key} className="border-b border-border/40 pb-2 last:border-0 last:pb-0">
+                                    <div className="flex items-center justify-between">
+                                      <span className="font-medium">{d.label}</span>
+                                      <span className="text-[11px] text-muted-foreground">{d.weight}%</span>
+                                    </div>
+                                    {d.description && (
+                                      <p className="text-[12px] text-muted-foreground mt-0.5">{d.description}</p>
+                                    )}
+                                    {Array.isArray(d.what_good_looks_like) && d.what_good_looks_like.length > 0 && (
+                                      <div className="mt-1">
+                                        <p className="text-[11px] font-medium text-emerald-600">What good looks like</p>
+                                        {d.what_good_looks_like.map((s, i) => (
+                                          <p key={i} className="text-[12px] text-muted-foreground">• {s}</p>
+                                        ))}
+                                      </div>
+                                    )}
+                                    {Array.isArray(d.anti_signals) && d.anti_signals.length > 0 && (
+                                      <div className="mt-1">
+                                        <p className="text-[11px] font-medium text-destructive">Anti-signals</p>
+                                        {d.anti_signals.map((s, i) => (
+                                          <p key={i} className="text-[12px] text-muted-foreground">• {s}</p>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                                {knockouts.length > 0 && (
+                                  <div className="pt-1 border-t border-border/40">
+                                    <p className="text-[11px] font-medium text-destructive mb-1">Knockouts</p>
+                                    {knockouts.map((k) => (
+                                      <p key={k.key} className="text-[12px] text-muted-foreground">• {k.rule}</p>
+                                    ))}
+                                  </div>
+                                )}
+                              </>
+                            );
+                          })()
+                        ) : (
+                          <p className="text-muted-foreground italic">No evaluation criteria set</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Company context — editable */}
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <Label className="text-[11px] text-muted-foreground">Company context</Label>
+                        {!editingCtx && (
+                          <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => setEditingCtx(true)}>
+                            <Pencil className="mr-1 h-3 w-3" /> Edit
+                          </Button>
+                        )}
+                      </div>
+                      <div className="mt-1 space-y-2 rounded-md border bg-muted/30 p-3 text-sm">
+                        {editingCtx ? (
+                          <div className="space-y-2">
+                            <div>
+                              <Label className="text-[10px] text-muted-foreground">Intensity</Label>
+                              <Select
+                                value={ctxDraft.intensity}
+                                onValueChange={(v) => { setCtxDraft((p) => ({ ...p, intensity: v })); setCtxDirty(true); }}
+                              >
+                                <SelectTrigger className="mt-0.5 h-7 text-xs">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="light">Light</SelectItem>
+                                  <SelectItem value="standard">Standard</SelectItem>
+                                  <SelectItem value="high">High</SelectItem>
+                                  <SelectItem value="critical">Critical</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div>
+                              <Label className="text-[10px] text-muted-foreground">Summary</Label>
+                              <textarea
+                                value={ctxDraft.summary}
+                                onChange={(e) => { setCtxDraft((p) => ({ ...p, summary: e.target.value })); setCtxDirty(true); }}
+                                className="mt-0.5 w-full text-xs rounded border border-border bg-background px-2 py-1 resize-none"
+                                rows={3}
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-[10px] text-muted-foreground">Hiring bar</Label>
+                              <textarea
+                                value={ctxDraft.hiring_bar}
+                                onChange={(e) => { setCtxDraft((p) => ({ ...p, hiring_bar: e.target.value })); setCtxDirty(true); }}
+                                className="mt-0.5 w-full text-xs rounded border border-border bg-background px-2 py-1 resize-none"
+                                rows={2}
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-[10px] text-muted-foreground">What matters here</Label>
+                              {ctxDraft.what_matters_here.map((s, i) => (
+                                <div key={i} className="flex items-center gap-1 mt-0.5">
+                                  <input
+                                    value={s}
+                                    onChange={(e) => {
+                                      const arr = [...ctxDraft.what_matters_here];
+                                      arr[i] = e.target.value;
+                                      setCtxDraft((p) => ({ ...p, what_matters_here: arr }));
+                                      setCtxDirty(true);
+                                    }}
+                                    className="flex-1 text-xs rounded border border-border bg-background px-1.5 py-0.5"
+                                  />
+                                  {ctxDraft.what_matters_here.length > 1 && (
+                                    <button
+                                      className="text-destructive text-xs"
+                                      onClick={() => {
+                                        setCtxDraft((p) => ({ ...p, what_matters_here: p.what_matters_here.filter((_, j) => j !== i) }));
+                                        setCtxDirty(true);
+                                      }}
+                                    >
+                                      <X className="h-3 w-3" />
+                                    </button>
+                                  )}
+                                </div>
+                              ))}
+                              <button
+                                className="text-[10px] text-primary hover:underline mt-0.5"
+                                onClick={() => {
+                                  setCtxDraft((p) => ({ ...p, what_matters_here: [...p.what_matters_here, ""] }));
+                                  setCtxDirty(true);
+                                }}
+                              >
+                                + Add signal
+                              </button>
+                            </div>
+                            <div className="flex items-center gap-2 pt-1">
+                              <div className="flex-1" />
+                              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => { setEditingCtx(false); setCtxDirty(false); }}>
+                                Cancel
+                              </Button>
+                              <Button size="sm" className="h-7 text-xs" onClick={saveCtx} disabled={saving || !ctxDirty}>
+                                {saving ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Save className="mr-1 h-3 w-3" />}
+                                Save
+                              </Button>
+                            </div>
+                          </div>
+                        ) : role.company_context ? (
+                          (() => {
+                            const ctx = role.company_context as Record<string, unknown>;
+                            const summary = ctx.summary as string | undefined;
+                            const hiringBar = ctx.hiring_bar as string | undefined;
+                            const whatMatters = ctx.what_matters_here as string[] | undefined;
+                            return (
+                              <div className="space-y-1.5">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Intensity</span>
+                                  <Badge variant="outline" className="text-[10px]">{(ctx.intensity as string) ?? "standard"}</Badge>
+                                </div>
+                                {summary && <p className="text-xs text-muted-foreground">{summary}</p>}
+                                {hiringBar && (
+                                  <div>
+                                    <p className="text-[10px] font-medium text-muted-foreground">Hiring bar</p>
+                                    <p className="text-xs text-muted-foreground">{hiringBar}</p>
+                                  </div>
+                                )}
+                                {whatMatters && whatMatters.length > 0 && (
+                                  <div>
+                                    <p className="text-[10px] font-medium text-muted-foreground">What matters here</p>
+                                    {whatMatters.map((s, i) => (
+                                      <p key={i} className="text-xs text-muted-foreground">• {s}</p>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()
+                        ) : (
+                          <p className="text-muted-foreground italic">No company context set</p>
+                        )}
                       </div>
                     </div>
 

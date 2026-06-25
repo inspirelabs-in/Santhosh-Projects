@@ -2,6 +2,47 @@
 
 export type FitTier = "green" | "amber" | "red"; // amber kept for backward compat with existing data
 
+/** Dynamic, role-specific criterion from evaluation_spec (new shape). */
+export interface CriterionScore {
+  key: string;
+  label: string;
+  weight: number;
+  score: number | null;
+  rationale: string;
+  evidence: string[];
+  data_status: "verified" | "pending_verification";
+}
+
+/** Fixed fallback dimension (legacy roles without evaluation_spec). */
+export interface DimensionScore {
+  score: number | null;
+  rationale: string;
+  evidence: string[];
+  data_status: "verified" | "pending_verification";
+}
+
+/** Fit assessment payload persisted on the application. */
+export interface FitAssessment {
+  overall_score: number | null;
+  deterministic_tier: string | null;
+  llm_tier?: string | null;
+  tier_agreement?: boolean | null;
+  summary: string | null;
+  scoring_pass?: string | null;
+  green_flags: string[];
+  red_flags: string[];
+  knock_outs?: string[];
+  pending_verification: string[];
+  weights_used?: Record<string, number>;
+  /** Dynamic, role-specific criteria — the only scored structure going forward. Always non-empty for new scores. */
+  criteria_scores: CriterionScore[];
+  /** Legacy fixed fallback — only present on rows scored before the dynamic-spec rewrite. */
+  dimensions?: {
+    skills_match?: DimensionScore;
+    experience_level?: DimensionScore;
+  };
+}
+
 export type MailSource = "gmail" | "outlook" | "imap_gmail" | "imap_outlook" | "generic" | string;
 
 export interface MailInboxItem {
@@ -227,6 +268,14 @@ export interface OverridePayload {
   hr_email: string;
   new_role_id?: string | null;
   new_fit_tier?: FitTier | null;
+}
+
+export interface Org {
+  id: string;
+  name: string;
+  slug: string;
+  hiring_persona: Record<string, unknown>;
+  settings: Record<string, unknown>;
 }
 
 export interface StageViewEntry {
