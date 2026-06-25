@@ -57,7 +57,7 @@ from src.db.repositories import recruiter_chat as repo
 from src.db.repositories import recruiter_memory as memory_repo
 from src.llm.client import LLMError, assert_model_allowed, pat_sub
 from src.llm.model_registry import Stage, model_for
-from src.recruiter_agent.prompts import RECRUITER_SYSTEM_V1, RECRUITER_SYSTEM_VERSION
+from src.recruiter_agent.prompts import COMPANY_CONTEXT_TEMPLATE, RECRUITER_SYSTEM_V3, RECRUITER_SYSTEM_VERSION
 from src.recruiter_agent.rbac import can, needs_confirm, required_role
 from src.recruiter_agent.schemas import RECRUITER_TOOLS
 from src.recruiter_agent.tools import call_tool
@@ -550,8 +550,9 @@ async def _recent_events(limit: int = 10) -> str:
 
 
 async def _system_prompt(actor_hash: str | None = None) -> str:
-    base = RECRUITER_SYSTEM_V1.format(
+    base = RECRUITER_SYSTEM_V3.format(
         company_name=_get_company_name(),
+        company_context=COMPANY_CONTEXT_TEMPLATE.format(company_name=_get_company_name()),
         today=datetime.now(tz=UTC).strftime("%Y-%m-%d"),
     )
     if actor_hash:
@@ -805,6 +806,22 @@ async def run_recruiter_turn(
     user_message: str,
 ) -> AsyncIterator[dict[str, Any]]:
     """One recruiter turn. Persists user message, runs tool loop, streams reply."""
+    # Tool-result wake: no user message to persist, just re-enter the tool loop.
+    if user_message == "__quick_reply_wake__":
+        async with session_scope() as session:
+            conv = await session.get(
+                __import__("src.db.base", fromlist=["RecruiterConversation"]).RecruiterConversation,
+                conversation_id,
+            )
+            if conv is None:
+                yield {"type": "error", "message": "conversation_not_found"}
+                return
+        await _clear_cancel(conversation_id)
+        yield {"type": "thinking", "label": "Processing your answer"}
+        async for ev in _run_tool_loop(conversation_id, conv.actor_hash, conv.actor_role):
+            yield ev
+        return
+
     # Persist inbound user message first.
     async with session_scope() as session:
         conv = await session.get(
@@ -838,9 +855,26 @@ async def run_recruiter_turn(
     await _clear_cancel(conversation_id)
     yield {"type": "thinking", "label": "Reading your request"}
 
-    system_msg = {"role": "system", "content": await _system_prompt(conv.actor_hash)}
-    actor_hash = conv.actor_hash
-    actor_role = conv.actor_role
+    async for ev in _run_tool_loop(
+        conversation_id,
+        conv.actor_hash,
+        conv.actor_role,
+        system_msg_override=None,
+    ):
+        yield ev
+
+
+async def _run_tool_loop(
+    conversation_id: UUID,
+    actor_hash: str,
+    actor_role: str,
+    system_msg_override: str | None = None,
+) -> AsyncIterator[dict[str, Any]]:
+    """Run the LLM tool-call loop. Yields SSE events."""
+    system_msg = {
+        "role": "system",
+        "content": system_msg_override or await _system_prompt(actor_hash),
+    }
 
     # ---- Tool-call loop ----
     final_text = ""
@@ -1025,9 +1059,19 @@ async def run_recruiter_turn(
         # Run each tool, emit events, persist result. RBAC + confirm-gating
         # happen here.
         confirm_pending = False
+        _quick_reply_pending_id = None
         for c in serialized_calls:
             name = c["function"]["name"]
             args = c["_args"]
+
+            # ---- give_choice: UI-only tool, never executed ----
+            if name == "give_choice":
+                yield {"type": "tool_call", "id": c["id"], "name": name, "arguments": args}
+                # No tool_result — frontend handles the interaction.
+                # Set flag to break the turn loop; SSE loop waits for tool_result.
+                confirm_pending = True
+                _quick_reply_pending_id = c["id"]
+                break
 
             # ---- RBAC ----
             if not can(actor_role, name):
@@ -1198,11 +1242,19 @@ async def run_recruiter_turn(
 
         if confirm_pending:
             await _maybe_rename_conversation(conversation_id)
-            yield {
-                "type": "done",
-                "conversation_id": str(conversation_id),
-                "awaiting_confirmation": True,
-            }
+            if _quick_reply_pending_id:
+                yield {
+                    "type": "done",
+                    "conversation_id": str(conversation_id),
+                    "awaiting_quick_reply": True,
+                    "tool_use_id": _quick_reply_pending_id,
+                }
+            else:
+                yield {
+                    "type": "done",
+                    "conversation_id": str(conversation_id),
+                    "awaiting_confirmation": True,
+                }
             return
 
         # If we hit hop limit, force a summarising final pass next iter.

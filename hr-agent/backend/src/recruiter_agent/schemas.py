@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from src.recruiter_agent.prompts import QUICK_REPLIES_TOOL as _QR
+
 RECRUITER_TOOLS: list[dict] = [
     {
         "type": "function",
@@ -52,6 +54,20 @@ RECRUITER_TOOLS: list[dict] = [
                     "limit": {"type": "integer", "default": 50},
                 },
                 "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_role",
+            "description": "Read a role by id — returns title, status, pipeline stages, assignment brief + doc state, deadline, evaluation spec. Use when the user wants to see or edit a specific role's assignment or evaluation configuration.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "role_id": {"type": "string", "description": "UUID of the role"},
+                },
+                "required": ["role_id"],
             },
         },
     },
@@ -137,7 +153,7 @@ RECRUITER_TOOLS: list[dict] = [
                     "location": {"type": "string"},
                     "remote_policy": {"type": "string", "enum": ["onsite", "hybrid", "remote"]},
                     "max_notice_days": {"type": "integer"},
-                    "screening_modality": {"type": "string", "enum": ["voice"], "default": "voice"},
+                    "screening_modality": {"type": "string", "default": "voice"},
                     "evaluation_spec": {"type": "object", "description": "Evaluation dimensions and knockouts for fit scoring. Include dimension keys, weights, rubrics."},
                     "company_context": {"type": "object", "description": "Role-specific grounding context — what matters here, hiring bar, intensity."},
                     "pipeline_template": {
@@ -166,7 +182,7 @@ RECRUITER_TOOLS: list[dict] = [
                     "location": {"type": "string"},
                     "remote_policy": {"type": "string", "enum": ["onsite", "hybrid", "remote"]},
                     "max_notice_days": {"type": "integer"},
-                    "screening_modality": {"type": "string", "enum": ["voice"]},
+                    "screening_modality": {"type": "string"},
                     "status": {"type": "string", "enum": ["open", "closed", "draft"]},
                 },
                 "required": ["role_id"],
@@ -486,7 +502,7 @@ RECRUITER_TOOLS: list[dict] = [
                     "location": {"type": "string"},
                     "remote_policy": {"type": "string", "enum": ["onsite", "hybrid", "remote"]},
                     "max_notice_days": {"type": "integer"},
-                    "screening_modality": {"type": "string", "enum": ["voice"], "default": "voice"},
+                    "screening_modality": {"type": "string", "default": "voice"},
                     "evaluation_spec": {"type": "object", "description": "Evaluation dimensions and knockouts for fit scoring. Include dimension keys, weights, rubrics."},
                     "company_context": {"type": "object", "description": "Role-specific grounding context — what matters here, hiring bar, intensity."},
                     "pipeline_template": {
@@ -505,7 +521,7 @@ RECRUITER_TOOLS: list[dict] = [
         "type": "function",
         "function": {
             "name": "generate_assignment_for_role",
-            "description": "Draft a take-home assignment with N distinct problems for a given role. Pulls JD from the role row. Default n_problems=2, time_budget_hours=6, deadline_days=7. Set save=true ONLY after the user confirmed; default false (preview).",
+            "description": "YOU MUST CALL THIS TOOL to create a take-home assignment; it is JD-grounded from the role. Call with save=true to generate AND persist in one step — this is the correct default for actual generation. save=false is preview-only and nothing is saved; only use it when the recruiter explicitly asks to see a preview first. Default n_problems=2, time_budget_hours=6, deadline_days=7.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -580,11 +596,14 @@ RECRUITER_TOOLS: list[dict] = [
         "function": {
             "name": "propose_role_draft",
             "description": (
-                "Trigger a role draft (opens an editable side panel). "
-                "Call this after you have gathered enough context (seniority, comp, location, "
-                "must-haves). The system auto-generates the complete draft (title, JD, pipeline, "
-                "evaluation spec, company context) from your conversation. You can pass partial "
-                "fields if you want, but it's not required. Call again to revise the same artifact. "
+                "Create or update the role draft and open the editable side panel. "
+                "You MUST call this tool to produce a draft -- the draft and the panel "
+                "do not exist until you do. Never tell the recruiter you drafted "
+                "something without calling this in the same turn. Call it as soon as "
+                "you have enough context (seniority, comp, location, must-haves); the "
+                "system auto-generates the complete draft (title, JD, pipeline, "
+                "evaluation spec, company context) from your conversation, so calling "
+                "with NO arguments is the norm. Call again to revise the same artifact. "
                 "Does NOT create the role; the user applies it from the panel."
             ),
             "parameters": {
@@ -628,3 +647,12 @@ RECRUITER_TOOLS = [t for i, t in enumerate(RECRUITER_TOOLS) if not (
     t.get("function", {}).get("name") == "search_candidates"
     and t["function"].get("description", "").startswith("(duplicate")
 )]
+
+RECRUITER_TOOLS.append({
+    "type": "function",
+    "function": {
+        "name": _QR["name"],
+        "description": _QR["description"],
+        "parameters": _QR["input_schema"],
+    },
+})
