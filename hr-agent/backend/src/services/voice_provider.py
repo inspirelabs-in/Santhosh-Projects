@@ -199,6 +199,7 @@ class ElevenLabsConvAIProvider:
             "to_number": spec.candidate_phone,
             "conversation_initiation_client_data": initiation,
         }
+        logger.info("the black sheep: %s", self._api_key)
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
                 f"{self.BASE}/convai/twilio/outbound-call",

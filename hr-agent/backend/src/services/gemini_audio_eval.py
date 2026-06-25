@@ -22,7 +22,7 @@ from src.config import get_settings
 from src.llm.prompt_manager import compile_prompt
 from src.llm.prompts.voice_screen_eval_audio import VOICE_SCREEN_EVAL_AUDIO_V1
 from src.models.v1 import VoiceCallScore
-from src.services.scoring_context import scoring_prompt_vars
+from src.services.scoring_context import compute_spec_weighted_score, scoring_prompt_vars
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +129,11 @@ async def evaluate_voice_call_with_audio(
 
         data = json.loads(raw_text)
         score = VoiceCallScore.model_validate(data)
+        # Recompute overall from criteria_scores when the LLM scored spec dimensions.
+        if score.criteria_scores:
+            spec_score = compute_spec_weighted_score(score.criteria_scores)
+            if spec_score is not None:
+                score.overall_score = spec_score
         logger.info(
             "Gemini eval done: app=%s score=%d (verdict owned by route_score)",
             application_id, score.overall_score,
