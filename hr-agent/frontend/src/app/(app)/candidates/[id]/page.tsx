@@ -42,7 +42,7 @@ import { swrFetcher, api } from "@/lib/api";
 import { ActivityTimeline } from "@/components/candidate-detail/activity-timeline";
 import { PipelineStepper } from "@/components/candidate-detail/pipeline-stepper";
 import { AdminReviewPanel } from "@/components/admin-review-panel";
-import type { StageViewEntry } from "@/lib/types";
+import type { StageViewEntry, CriterionScore, DimensionScore, FitAssessment } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 /* ------------------------------------------------------------------ */
@@ -196,39 +196,97 @@ function ProfileSnapshot({ profile }: { profile: any }) {
 /*  Fit Score Breakdown                                               */
 /* ------------------------------------------------------------------ */
 
-function FitBreakdownSection({ breakdown }: { breakdown: any }) {
+/** Shared row renderer — same visual style for both dynamic and fixed dims. */
+function DimRow({
+  label,
+  weight,
+  score,
+  rationale,
+  evidence,
+  data_status,
+}: {
+  label: string;
+  weight: number | null;
+  score: number | null;
+  rationale?: string;
+  evidence?: string[];
+  data_status: "verified" | "pending_verification";
+}) {
+  const isPending = data_status === "pending_verification" || score == null;
+  return (
+    <div className={cn("rounded-lg border p-3", isPending && "border-dashed border-muted-foreground/30 bg-muted/20")}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium capitalize">{label}</span>
+          {weight != null && (
+            <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] font-semibold tabular-nums text-muted-foreground">
+              w {weight}
+            </span>
+          )}
+          {isPending ? (
+            <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-amber-700">
+              Pending
+            </span>
+          ) : (
+            <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-emerald-700">
+              Verified
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {weight != null && (
+            <span className="text-[10px] text-muted-foreground/60">×{weight}%</span>
+          )}
+          {isPending ? (
+            <span className="text-xs italic text-muted-foreground">No data</span>
+          ) : (
+            <span className={cn(
+              "font-mono text-sm font-bold",
+              (score ?? 0) >= 60 ? "text-emerald-600" : "text-red-600"
+            )}>{score}</span>
+          )}
+        </div>
+      </div>
+      {rationale && <p className="mt-1 text-xs text-muted-foreground">{rationale}</p>}
+      {evidence && evidence.length > 0 && (
+        <div className="mt-1.5 space-y-0.5">
+          {evidence.map((e: string, j: number) => (
+            <p key={j} className="text-[11px] italic text-muted-foreground/80">&ldquo;{e}&rdquo;</p>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FitBreakdownSection({ breakdown }: { breakdown: FitAssessment | null | undefined }) {
   if (!breakdown) return null;
 
-  const dims = breakdown.dimensions;
+  const criteriaScores: CriterionScore[] = Array.isArray(breakdown.criteria_scores)
+    ? breakdown.criteria_scores
+    : [];
+
+  // Fixed fallback — only skills_match and experience_level (ctc_fit / location_notice_fit removed).
   const weightsUsed: Record<string, number> = breakdown.weights_used ?? {};
-  const dimArray = Array.isArray(dims)
-    ? dims
-    : dims && typeof dims === "object"
-      ? Object.entries(dims)
-          .filter(([k]) => k !== "cultural_fit")
-          .map(([k, v]: [string, any]) => {
-            // Map dimension key to weight key
-            const weightKey = k === "skills_match" ? "skills"
-              : k === "experience_level" ? "experience"
-              : k === "ctc_fit" ? "ctc"
-              : k === "location_notice_fit" ? "logistics"
-              : null;
-            return {
-              name: k.replace(/_/g, " "),
-              score: v?.score ?? v?.value ?? (typeof v === "number" ? v : null),
-              rationale: v?.rationale,
-              data_status: v?.data_status ?? "verified",
-              evidence: v?.evidence ?? [],
-              weight: weightKey ? weightsUsed[weightKey] : null,
-            };
-          })
+  const fixedDims: Array<{ label: string; weight: number | null; dim: DimensionScore }> =
+    criteriaScores.length === 0
+      ? (
+          [
+            breakdown.dimensions?.skills_match
+              ? { label: "skills match", weight: weightsUsed["skills"] ?? null, dim: breakdown.dimensions.skills_match }
+              : null,
+            breakdown.dimensions?.experience_level
+              ? { label: "experience level", weight: weightsUsed["experience"] ?? null, dim: breakdown.dimensions.experience_level }
+              : null,
+          ] as Array<{ label: string; weight: number | null; dim: DimensionScore } | null>
+        ).filter((x): x is { label: string; weight: number | null; dim: DimensionScore } => x !== null)
       : [];
 
   const pendingItems: string[] = breakdown.pending_verification ?? [];
   const scoringPass = breakdown.scoring_pass;
 
   return (
-    <Collapsible title="Fit Score Breakdown" badge={<TierBadge tier={breakdown.deterministic_tier} score={breakdown.overall_score} />}>
+    <Collapsible title="Fit Score Breakdown" badge={<TierBadge tier={breakdown.deterministic_tier ?? undefined} score={breakdown.overall_score ?? undefined} />}>
       <div className="space-y-4">
         {scoringPass && (
           <div className="flex items-center gap-2">
@@ -245,56 +303,37 @@ function FitBreakdownSection({ breakdown }: { breakdown: any }) {
           <p className="text-sm text-muted-foreground">{breakdown.summary}</p>
         )}
 
-        {dimArray.length > 0 && (
+        {/* Dynamic criteria_scores (new shape — role-specific dimensions) */}
+        {criteriaScores.length > 0 && (
           <div className="grid gap-2 sm:grid-cols-2">
-            {dimArray.map((d: any, i: number) => {
-              const isPending = d.data_status === "pending_verification" || d.score == null;
-              return (
-                <div key={i} className={cn("rounded-lg border p-3", isPending && "border-dashed border-muted-foreground/30 bg-muted/20")}>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium capitalize">{d.name}</span>
-                      {d.weight != null && (
-                        <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] font-semibold tabular-nums text-muted-foreground">
-                          w {d.weight}
-                        </span>
-                      )}
-                      {isPending && (
-                        <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-amber-700">
-                          Pending
-                        </span>
-                      )}
-                      {!isPending && d.data_status === "verified" && (
-                        <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-emerald-700">
-                          Verified
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {d.weight != null && (
-                        <span className="text-[10px] text-muted-foreground/60">×{d.weight}%</span>
-                      )}
-                      {isPending ? (
-                        <span className="text-xs italic text-muted-foreground">No data</span>
-                      ) : (
-                        <span className={cn(
-                          "font-mono text-sm font-bold",
-                          (d.score ?? 0) >= 60 ? "text-emerald-600" : "text-red-600"
-                        )}>{d.score}</span>
-                      )}
-                    </div>
-                  </div>
-                  {d.rationale && <p className="mt-1 text-xs text-muted-foreground">{d.rationale}</p>}
-                  {d.evidence?.length > 0 && (
-                    <div className="mt-1.5 space-y-0.5">
-                      {d.evidence.map((e: string, j: number) => (
-                        <p key={j} className="text-[11px] italic text-muted-foreground/80">&ldquo;{e}&rdquo;</p>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+            {criteriaScores.map((c, i) => (
+              <DimRow
+                key={c.key ?? i}
+                label={c.label}
+                weight={c.weight ?? null}
+                score={c.score}
+                rationale={c.rationale}
+                evidence={c.evidence}
+                data_status={c.data_status}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Fixed fallback dimensions — only skills_match + experience_level */}
+        {fixedDims.length > 0 && (
+          <div className="grid gap-2 sm:grid-cols-2">
+            {fixedDims.map(({ label, weight, dim }, i) => (
+              <DimRow
+                key={i}
+                label={label}
+                weight={weight}
+                score={dim.score}
+                rationale={dim.rationale}
+                evidence={dim.evidence}
+                data_status={dim.data_status}
+              />
+            ))}
           </div>
         )}
 
@@ -341,13 +380,13 @@ function FitBreakdownSection({ breakdown }: { breakdown: any }) {
           </div>
         )}
 
-        {breakdown.knock_outs?.length > 0 && (
+        {(breakdown.knock_outs?.length ?? 0) > 0 && (
           <div className="space-y-1">
             <h4 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-destructive">
               <AlertTriangle className="h-3.5 w-3.5" /> Knock-outs
             </h4>
             <ul className="space-y-0.5">
-              {breakdown.knock_outs.map((f: string, i: number) => (
+              {breakdown.knock_outs!.map((f: string, i: number) => (
                 <li key={i} className="text-sm text-destructive">{f}</li>
               ))}
             </ul>
@@ -1068,11 +1107,21 @@ function deriveEvidenceAndDecisions(data: any): { evidence: DerivedEvidence[]; d
     if (fb.deterministic_tier) {
       evidence.push({ key: "Fit Tier", value: fb.deterministic_tier.toUpperCase(), source: "Resume Analysis" });
     }
-    const dims = fb.dimensions;
-    if (dims && typeof dims === "object" && !Array.isArray(dims)) {
-      for (const [k, v] of Object.entries(dims) as [string, any][]) {
-        if (v?.score != null) {
-          evidence.push({ key: k.replace(/_/g, " "), value: `${v.score}/100`, source: "Fit Score", confidence: v.score / 100 });
+    const criteriaScores = Array.isArray(fb.criteria_scores) ? fb.criteria_scores : [];
+    if (criteriaScores.length > 0) {
+      for (const c of criteriaScores as any[]) {
+        if (c?.score != null) {
+          evidence.push({ key: String(c.label || c.key || "").replace(/_/g, " "), value: `${c.score}/100`, source: "Fit Score", confidence: c.score / 100 });
+        }
+      }
+    } else {
+      // Legacy fallback -- only present on rows scored before the dynamic-spec rewrite.
+      const dims = fb.dimensions;
+      if (dims && typeof dims === "object" && !Array.isArray(dims)) {
+        for (const [k, v] of Object.entries(dims) as [string, any][]) {
+          if (v?.score != null) {
+            evidence.push({ key: k.replace(/_/g, " "), value: `${v.score}/100`, source: "Fit Score", confidence: v.score / 100 });
+          }
         }
       }
     }
@@ -1519,8 +1568,12 @@ export default function CandidateDetailPage() {
           {/* Voice Screen */}
           <VoiceScreenSection voice={data.voice_evaluation} />
 
-          {/* Assignment */}
-          <AssignmentSection submission={data.assignment_submission} role={role} />
+          {/* Assignment — only show once candidate has reached the assignment stage */}
+          {(["assignment", "assessment", "assessment_evaluated", "tech_interview"].some(
+            (s) => (data.current_stage_key || data.current_stage || "").startsWith(s)
+          ) || data.assignment_submission) && (
+            <AssignmentSection submission={data.assignment_submission} role={role} />
+          )}
 
           {/* Journey Report (CEO brief) */}
           {data.journey_report && (

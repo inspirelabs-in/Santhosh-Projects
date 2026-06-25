@@ -76,9 +76,11 @@ export default function DashboardPage() {
           <PulseComposer
             onSend={(text, files) => chat.send(text, files)}
             onStop={chat.stop}
-            disabled={false}
+            disabled={chat.inputDisabled}
             isStreaming={chat.isStreaming}
             conversationId={chat.conversationId}
+            quickReplies={chat.pendingQuickReplies}
+            onQuickReplySubmit={(combined) => void chat.submitQuickReplies(combined)}
           />
         </div>
 
