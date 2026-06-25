@@ -43,6 +43,17 @@ export interface ArtifactData {
   version: number;
 }
 
+export interface QuickReplyQuestion {
+  question: string;
+  options: string[];
+  allowCustom: boolean;
+}
+
+export interface QuickRepliesData {
+  toolUseId: string;
+  questions: QuickReplyQuestion[];
+}
+
 export interface RecruiterMessage {
   id: string;
   role: RecruiterMessageRole;
@@ -90,11 +101,16 @@ export interface UseRecruiterChatReturn {
   isStreaming: boolean;
   connected: boolean;
   error: string | null;
+  inputDisabled: boolean;
+  // Pending quick-reply questions rendered inside the input bar (null when none).
+  pendingQuickReplies: QuickRepliesData | null;
+  submitQuickReplies: (combined: string) => Promise<void>;
   selectConversation: (id: string) => void;
   newConversation: () => Promise<string | null>;
   archiveConversation: (id: string) => Promise<void>;
   renameConversation: (id: string, title: string) => Promise<void>;
   send: (text: string, attachments?: { file_ref: string; filename: string; size: number }[]) => Promise<void>;
+  sendToolResult: (toolUseId: string, content: string) => Promise<void>;
   stop: () => Promise<void>;
   refreshList: () => Promise<void>;
   // Artifact side-panel (editable structured output, e.g. role drafts).
@@ -159,6 +175,8 @@ export function useRecruiterChat(): UseRecruiterChatReturn {
   const [isStreaming, setIsStreaming] = useState(false);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [inputDisabled, setInputDisabled] = useState(false);
+  const [pendingQuickReplies, setPendingQuickReplies] = useState<QuickRepliesData | null>(null);
   const [activeArtifact, setActiveArtifact] = useState<ArtifactData | null>(null);
   const [artifactOpen, setArtifactOpen] = useState(false);
 
@@ -220,6 +238,7 @@ export function useRecruiterChat(): UseRecruiterChatReturn {
       setMessages([]);
       setActiveArtifact(null);
       setArtifactOpen(false);
+      setPendingQuickReplies(null);
       try {
         const res = await fetch(`${BASE}/v2/recruiter-chat/conversations/${id}`, {
           headers: authHeader(),
@@ -322,6 +341,37 @@ export function useRecruiterChat(): UseRecruiterChatReturn {
           case "tool_call": {
             // Role-draft writes surface in the artifact panel, not as a tool row.
             if ((payload.name as string) === "propose_role_draft") break;
+            // give_choice: render the options inside the input bar (composer),
+            // not as a chat row. Supports a multi-question array; tolerates the
+            // legacy single-question shape for back-compat.
+            if ((payload.name as string) === "give_choice") {
+              setIsThinking(false);
+              setIsStreaming(false);
+              const args = (payload.arguments as Record<string, unknown>) || {};
+              const rawQs = Array.isArray(args.questions)
+                ? (args.questions as Record<string, unknown>[])
+                : args.question
+                  ? [
+                      {
+                        question: args.question,
+                        options: args.options,
+                        allow_custom: args.allow_custom,
+                      },
+                    ]
+                  : [];
+              const questions = rawQs.map((q) => ({
+                question: (q.question as string) || "",
+                options: (q.options as string[]) || [],
+                allowCustom: (q.allow_custom as boolean) ?? true,
+              }));
+              if (questions.length > 0) {
+                setPendingQuickReplies({
+                  toolUseId: (payload.id as string) || "",
+                  questions,
+                });
+              }
+              break;
+            }
             // Render a tool-call placeholder message.
             const id = uid();
             setMessages((prev) => [
@@ -431,6 +481,10 @@ export function useRecruiterChat(): UseRecruiterChatReturn {
             finalizeAssistant();
             setIsStreaming(false);
             setIsThinking(false);
+            // Don't re-enable the input when waiting for quick-reply chip click.
+            if (!(payload.awaiting_quick_reply as boolean)) {
+              setInputDisabled(false);
+            }
             // Drop pending flag from optimistic user msgs.
             setMessages((prev) =>
               prev.map((m) => (m.pending ? { ...m, pending: false } : m)),
@@ -485,6 +539,39 @@ export function useRecruiterChat(): UseRecruiterChatReturn {
   useEffect(() => {
     void refreshList();
   }, [refreshList]);
+
+  const sendToolResult = useCallback(
+    async (toolUseId: string, content: string) => {
+      const convId = conversationId;
+      if (!convId) return;
+      await fetch(
+        `${BASE}/v2/recruiter-chat/conversations/${convId}/tool-result`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...authHeader() },
+          body: JSON.stringify({ tool_use_id: toolUseId, content }),
+        },
+      );
+    },
+    [conversationId],
+  );
+
+  // Submit the recruiter's answers to the pending quick-reply questions: echo
+  // them as a user message, clear the input-bar options, and wake the agent.
+  const submitQuickReplies = useCallback(
+    async (combined: string) => {
+      const qr = pendingQuickReplies;
+      if (!qr) return;
+      setPendingQuickReplies(null);
+      setMessages((prev) => [
+        ...prev,
+        { id: uid(), role: "user", content: combined, createdAt: Date.now() },
+      ]);
+      setIsThinking(true);
+      await sendToolResult(qr.toolUseId, combined);
+    },
+    [pendingQuickReplies, sendToolResult],
+  );
 
   const stop = useCallback(async () => {
     if (!conversationId) return;
@@ -636,11 +723,15 @@ export function useRecruiterChat(): UseRecruiterChatReturn {
       isStreaming,
       connected,
       error,
+      inputDisabled,
+      pendingQuickReplies,
+      submitQuickReplies,
       selectConversation,
       newConversation,
       archiveConversation,
       renameConversation,
       send,
+      sendToolResult,
       stop,
       refreshList,
       activeArtifact,
@@ -658,11 +749,16 @@ export function useRecruiterChat(): UseRecruiterChatReturn {
       isStreaming,
       connected,
       error,
+      inputDisabled,
+      pendingQuickReplies,
+      submitQuickReplies,
       selectConversation,
       newConversation,
       archiveConversation,
       renameConversation,
       send,
+      sendToolResult,
+      submitQuickReplies,
       stop,
       refreshList,
       activeArtifact,
