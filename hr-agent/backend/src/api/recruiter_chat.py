@@ -352,18 +352,42 @@ async def apply_artifact(
             location=draft.location,
             remote_policy=draft.remote_policy,
             max_notice_days=draft.max_notice_days,
-            screening_modality="voice",
             evaluation_spec=draft.evaluation_spec.model_dump(mode="json"),
             company_context=draft.company_context.model_dump(mode="json"),
-            status="open",
         )
+        # Extract assignment info from artifact; brief will be LLM-generated
+        # via ensure_role_assignment, not stored raw.
+        _captured_brief = (draft.assignment.brief or "").strip() if draft.assignment else ""
+        _captured_instructions = (draft.assignment.instructions or "").strip() if draft.assignment else ""
+        _assignment_n_problems = draft.assignment.n_problems if draft.assignment else 2
+        _assignment_time_budget = draft.assignment.time_budget_hours if draft.assignment else 6
+        _assignment_deadline_days = draft.assignment.deadline_days if draft.assignment else 7
+        role.status = "open"
         session.add(role)
         await session.flush()
         role_id = role.id
 
+        # Prepend mandatory pre-stages (intake, parse, fit) that always run
+        # automatically, then append the draft's pipeline from voice_screen onwards.
+        _mandatory_pipeline = [
+            {"stage_key": "intake", "stage_type": "intake", "label": "Intake", "mode": "auto"},
+            {"stage_key": "parse", "stage_type": "parse", "label": "Resume Parse", "mode": "auto"},
+            {"stage_key": "fit", "stage_type": "fit", "label": "Fit Score", "mode": "auto"},
+        ]
+        seen_keys: set[str] = set()
+        for pos, entry in enumerate(_mandatory_pipeline):
+            seen_keys.add(entry["stage_key"])
+            session.add(
+                RolePipelineStage(
+                    role_id=role_id,
+                    org_id=org_id,
+                    position=pos,
+                    **entry,
+                )
+            )
+        _pos = len(_mandatory_pipeline)
         if draft.pipeline:
-            seen_keys: set[str] = set()
-            for pos, st in enumerate(draft.pipeline):
+            for st in draft.pipeline:
                 if st.stage_key in seen_keys:
                     continue
                 seen_keys.add(st.stage_key)
@@ -371,7 +395,7 @@ async def apply_artifact(
                     RolePipelineStage(
                         role_id=role_id,
                         org_id=org_id,
-                        position=pos,
+                        position=_pos,
                         stage_type=str(st.stage_type),
                         stage_key=st.stage_key,
                         label=st.label,
@@ -381,50 +405,54 @@ async def apply_artifact(
                         eval_spec=st.eval_spec.model_dump(mode="json"),
                     )
                 )
+                _pos += 1
         else:
             await stage_repo.seed_default(session, role_id=role_id, org_id=org_id)
 
         await artifact_repo.set_status(session, artifact_id, ArtifactStatus.APPLIED)
-        assignment_cfg = draft.assignment
         conversation_id = art.conversation_id
         role_title = draft.title
 
-    # Assignment generation runs in its own session after the role is committed.
-    # Reliable + audited (ensure_role_assignment retries + records the outcome):
-    # a transient LLM failure no longer silently leaves the role brief-less, which
-    # is what made dispatch_assessment skip the candidate email.
-    assignment_result = None
-    assignment_error = None
-    if assignment_cfg and assignment_cfg.enabled:
-        from src.recruiter_agent.tools import ensure_role_assignment
-
-        assignment_result = await ensure_role_assignment(
-            role_id=str(role_id),
-            n_problems=assignment_cfg.n_problems,
-            time_budget_hours=assignment_cfg.time_budget_hours,
-            deadline_days=assignment_cfg.deadline_days,
-            source="artifact_apply",
+    # Generate a proper structured assignment via LLM when the pipeline
+    # has an assignment stage. The user's brief from the artifact is passed
+    # as seed requirements so the LLM produces relevant problems + a real PDF.
+    _assignment_generated = False
+    _has_assignment_stage = bool(
+        draft.pipeline and any(
+            str(st.stage_type) == "assignment" and st.is_enabled
+            for st in draft.pipeline
         )
-        if not assignment_result.get("ok"):
-            assignment_error = assignment_result.get("error")
-            logger.warning(
-                "assignment generation failed on apply for role %s: %s",
-                role_id, assignment_error,
+    ) if draft.pipeline else False
+    if _has_assignment_stage:
+        from src.recruiter_agent.tools import ensure_role_assignment
+        try:
+            _gen = await ensure_role_assignment(
+                role_id=str(role_id),
+                n_problems=_assignment_n_problems,
+                time_budget_hours=_assignment_time_budget,
+                deadline_days=_assignment_deadline_days,
+                source="artifact_apply",
+                user_brief=_captured_brief or None,
             )
+            _assignment_generated = _gen.get("ok", False)
+        except Exception:  # noqa: BLE001
+            logger.warning("assignment auto-gen failed for role %s", role_id)
 
-    # Re-offer the LinkedIn post (and surface the assignment outcome) as a chat
-    # message. The artifact "Apply" is a plain endpoint with no agent turn, so
-    # without this the conversational LinkedIn follow-up that the old confirm-card
-    # create flow provided silently disappeared. The user's "yes" then runs the
-    # existing draft_linkedin_post tool path on the next turn.
-    if assignment_error:
-        asg_line = " Heads up: the take-home couldn't be generated, I can retry that."
-    elif assignment_result and assignment_result.get("ok"):
-        asg_line = " The take-home assignment is attached."
-    else:
-        asg_line = ""
+        # If the artifact had custom instructions, overwrite LLM-generated ones.
+        if _captured_instructions and _assignment_generated:
+            async with session_scope() as session:
+                r = await session.get(Role, UUID(role_id))
+                if r is not None:
+                    r.assignment_instructions = _captured_instructions
+
+    status_line = "It's open for applications."
+    if _assignment_generated:
+        if _captured_brief:
+            status_line += " Take-home generated from your requirements."
+        else:
+            status_line += " Take-home assignment auto-generated."
     follow_up = (
-        f"Created '{role_title}' and opened it for applications.{asg_line} "
+        f"Created '{role_title}'. {status_line} "
         "Want me to draft a LinkedIn post for this role?"
     )
     try:
@@ -442,8 +470,7 @@ async def apply_artifact(
         "ok": True,
         "role_id": str(role_id),
         "role_url": f"/roles/{role_id}",
-        "assignment": assignment_result,
-        "assignment_error": assignment_error,
+        "status": "open",
         "follow_up": follow_up,
     }
 
@@ -585,6 +612,48 @@ class ConfirmBody(BaseModel):
     request_id: str = Field(min_length=1, max_length=128)
     accept: bool = True
     edited_args: dict[str, Any] | None = None
+
+
+class ToolResultBody(BaseModel):
+    tool_use_id: str = Field(min_length=1, max_length=128)
+    content: str = Field(min_length=1, max_length=4000)
+
+
+@router.post(
+    "/conversations/{conversation_id}/tool-result",
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_recruiter)],
+)
+async def send_tool_result(
+    conversation_id: UUID,
+    body: Annotated[ToolResultBody, Body()],
+    actor: tuple[str, str] = Depends(_actor),
+) -> dict:
+    """Receive a give_choice tool_result from the frontend."""
+    actor_hash, _ = actor
+    async with session_scope() as session:
+        conv = await repo.get_conversation(
+            session, conversation_id=conversation_id, actor_hash=actor_hash
+        )
+        if conv is None:
+            raise HTTPException(404, "conversation_not_found")
+        # Persist the tool result message.
+        await repo.append_message(
+            session,
+            conversation_id=conversation_id,
+            role="tool",
+            tool_name="give_choice",
+            tool_calls=[{"id": body.tool_use_id}],
+            tool_result=body.content,
+        )
+    # Wake the SSE loop so it picks up the new tool_result and runs the next turn.
+    redis = get_redis()
+    await redis.rpush(
+        _inbox_key(conversation_id),
+        json.dumps({"content": "__quick_reply_wake__", "ts": datetime.now(UTC).isoformat()}),
+    )
+    await redis.ltrim(_inbox_key(conversation_id), -50, -1)
+    return {"queued": True}
 
 
 @router.post(

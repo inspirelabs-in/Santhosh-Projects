@@ -518,26 +518,44 @@ async def candidate_view(
             )
 
         # Fit factor breakdown from most-recent "fit_scored" audit entry.
+        # criteria_scores (the role's own dynamic evaluation_spec dimensions) is
+        # the canonical source now -- dimensions is only present on rows scored
+        # before the dynamic-spec rewrite and kept here for historical display.
         fit_factors: list[FitFactorItem] = []
         fit_report: FitReportExtras | None = None
         for r in recent:
             if r.action == "fit_scored" and isinstance(r.details, dict):
                 details = r.details
-                dims = details.get("dimensions") or {}
-                weights = details.get("weights_used") or {}
-                if isinstance(dims, dict):
-                    for name, body in dims.items():
-                        if not isinstance(body, dict):
+                criteria = details.get("criteria_scores") or []
+                if isinstance(criteria, list) and criteria:
+                    for c in criteria:
+                        if not isinstance(c, dict):
                             continue
                         fit_factors.append(
                             FitFactorItem(
-                                factor=str(name).replace("_", " "),
-                                score=body.get("score"),
-                                weight=weights.get(name) if isinstance(weights, dict) else None,
-                                rationale=body.get("rationale"),
-                                evidence=list(body.get("evidence") or []),
+                                factor=str(c.get("label") or c.get("key") or "").replace("_", " "),
+                                score=c.get("score"),
+                                weight=c.get("weight"),
+                                rationale=c.get("rationale"),
+                                evidence=list(c.get("evidence") or []),
                             )
                         )
+                else:
+                    dims = details.get("dimensions") or {}
+                    weights = details.get("weights_used") or {}
+                    if isinstance(dims, dict):
+                        for name, body in dims.items():
+                            if not isinstance(body, dict):
+                                continue
+                            fit_factors.append(
+                                FitFactorItem(
+                                    factor=str(name).replace("_", " "),
+                                    score=body.get("score"),
+                                    weight=weights.get(name) if isinstance(weights, dict) else None,
+                                    rationale=body.get("rationale"),
+                                    evidence=list(body.get("evidence") or []),
+                                )
+                            )
                 fit_report = FitReportExtras(
                     overall_score=details.get("overall_score"),
                     summary=details.get("summary"),
