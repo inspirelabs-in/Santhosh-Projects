@@ -272,6 +272,34 @@ class CandidateDetail(BaseModel):
     updated_at: datetime
 
 
+def _role_dict_for_stage(role: Any, stage_key: str) -> dict[str, Any]:
+    """Return the role dict for a candidate, stage-gating assignment fields.
+    Assignment info (brief, instructions, doc, etc.) is only exposed once the
+    candidate has reached an assignment-related stage, to avoid leaking the
+    take-home to early-stage candidates."""
+    base = {
+        "id": str(role.id),
+        "title": role.title,
+        "jd_text": role.jd_text,
+        "ctc_min_lpa": role.ctc_min_lpa,
+        "ctc_max_lpa": role.ctc_max_lpa,
+        "location": role.location,
+        "remote_policy": role.remote_policy,
+        "evaluation_spec": role.evaluation_spec,
+        "pipeline_template": role.pipeline_template,
+    }
+    _assignment_stages = ("assignment", "assessment", "tech_interview", "ceo_interview", "offer", "hired", "rejected")
+    if any(stage_key.startswith(s) for s in _assignment_stages):
+        base.update({
+            "assignment_brief": role.assignment_brief,
+            "assignment_instructions": role.assignment_instructions,
+            "assignment_deadline_days": role.assignment_deadline_days,
+            "assignment_problem_doc_filename": role.assignment_problem_filename,
+            "has_problem_doc": bool(role.assignment_problem_doc_key),
+        })
+    return base
+
+
 @router.get("/candidates/{application_id}", response_model=CandidateDetail)
 async def candidate_detail(
     application_id: UUID,
@@ -351,6 +379,7 @@ async def candidate_detail(
                 d = a.details
                 fit_breakdown = {
                     "overall_score": d.get("overall_score"),
+                    "criteria_scores": d.get("criteria_scores"),
                     "dimensions": d.get("dimensions"),
                     "red_flags": d.get("red_flags"),
                     "green_flags": d.get("green_flags"),
@@ -414,22 +443,7 @@ async def candidate_detail(
                 "source_channel": cand.source_channel,
             },
             role=(
-                {
-                    "id": str(role.id),
-                    "title": role.title,
-                    "jd_text": role.jd_text,
-                    "ctc_min_lpa": role.ctc_min_lpa,
-                    "ctc_max_lpa": role.ctc_max_lpa,
-                    "location": role.location,
-                    "remote_policy": role.remote_policy,
-                    "assignment_brief": role.assignment_brief,
-                    "assignment_instructions": role.assignment_instructions,
-                    "assignment_deadline_days": role.assignment_deadline_days,
-                    "assignment_problem_doc_filename": role.assignment_problem_doc_filename,
-                    "has_problem_doc": role.has_problem_doc,
-                    "evaluation_spec": role.evaluation_spec,
-                    "pipeline_template": role.pipeline_template,
-                }
+                _role_dict_for_stage(role, app.current_stage_key or app.current_stage or "")
                 if role
                 else None
             ),
@@ -468,8 +482,10 @@ async def candidate_detail(
 
 class MentionCandidate(BaseModel):
     application_id: UUID
+    candidate_id: UUID
     name: str | None = None
     email: str | None = None
+    role_title: str | None = None
 
 
 @router.get("/candidates-mention", response_model=list[MentionCandidate])
@@ -479,11 +495,26 @@ async def candidates_for_mention(
     limit: int = Query(8, ge=1, le=25),
 ) -> list[MentionCandidate]:
     """Lightweight candidate lookup powering the @-mention autocomplete in
-    Pulse chat. Returns the most recently active applications with an email.
+    Pulse chat. Returns one row per (candidate, role) pair — the most recent
+    application for that pair — so multi-role candidates are shown once per
+    role and are individually routable.
     """
+    # Fetch a larger inner set, then deduplicate in Python keyed on
+    # (candidate_id, role_id).  This avoids DISTINCT ON syntax concerns and
+    # keeps the query shape simple while still being correct.
+    inner_limit = limit * 10  # generous over-fetch before dedup
     async with session_scope() as session:
-        stmt = select(Application.id, Candidate.name, Candidate.email).join(
-            Candidate, Candidate.id == Application.candidate_id
+        stmt = (
+            select(
+                Application.id,
+                Candidate.id,
+                Candidate.name,
+                Candidate.email,
+                Role.id,
+                Role.title,
+            )
+            .join(Candidate, Candidate.id == Application.candidate_id)
+            .outerjoin(Role, Role.id == Application.role_id)
         )
         if q:
             pattern = f"%{q.lower()}%"
@@ -494,13 +525,31 @@ async def candidates_for_mention(
         stmt = (
             stmt.where(Candidate.email.isnot(None))
             .order_by(desc(Application.updated_at))
-            .limit(limit)
+            .limit(inner_limit)
         )
         rows = (await session.execute(stmt)).all()
-    return [
-        MentionCandidate(application_id=app_id, name=name, email=email)
-        for app_id, name, email in rows
-    ]
+
+    # Deduplicate: keep the first (most-recent) row per (candidate_id, role_id).
+    seen: set[tuple] = set()
+    results: list[MentionCandidate] = []
+    for app_id, cand_id, name, email, role_id, role_title in rows:
+        key = (cand_id, role_id) if role_id else (cand_id, app_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        results.append(
+            MentionCandidate(
+                application_id=app_id,
+                candidate_id=cand_id,
+                name=name,
+                email=email,
+                role_title=role_title,
+            )
+        )
+        if len(results) >= limit:
+            break
+
+    return results
 
 
 class NotificationItem(BaseModel):
