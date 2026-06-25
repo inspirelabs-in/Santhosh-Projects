@@ -1,7 +1,7 @@
 """Stage 4: Fit Score.
 
 Scores the latest parsed `CandidateProfile` against the application's Role
-via FIT_SCORE_V1 (Claude Sonnet). Produces per-dimension scores + evidence +
+via FIT_SCORE_V1 (Claude Sonnet). Produces per-criterion scores + evidence +
 recommended tier. The tier decides whether the workflow advances to
 screening or jumps to the rejection flow.
 
@@ -10,9 +10,21 @@ Tier rules (binary — no amber):
   - overall ≥ threshold (default 60) → green (advance to voice screen)
   - else → red (reject)
 
-Dimensions are conditional: CTC and logistics are only scored when real data
-exists (post-voice enrichment). The overall score is a weighted average of
-only the scored dimensions, renormalized to sum to 100%.
+Score path (single, always dynamic):
+  - The overall is ALWAYS the weighted average of `criteria_scores`.
+  - When the role has its own recruiter-authored `evaluation_spec`, those
+    dimensions (with their own weights, what_good_looks_like, anti_signals)
+    drive the score.
+  - When the role has none yet, a generic 2-dimension spec (Skills Match /
+    Experience & Trajectory, using the role's scoring-weight policy) is
+    synthesized so the SAME prompt + output shape runs every time. There is
+    no separate hardcoded dimension set to keep in sync with this one.
+  - CTC and logistics are NEVER scored here — they require voice-screen data.
+    They are surfaced as flags (pending_verification / red_flags) only.
+
+NOTE: This activity NEVER sets application.status = REJECTED. Rejection is
+owned exclusively by the stage runner (advance_candidate). This activity only
+writes fit_score, fit_tier, and the audit / evidence records.
 """
 
 from __future__ import annotations
@@ -44,25 +56,10 @@ from src.models.candidate import (
     RemotePolicy,
 )
 from src.models.llm_outputs import FitAssessment
+from src.services.knockout import check_hard_knockouts
 
 logger = logging.getLogger(__name__)
 _settings = get_settings()
-
-_DEFAULT_WEIGHTS = {
-    "skills": 50,
-    "experience": 25,
-    "ctc": 15,
-    "logistics": 10,
-}
-
-_DIM_KEY_MAP = {
-    "skills_match": "skills",
-    "experience_level": "experience",
-    "ctc_fit": "ctc",
-    "location_notice_fit": "logistics",
-}
-
-_WEIGHT_KEY_MAP = {v: k for k, v in _DIM_KEY_MAP.items()}
 
 
 @dataclass
@@ -80,18 +77,6 @@ class FitScoreOutput:
     tier: FitTier
     knock_outs: list[str]
     trace_id: str | None
-
-
-def _determine_tier(
-    overall_score: int,
-    knock_outs: list[str],
-    green_threshold: int = 60,
-) -> FitTier:
-    if knock_outs:
-        return FitTier.RED
-    if overall_score >= green_threshold:
-        return FitTier.GREEN
-    return FitTier.RED
 
 
 def _tier_from_verdict(verdict) -> FitTier:
@@ -137,34 +122,6 @@ async def _get_medium_data(session, application_id: UUID) -> str:
         return ""
 
 
-def _compute_weighted_score(assessment: FitAssessment, weights: dict[str, int]) -> int:
-    """Compute overall score from only dimensions that have real data."""
-    scored_dims: list[tuple[str, int, int]] = []
-    dims = assessment.dimensions
-
-    # Comp/logistics are FLAGS, never score-drivers: the overall is skills +
-    # experience only, so a salary or notice mismatch can never lower the score
-    # (the risk is losing good candidates). ctc_fit/location_notice_fit are still
-    # scored on the assessment for display, but excluded from the overall.
-    for dim_field, weight_key in (("skills_match", "skills"), ("experience_level", "experience")):
-        dim_score = getattr(dims, dim_field, None)
-        if dim_score is not None and dim_score.is_scored:
-            scored_dims.append((dim_field, dim_score.score, weights.get(weight_key, 0)))
-
-    if not scored_dims:
-        return 0
-
-    total_weight = sum(w for _, _, w in scored_dims)
-    if total_weight == 0:
-        return 0
-
-    weighted_sum = sum(score * weight for _, score, weight in scored_dims)
-    return round(weighted_sum / total_weight)
-
-
-from src.services.knockout import check_hard_knockouts
-
-
 async def run_fit_score(payload: FitScoreInput) -> FitScoreOutput:
     async with session_scope() as session:
         application = await get_application(session, payload.application_id)
@@ -196,17 +153,17 @@ async def run_fit_score(payload: FitScoreInput) -> FitScoreOutput:
         green_threshold, green_rule_id = await resolve_policy(
             session, "fit_green_threshold", role.id, fallback=60
         )
-        ctc_multiplier, ctc_rule_id = await resolve_policy(
+        ctc_multiplier, _ = await resolve_policy(
             session, "ctc_overshoot_multiplier", role.id, fallback=1.15
         )
         no_profile_score, no_profile_rule_id = await resolve_policy(
             session, "fit_no_profile_default_score", role.id, fallback=40
         )
-        w_skills, _ = await resolve_policy(session, "scoring_weights.skills", role.id, fallback=50)
-        w_experience, _ = await resolve_policy(session, "scoring_weights.experience", role.id, fallback=25)
-        w_ctc, _ = await resolve_policy(session, "scoring_weights.ctc", role.id, fallback=15)
-        w_logistics, _ = await resolve_policy(session, "scoring_weights.logistics", role.id, fallback=10)
-        default_weights = {"skills": w_skills, "experience": w_experience, "ctc": w_ctc, "logistics": w_logistics}
+        w_skills, _ = await resolve_policy(session, "scoring_weights.skills", role.id, fallback=65)
+        w_experience, _ = await resolve_policy(session, "scoring_weights.experience", role.id, fallback=35)
+        # Only used to seed the synthesized default spec for roles with no
+        # evaluation_spec yet -- a role with its own spec uses its own weights.
+        default_weights = {"skills": w_skills, "experience": w_experience}
 
         profile_row = await get_latest_profile(session, payload.candidate_id)
         if profile_row is None:
@@ -223,6 +180,15 @@ async def run_fit_score(payload: FitScoreInput) -> FitScoreOutput:
         profile = CandidateProfile.model_validate(profile_row.parsed_data)
         weights = {**default_weights, **(role.scoring_rubric or {}).get("weights", {})}
 
+        from src.services.scoring_context import default_evaluation_spec
+
+        # Always a dynamic spec: the role's own evaluation_spec when it has
+        # one, otherwise a synthesized generic 2-dimension spec -- so the
+        # prompt and output shape NEVER branch on "is there a spec or not".
+        evaluation_spec = role.evaluation_spec or {}
+        if not evaluation_spec.get("dimensions"):
+            evaluation_spec = default_evaluation_spec(weights)
+
         role_snapshot = {
             "title": role.title,
             "jd_text": role.jd_text,
@@ -231,7 +197,7 @@ async def run_fit_score(payload: FitScoreInput) -> FitScoreOutput:
             "max_notice_days": role.max_notice_days,
             "location": role.location,
             "remote_policy": role.remote_policy or RemotePolicy.ONSITE.value,
-            "evaluation_spec": role.evaluation_spec or {},
+            "evaluation_spec": evaluation_spec,
             "company_context": role.company_context or {},
         }
 
@@ -249,7 +215,7 @@ async def run_fit_score(payload: FitScoreInput) -> FitScoreOutput:
     )
     knock_outs = ko_result.reasons
 
-    from src.services.scoring_context import scoring_prompt_vars
+    from src.services.scoring_context import scoring_prompt_vars, compute_spec_weighted_score
 
     prompt = compile_prompt(
         "fit_score",
@@ -263,10 +229,6 @@ async def run_fit_score(payload: FitScoreInput) -> FitScoreOutput:
         remote_policy=role_snapshot["remote_policy"],
         candidate_profile_json=json.dumps(profile.model_dump(mode="json"), ensure_ascii=False, indent=2),
         medium_data=(medium_data or "(none provided)"),
-        skills_weight=weights["skills"],
-        experience_weight=weights["experience"],
-        ctc_weight=weights["ctc"],
-        logistics_weight=weights["logistics"],
         **scoring_prompt_vars(role_snapshot["evaluation_spec"], role_snapshot["company_context"]),
     )
 
@@ -285,7 +247,13 @@ async def run_fit_score(payload: FitScoreInput) -> FitScoreOutput:
     )
     assessment = result.parsed
 
-    overall = _compute_weighted_score(assessment, weights)
+    # compute_spec_weighted_score is the canonical shared helper (scoring_context.py):
+    # weighted average of criteria_scores using each dimension's own weight.
+    # Falls back to the model's own overall_score estimate only if every
+    # dimension came back unscored (e.g. an extremely sparse profile).
+    spec_overall = compute_spec_weighted_score(assessment.criteria_scores)
+    overall = spec_overall if spec_overall is not None else assessment.overall_score
+    scored_by = "evaluation_spec" if spec_overall is not None else "model_estimate"
     assessment.overall_score = overall
 
     # Score-only contract: the shared asymmetric band decides the verdict.
@@ -301,13 +269,11 @@ async def run_fit_score(payload: FitScoreInput) -> FitScoreOutput:
         if application is not None:
             application.fit_score = overall
             application.fit_tier = fit_tier.value
-            application.status = (
-                ApplicationStatus.REJECTED.value
-                if fit_tier == FitTier.RED
-                else ApplicationStatus.SCORED.value
-            )
+            # NOTE: Do NOT set application.status = REJECTED here.
+            # Rejection is owned exclusively by the stage runner (advance_candidate).
+            # This activity only persists the score + tier; the runner decides the transition.
+            application.status = ApplicationStatus.SCORED.value
 
-        dims_dump = assessment.dimensions.model_dump()
         pending = assessment.pending_verification
 
         audit_row = await log_audit(
@@ -318,7 +284,9 @@ async def run_fit_score(payload: FitScoreInput) -> FitScoreOutput:
             application_id=payload.application_id,
             details={
                 "overall_score": overall,
-                "dimensions": dims_dump,
+                "criteria_scores": [c.model_dump() for c in assessment.criteria_scores],
+                "scored_by": scored_by,
+                "spec_dimensions_count": len(assessment.criteria_scores),
                 "red_flags": assessment.red_flags,
                 "green_flags": assessment.green_flags,
                 "pending_verification": pending,
@@ -327,7 +295,7 @@ async def run_fit_score(payload: FitScoreInput) -> FitScoreOutput:
                 "knock_outs": knock_outs,
                 "summary": assessment.summary,
                 "weights_used": weights,
-                "scoring_pass": "post_voice" if _has_voice_data(dims_dump) else "resume_only",
+                "scoring_pass": "resume_only",
                 "input_tokens": result.input_tokens,
                 "output_tokens": result.output_tokens,
             },
@@ -338,38 +306,22 @@ async def run_fit_score(payload: FitScoreInput) -> FitScoreOutput:
 
         if _settings.enable_evidence_collection:
             evidence_rows = []
-            for dim_field in ("skills_match", "experience_level", "ctc_fit", "location_notice_fit"):
-                dim_data = dims_dump.get(dim_field, {})
-                if dim_data.get("score") is None:
+            for crit in assessment.criteria_scores:
+                if crit.score is None:
                     continue
-                is_post_voice = _has_voice_data(dims_dump)
-                source_type = "voice_transcript" if is_post_voice and dim_field in ("ctc_fit", "location_notice_fit") else "resume"
                 evidence_rows.append({
                     "application_id": payload.application_id,
                     "candidate_id": payload.candidate_id,
-                    "fact_key": f"fit_score.{dim_field}",
-                    "fact_value": dim_data.get("score"),
+                    "fact_key": f"fit_score.spec.{crit.key}",
+                    "fact_value": crit.score,
                     "source_stage": "fit_score",
-                    "source_type": source_type,
+                    "source_type": "resume",
                     "extraction_method": "llm",
-                    "evidence_text": dim_data.get("rationale", "")[:500],
+                    "evidence_text": crit.rationale[:500] if crit.rationale else "",
                     "confidence": None,
                     "langfuse_trace_id": result.trace_id,
                     "model_version": result.model,
                 })
-            for dim_field in ("skills_match", "experience_level", "ctc_fit", "location_notice_fit"):
-                dim_data = dims_dump.get(dim_field, {})
-                if dim_data.get("data_status") == "pending_verification":
-                    evidence_rows.append({
-                        "application_id": payload.application_id,
-                        "candidate_id": payload.candidate_id,
-                        "fact_key": f"fit_score.{dim_field}.pending",
-                        "fact_value": "pending_verification",
-                        "source_stage": "fit_score",
-                        "source_type": "resume",
-                        "extraction_method": "deterministic",
-                        "evidence_text": dim_data.get("rationale", "Data not available in resume")[:500],
-                    })
             for flag in assessment.red_flags:
                 evidence_rows.append({
                     "application_id": payload.application_id,
@@ -397,7 +349,7 @@ async def run_fit_score(payload: FitScoreInput) -> FitScoreOutput:
             saved_evidence, _ = await record_evidence_batch_verified(
                 session, records=evidence_rows, application_id=payload.application_id
             )
-            policy_ids = [pid for pid in (green_rule_id, ctc_rule_id) if pid]
+            policy_ids = [pid for pid in (green_rule_id,) if pid]
             await record_decision(
                 session,
                 application_id=payload.application_id,
@@ -440,15 +392,6 @@ async def run_fit_score(payload: FitScoreInput) -> FitScoreOutput:
         knock_outs=knock_outs,
         trace_id=result.trace_id,
     )
-
-
-def _has_voice_data(dims_dump: dict) -> bool:
-    """Check if CTC or logistics dimensions have real scores (post-voice)."""
-    for key in ("ctc_fit", "location_notice_fit"):
-        dim = dims_dump.get(key, {})
-        if dim.get("score") is not None and dim.get("data_status") == "verified":
-            return True
-    return False
 
 
 @activity.defn(name="fit_score")
