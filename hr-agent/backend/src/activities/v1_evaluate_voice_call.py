@@ -20,7 +20,7 @@ from src.db.repositories.evidence import record_decision, record_evidence_batch_
 from src.db.repositories.policy import resolve_policy
 from src.db.repositories.v1_application import set_stage
 from src.db.repositories.voice_call import get_voice_call, save_evaluation
-from src.services.scoring_context import scoring_prompt_vars
+from src.services.scoring_context import compute_spec_weighted_score, scoring_prompt_vars
 from src.llm.client import get_llm_client
 from src.llm.model_registry import Stage, model_for
 from src.llm.prompt_manager import compile_prompt
@@ -270,6 +270,12 @@ async def evaluate_voice_call(
             score = result.parsed
             trace_id = result.trace_id
             model_used = result.model
+
+        # Recompute overall from criteria_scores when the LLM scored spec dimensions.
+        if score.criteria_scores:
+            spec_score = compute_spec_weighted_score(score.criteria_scores)
+            if spec_score is not None:
+                score.overall_score = spec_score
 
         score.evaluated_at = datetime.now(UTC)
         score.prompt_version = VOICE_SCREEN_EVAL_VERSION

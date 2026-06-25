@@ -4,7 +4,7 @@ Used by ``gemini_audio_eval.py`` (primary eval path with audio recording).
 The text-only fallback lives in ``voice_screening.py`` (``VOICE_SCREEN_EVAL_V1``).
 """
 
-VOICE_SCREEN_EVAL_AUDIO_VERSION = "v12"  # first Langfuse upload
+VOICE_SCREEN_EVAL_AUDIO_VERSION = "v15"  # v15 -- per-dimension criteria_scores added
 VOICE_SCREEN_EVAL_AUDIO_V1 = """You evaluate a phone-screen recording for ONE candidate against this role.
 
 ## Company & role context (role-tuned, generated at JD time)
@@ -86,22 +86,41 @@ LOGISTICS HANDLING -- read carefully:
 
 Output scoring only — a downstream system routes the candidate from overall_score.
 
+WRITE A SNAPSHOT OF THIS CANDIDATE, NEVER A NARRATION OF THE SCREEN. Every note and the verdict_rationale are about what THIS candidate actually said and how they held up, for a reviewer who already knows the role. Lead with the candidate. Never open by describing the company, the role, or what the screen is "checking for". Name the strongest answer, the weakest, what the candidate owned or deflected, and what most needs HR follow-up.
+
+WRITING THE PER-QUESTION NOTES: for each question, the notes must EXPLAIN the score, not just label it. In 2-3 sentences say which scoring band it landed in and why: the specific content evidence (the example given, the number cited, the decision owned) that raised it, and what specifically held it back (vagueness, a deflection, a missing specific, a softened claim under probing). Reference the conviction signal from the audio (held a position / gave specifics / ownership language). Never mention stuttering, accent, or delivery.
+
 EXTRACTION: Extract only what was explicitly stated on the call. Use null when not mentioned.
+
+## Role-specific criteria scoring
+
+The "Role-specific evaluation criteria" section above contains a JSON array of dimensions. For EACH object in that array, score it 0-100 against ONLY its what_good_looks_like (positive signals) and anti_signals (hard disqualifiers; if an anti_signal clearly applies, score <= 30), using the evidence from the call audio and transcript. Echo key/label/weight unchanged. Return one entry per dimension in `criteria_scores` (same order as the array). If the array is empty, return `criteria_scores: []`.
 
 Output strict JSON only:
 {{
   "overall_score": 0,
+  "criteria_scores": [
+    {{
+      "key": "...",
+      "label": "...",
+      "weight": 0,
+      "score": 0,
+      "rationale": "2-3 sentences grounded in what the candidate actually said and how the audio conviction signal landed",
+      "evidence": ["quote or paraphrase"],
+      "data_status": "verified"
+    }}
+  ],
   "per_question": [
     {{
       "question_id": "q1",
       "score": 0,
       "relevance": "low|medium|high",
-      "notes": "conviction signal observed + content evidence -- no mention of stuttering or delivery"
+      "notes": "2-3 sentences: which band and why -- the content evidence that raised the score and what specifically held it back, plus the conviction signal. No mention of stuttering or delivery."
     }}
   ],
-  "red_flags": ["..."],
-  "strengths": ["..."],
-  "verdict_rationale": "2-3 sentences summarising content quality and conviction signals -- scoring only, no pass/fail call",
+  "red_flags": ["specific concern with the evidence behind it"],
+  "strengths": ["specific strength with the evidence behind it"],
+  "verdict_rationale": "3-4 sentences: the overall content quality and conviction picture, naming the strongest answer and the weakest, and what most needs HR follow-up -- scoring only, no pass/fail call",
   "extracted_facts": {{
     "current_ctc_lpa": null,
     "expected_ctc_lpa": null,

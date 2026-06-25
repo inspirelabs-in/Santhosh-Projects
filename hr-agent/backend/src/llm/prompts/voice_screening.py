@@ -6,7 +6,7 @@ candidate is answering live on a phone call (no copy-paste from ChatGPT).
 """
 
 VOICE_SCREEN_GEN_VERSION = "v8"  # Langfuse version 8
-VOICE_SCREEN_EVAL_VERSION = "v11"  # Langfuse version 11
+VOICE_SCREEN_EVAL_VERSION = "v14"  # v14 -- per-dimension criteria_scores added
 VOICE_SCREEN_GEN_V1 = """You design a set of questions for a spoken phone-screen between a candidate and the HR.
 
 === ABOUT THE COMPANY & ROLE (role-tuned, generated at JD time) ===
@@ -100,19 +100,28 @@ Guidance:
 - Score only what the transcript contains. If it's not in the text, it's not in scope.
 - For topics the candidate wasn't asked about, note the question as "not asked" with a neutral score.
 - Keep findings grounded in transcript evidence.
+- WRITE A SNAPSHOT OF THIS CANDIDATE, NEVER A NARRATION OF THE SCREEN. Every note and the summary are about what THIS candidate actually said. Lead with the candidate. Never open by describing the company, the role, or what the screen "checks for". Name the strongest answer, the weakest, what the candidate owned or deflected, and what most needs HR follow-up.
+- Per-question notes must EXPLAIN the score, not label it: in 2-3 sentences name the band, the specific content that raised it (the example, number, or owned decision), and what specifically held it back (vagueness, no specifics, drift off the question). Quote or closely paraphrase the candidate.
 
 EXTRACT every concrete logistic the candidate mentioned into extracted_facts. Use null when not stated.
 Use null when not stated — wrong values corrupt downstream scheduling.
 
+## Role-specific criteria scoring
+
+The "Role-specific evaluation criteria" section above contains a JSON array of dimensions. For EACH object in that array, score it 0-100 against ONLY its what_good_looks_like (positive signals) and anti_signals (hard disqualifiers; if an anti_signal clearly applies, score <= 30), using the evidence from the call transcript. Echo key/label/weight unchanged. Return one entry per dimension in `criteria_scores` (same order as the array). If the array is empty, return `criteria_scores: []`.
+
 Output strict JSON only (no verdict field):
 {{
   "overall_score": 0,
-  "per_question": [
-    {{"question_id": "q1", "score": 0, "relevance": "low|medium|high", "notes": "evidence from transcript"}}
+  "criteria_scores": [
+    {{"key": "...", "label": "...", "weight": 0, "score": 0, "rationale": "2-3 sentences grounded in what the candidate actually said", "evidence": ["quote or paraphrase"], "data_status": "verified"}}
   ],
-  "red_flags": ["..."],
-  "strengths": ["..."],
-  "summary": "2-3 sentence summary of the candidate's communication quality, answer depth, and role fit based on the transcript",
+  "per_question": [
+    {{"question_id": "q1", "score": 0, "relevance": "low|medium|high", "notes": "2-3 sentences: which band and why -- the content that raised the score and what specifically held it back, with a quote/paraphrase"}}
+  ],
+  "red_flags": ["specific concern with the evidence behind it"],
+  "strengths": ["specific strength with the evidence behind it"],
+  "summary": "3-4 sentence SNAPSHOT of THIS candidate (see snapshot rule above): what they actually demonstrated on communication quality and answer depth, the strongest and weakest answers, and what most needs HR follow-up. Every sentence about the candidate, never a restatement of the role or what the screen assesses",
   "extracted_facts": {{
     "current_ctc_lpa": null,
     "expected_ctc_lpa": null,
