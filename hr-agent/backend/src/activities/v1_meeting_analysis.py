@@ -28,6 +28,7 @@ from src.llm.prompts.meeting_analysis import (
 )
 from src.models.v1 import MeetingAnalysis
 from src.services.file_storage import download
+from src.services.scoring_context import compute_spec_weighted_score, scoring_prompt_vars
 
 logger = logging.getLogger(__name__)
 
@@ -89,10 +90,9 @@ async def analyze_meeting(*, meeting_session_id: UUID) -> MeetingAnalysis:
         role_title=role_title,
         jd_text=jd_excerpt,
         scoring_rubric_json=json.dumps(scoring_rubric, ensure_ascii=False)[:2000],
-        evaluation_spec_json=json.dumps(evaluation_spec, ensure_ascii=False)[:3000],
-        company_context_json=json.dumps(company_context, ensure_ascii=False)[:3000],
         transcript_json=transcript_excerpt,
         paralinguistic_json=json.dumps(emotion_features, ensure_ascii=False)[:2000],
+        **scoring_prompt_vars(evaluation_spec, company_context),
     )
 
     client = get_llm_client()
@@ -108,6 +108,11 @@ async def analyze_meeting(*, meeting_session_id: UUID) -> MeetingAnalysis:
         max_tokens=2500,
     )
     analysis = result.parsed
+    # Recompute overall from criteria_scores when the LLM scored spec dimensions.
+    if analysis.criteria_scores:
+        spec_score = compute_spec_weighted_score(analysis.criteria_scores)
+        if spec_score is not None:
+            analysis.overall_score = spec_score
     analysis.evaluated_at = datetime.now(UTC)
     analysis.prompt_version = MEETING_ANALYSIS_VERSION
 

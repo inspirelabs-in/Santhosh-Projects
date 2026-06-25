@@ -34,7 +34,7 @@ from src.models.v1 import (
 from src.config import get_settings
 from src.services.file_storage import download
 from src.services.resume_extraction import extract_resume_text
-from src.services.scoring_context import scoring_prompt_vars
+from src.services.scoring_context import compute_spec_weighted_score, scoring_prompt_vars
 from src.services.submission_enrichment import (
     check_deployed_url,
     enrich_github,
@@ -219,6 +219,12 @@ async def parse_assignment(
         )
 
         parse_result = result.parsed
+        # Recompute overall_score from criteria_scores when the LLM scored spec dimensions.
+        # Falls back to the prompt-set overall_score (or None) when no spec was present.
+        if parse_result.criteria_scores:
+            spec_score = compute_spec_weighted_score(parse_result.criteria_scores)
+            if spec_score is not None:
+                parse_result.overall_score = spec_score
         submission.parse_result = parse_result.model_dump(mode="json")
         submission.submitted_at = submission.submitted_at or datetime.now(UTC)
 

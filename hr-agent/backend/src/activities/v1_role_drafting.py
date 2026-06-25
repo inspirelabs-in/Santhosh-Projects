@@ -16,9 +16,6 @@ from src.llm.client import get_llm_client
 from src.llm.model_registry import Stage, model_for
 from src.llm.prompt_manager import get_prompt
 from src.llm.prompts.role_drafting import (
-    LINKEDIN_POST_SYSTEM,
-    LINKEDIN_POST_TURN_TEMPLATE,
-    LINKEDIN_POST_VERSION,
     ROLE_DRAFT_SYSTEM,
     ROLE_DRAFT_TURN_TEMPLATE,
     ROLE_DRAFT_VERSION,
@@ -26,6 +23,7 @@ from src.llm.prompts.role_drafting import (
     SECTION_REWRITE_TEMPLATE,
     SECTION_REWRITE_VERSION,
 )
+from src.services.linkedin_format import jd_to_linkedin_text
 
 logger = logging.getLogger(__name__)
 
@@ -141,32 +139,22 @@ async def generate_linkedin_post(
     ctc_max_lpa: float | None,
     apply_url: str | None,
 ) -> LinkedInPost:
-    prompt = LINKEDIN_POST_TURN_TEMPLATE.format(
-        title=title,
-        location=location or "not specified",
-        remote_policy=remote_policy or "n/a",
-        ctc_min_lpa=ctc_min_lpa if ctc_min_lpa is not None else "n/a",
-        ctc_max_lpa=ctc_max_lpa if ctc_max_lpa is not None else "n/a",
-        jd_text=(jd_text or "")[:5000],
-        apply_url=apply_url or "(not provided)",
-    )
-    from src.config import get_settings as _gs2
-    _company2 = _gs2().voice_agent_company_name
-    _apply_email = "careers@" + _company2.lower().replace(" ", "") + ".in"
-    _li_sys = get_prompt("linkedin_post_system", fallback=LINKEDIN_POST_SYSTEM)
-    try:
-        _li_sys = _li_sys.format(company_name=_company2, apply_email=_apply_email)
-    except (KeyError, IndexError):
-        _li_sys = _li_sys.replace("{company_name}", _company2).replace("{apply_email}", _apply_email)
+    # The JD is already the LinkedIn post (vibey, human, with How-to-apply block).
+    # Deterministically strip markdown so it renders cleanly on LinkedIn.
+    # No LLM call needed -- the content stays 100% faithful to what was drafted.
+    post_text = jd_to_linkedin_text(jd_text)
 
-    client = get_llm_client()
-    result = await client.complete(
-        prompt=prompt,
-        response_model=LinkedInPost,
-        model=model_for(Stage.LINKEDIN_POST),
-        trace_name="linkedin_post",
-        prompt_version=LINKEDIN_POST_VERSION,
-        system=_li_sys,
-        max_tokens=900,
+    # Derive headline from the first non-empty line of the plain-text post,
+    # falling back to the role title.
+    headline = title
+    for line in post_text.splitlines():
+        stripped = line.strip()
+        if stripped:
+            headline = stripped
+            break
+
+    return LinkedInPost(
+        post_text=post_text,
+        hashtags=[],
+        headline=headline,
     )
-    return result.parsed
