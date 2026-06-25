@@ -102,6 +102,8 @@ class RolePatch(BaseModel):
     assignment_deadline_days: int | None = None
     pipeline_template: list[str] | None = None
     screening_modality: str | None = None
+    evaluation_spec: dict[str, Any] | None = None
+    company_context: dict[str, Any] | None = None
 
 
 def _to_read(r: Role) -> RoleRead:
@@ -278,8 +280,7 @@ async def patch_role(
                 val = val if val in ("onsite", "hybrid", "remote") else None
             if field == "status" and val is not None:
                 val = val if val in ("open", "paused", "filled", "cancelled") else role.status
-            if field == "screening_modality":
-                val = "voice"
+            # screening_modality is now derived from pipeline stages; allow PATCH to set it freely.
             setattr(role, field, val)
             changed[field] = val
         await log_audit(
@@ -540,6 +541,8 @@ async def upload_problem_doc(
         )
         role.assignment_problem_doc_key = stored.key
         role.assignment_problem_filename = filename
+        if role.status in ("draft", "paused"):
+            role.status = "open"
         await log_audit(
             session,
             action="role_problem_doc_uploaded",
@@ -547,6 +550,61 @@ async def upload_problem_doc(
             details={"role_id": str(role_id), "filename": filename, "size": len(content)},
         )
         return _to_read(role)
+
+
+@router.post("/{role_id}/assignment/publish")
+async def publish_assignment(
+    role_id: UUID,
+    _: Annotated[str, Depends(require_recruiter)],
+):
+    """Render the current assignment_brief text to a PDF, store it, and flip
+    the role status from draft -> open.
+
+    Re-publishing is blocked while a doc already exists; editing the brief
+    (``set_role_assignment_brief``) clears the doc and drops the role back to
+    draft, which re-enables publish.
+    """
+    from src.services.assignment_pdf import render_assignment_pdf
+
+    async with session_scope() as session:
+        role = await session.get(Role, role_id)
+        if role is None:
+            raise HTTPException(404, "role_not_found")
+        if role.assignment_problem_doc_key:
+            raise HTTPException(409, "already_published")
+        brief = (role.assignment_brief or "").strip()
+        if not brief:
+            raise HTTPException(422, "no_assignment_brief_to_publish")
+        title = role.title or "Assignment"
+        company_name = (_settings.voice_agent_company_name or "GrabOn").strip()
+        # render_assignment_pdf is SYNC and expects a structured brief payload.
+        # Wrap the markdown brief as a single problem so it renders as the body.
+        payload = {
+            "problems": [{"title": f"{title} Take-home", "challenge": brief}],
+            "submission_format": {"deadline_days": role.assignment_deadline_days or 7},
+        }
+        pdf_bytes = render_assignment_pdf(
+            payload, company_name=company_name, role_title=title
+        )
+        filename = "assignment.pdf"
+        stored = await upload_resume(
+            candidate_id=role_id,  # reuse key namespace; role_id prefixes the path
+            filename=f"roles/{role_id}/{filename}",
+            content=pdf_bytes,
+            content_type="application/pdf",
+        )
+        role.assignment_problem_doc_key = stored.key
+        role.assignment_problem_filename = filename
+        if role.status in ("draft", "paused"):
+            role.status = "open"
+        new_status = role.status
+        await log_audit(
+            session,
+            action="assignment_published",
+            actor="dashboard",
+            details={"role_id": str(role_id)},
+        )
+    return {"ok": True, "id": str(role_id), "status": new_status}
 
 
 @router.get("/{role_id}/problem-doc/download")

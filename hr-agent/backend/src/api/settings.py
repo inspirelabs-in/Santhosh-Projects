@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from src.api.auth import require_recruiter, require_viewer
 from src.config import get_settings
+from src.db.repositories.audit import log_audit
 from src.llm.prompt_manager import invalidate_cache as invalidate_prompt_cache, get_prompt_sources
 from src.services.rate_limit import snapshot
 
@@ -42,6 +43,7 @@ PROMPT_REGISTRY: list[dict[str, str]] = [
     {"name": "extract_turn", "label": "Chat — Extract Turn Data", "stage": "chat_agent"},
     {"name": "tailored_qs", "label": "Chat — Tailored Questions", "stage": "chat_agent"},
     {"name": "assignment_gen", "label": "Assignment Generation", "stage": "assignment"},
+    {"name": "jd_generation", "label": "JD Generation (Pulse)", "stage": "assignment"},
 ]
 
 
@@ -235,6 +237,74 @@ async def refresh_prompts(
     """Flush cached Langfuse prompts so next LLM call picks up latest edits."""
     invalidate_prompt_cache()
     return {"status": "ok", "detail": "Prompt cache cleared"}
+
+
+# ---------------------------------------------------------------------------
+# Org settings
+# ---------------------------------------------------------------------------
+
+
+class OrgSettingsWrite(BaseModel):
+    name: str | None = None
+    hiring_persona: dict[str, Any] | None = None
+    settings: dict[str, Any] | None = None
+
+
+@router.get("/org")
+async def get_org(
+    _: Annotated[str, Depends(require_viewer)],
+) -> dict[str, Any]:
+    from src.db.connection import session_scope
+    from src.db.repositories.organization import get_default
+
+    async with session_scope() as session:
+        org = await get_default(session)
+        if org is None:
+            raise HTTPException(status_code=404, detail="No org configured")
+        return {
+            "id": str(org.id),
+            "name": org.name,
+            "slug": org.slug,
+            "hiring_persona": org.hiring_persona or {},
+            "settings": org.settings or {},
+        }
+
+
+@router.put("/org")
+async def update_org(
+    payload: OrgSettingsWrite,
+    _: Annotated[str, Depends(require_recruiter)],
+) -> dict[str, Any]:
+    from src.db.connection import session_scope
+    from src.db.repositories.organization import get_default
+
+    async with session_scope() as session:
+        org = await get_default(session)
+        if org is None:
+            raise HTTPException(status_code=404, detail="No org configured")
+        if payload.name is not None:
+            org.name = payload.name
+        if payload.hiring_persona is not None:
+            org.hiring_persona = payload.hiring_persona
+        if payload.settings is not None:
+            org.settings = payload.settings
+        await log_audit(
+            session,
+            action="org_updated",
+            actor="dashboard",
+            details={
+                "fields": [
+                    k for k, v in payload.model_dump(exclude_none=True).items()
+                ]
+            },
+        )
+        return {
+            "id": str(org.id),
+            "name": org.name,
+            "slug": org.slug,
+            "hiring_persona": org.hiring_persona or {},
+            "settings": org.settings or {},
+        }
 
 
 @router.get("/whoami")
