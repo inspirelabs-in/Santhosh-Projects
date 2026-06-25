@@ -1,24 +1,64 @@
 """FIT_SCORE -- Stage 4 candidate-vs-JD fit scoring.
 
-v6 changes from v5:
-  - Removed recommended_tier from prompt output. Downstream code owns pass/reject/needs_review.
-  - Removed all tier/threshold/"score >= X" language. Model produces a fair score only.
-  - Added {medium_data} input: candidate's own words (inbound email body or careers-form text).
-  - Comp/CTC/notice/location are logistics: surface in flags/pending_verification only, not in the overall_score.
-  - Guardrails grounded in {company_context_json} and {evaluation_spec_json}.
-  - Missing/unavailable data goes in pending_verification rather than penalising the score.
+v13 changes from v12:
+  - WEIGHT-PROPORTIONAL SCRUTINY: weight now also tells the model how much
+    care to put into evidence-gathering for a dimension (look harder, not
+    score higher) -- previously weight was only echoed back for the code-side
+    weighted average and carried no signal for the model's own judgment.
+  - INTERPERSONAL / BEHAVIORAL DIMENSIONS guardrail: resumes are self-reported
+    and rarely contain direct proof of soft skills like collaboration or
+    communication. Individual-contributor language ("built X") is explicitly
+    called out as NOT evidence of collaboration. Score these conservatively
+    and prefer "pending_verification" over a confident number absent explicit
+    teamwork/communication language -- no hardcoded score ceiling, just a
+    instruction to default to honest uncertainty over a guessed number.
+  - Removed the "(30-50)" hardcoded sparse-profile range -- "conservative" is
+    a judgment call grounded in the dimension's own signals, not a fixed band.
+
+v12 changes from v11 (the dynamic-only rewrite):
+  - Single output shape: `criteria_scores` is the ONLY scored structure. The
+    old `dimensions` object (skills_match / experience_level / cultural_fit)
+    is gone -- there is no more parallel hardcoded schema that has to be kept
+    in sync with the dynamic one, and no risk of a consumer reading the wrong
+    one (which is exactly what caused the UI to show the wrong breakdown).
+  - evaluation_spec_json is now NEVER empty: when a role has no recruiter-
+    authored evaluation_spec, the caller (fit_score.py) synthesizes a generic
+    2-dimension spec (Skills Match / Experience & Trajectory) so the SAME
+    prompt path runs every time -- one schema, no "if spec is empty, do X
+    instead" branch.
+  - Removed the blanket title-based seniority/relevance hard ceilings
+    (Director/Senior title + years-of-experience auto-caps). They overrode
+    evidence-based judgment regardless of the role's own rubric and could
+    suppress a genuinely strong candidate. The anti-signal hard penalty
+    (score <= 30 when a dimension's own anti_signal applies) remains --
+    it's grounded in THIS role's own spec, not a blanket heuristic.
+  - ctc_fit / location_notice_fit / cultural_fit remain OUT of scoring
+    entirely; logistics still surface only as flags (pending_verification /
+    red_flags), never as a scored dimension.
 """
 
-FIT_SCORE_VERSION = "v7"  # Langfuse version 7
+FIT_SCORE_VERSION = "v13"
 FIT_SCORE_V1 = """You are the recruitment scoring engine. Produce a fair 0-100 score for this candidate against the job description using ONLY factual data present in their profile and medium data.
 
 ## Company and role context (role-tuned, generated at JD time)
 Ground every judgment in THIS role's context below.
 {company_context_json}
 
-## Role-specific evaluation criteria
-Judge the candidate against THESE dimensions and signals, not generic defaults. Where a dimension lists what_good_looks_like / anti_signals, weigh them directly. If this object is empty, fall back to the JD with a neutral, role-appropriate stance:
+## Evaluation criteria for THIS role
+The value below is a JSON ARRAY of the dimensions that decide this candidate's fit. Each item has: key, label, weight (the recruiter's own weighting), what_good_looks_like (positive signals), anti_signals (hard disqualifiers). These are the ONLY dimensions you score -- there is no other rubric and no fixed legacy dimension set alongside this one.
+
 {evaluation_spec_json}
+
+For EACH object in the array, score it 0-100 against ONLY its own what_good_looks_like and anti_signals:
+- Echo `key`, `label`, `weight` unchanged from the array.
+- Give a 0-100 `score` grounded ONLY in the candidate's profile and medium data. "Likely knows X" or "may have experience with Y" is NOT evidence -- cite explicit profile or medium-data quotes.
+- Use null (data_status "pending_verification") only when the evidence to judge this dimension is genuinely absent, not as a default.
+- Return one entry per dimension, in `criteria_scores`, in the SAME ORDER as the array above.
+- ANTI-SIGNAL HARD PENALTY: if any anti_signal from a dimension clearly applies to this candidate, that dimension's score MUST be <= 30 regardless of other positives. Name the anti_signal explicitly in the rationale.
+- When the profile is sparse, keep scores conservative -- less signal means more uncertainty, not a free pass to a high score.
+- Missing data must never penalize a score -- flag the gap in pending_verification instead, and set that dimension's data_status to "pending_verification".
+- WEIGHT-PROPORTIONAL SCRUTINY: the heavier a dimension's weight, the more carefully you must measure it. For a high-weight dimension, dig for and cross-check more evidence and write a deeper, more specific rationale than for a low-weight one. Weight tells you how much this dimension matters to the recruiter's decision -- it is not a hint to score generously, only a hint to look harder before committing to a number.
+- INTERPERSONAL / BEHAVIORAL DIMENSIONS (e.g. collaboration, communication, leadership, stakeholder management): a resume is self-reported and rarely contains direct proof of these. Individual-contributor or technical-ownership language ("built X", "owned Y", "architected Z") is NOT evidence of collaboration or communication. Score these dimensions conservatively, and prefer data_status "pending_verification" over a confident number, unless the profile or medium data contains explicit teamwork/communication language (e.g. "led a cross-functional initiative with...", "mentored...", "partnered with design/product to..."). Do not infer a soft-skill score from technical accomplishments alone.
 
 ## Job Description
 {jd_text}
@@ -35,102 +75,34 @@ Location: {role_location} ({remote_policy})
 The text below is the candidate's framing and intent in their own words -- their inbound email body if they applied by email, or their careers-form submission text otherwise. Read the profile AND this together. It may be empty.
 {medium_data}
 
-## Scoring Rules
-
-Score dimensions based on the real data available.
-
-### ALWAYS SCORED (from resume and medium data):
-
-1. **Skills Match** (Weight: {skills_weight}%)
-   How well do the candidate's skills align with JD requirements?
-   - For technical roles: programming languages, frameworks, tools, certifications.
-   - For non-technical roles: domain expertise, methodologies, tools of the trade.
-   - Anchor the score in evidence, not inference. No required skills present is a floor; partial overlap sits in the middle; a high score needs strong, direct evidence (named tools, real usage). "Likely knows X" is not evidence.
-   - Cite resume quotes or medium-data quotes as evidence.
-
-2. **Experience and Career Trajectory** (Weight: {experience_weight}%)
-   Does the candidate's experience level and career arc fit?
-   - Years of relevant experience (not total experience -- 10 years in an unrelated field does not equal senior fit).
-   - Progression pattern: stagnant, steady growth, or accelerating?
-   - Seniority alignment: score seniority relative to the role's expectations — a junior candidate should match junior-level signals.
-
-### CONDITIONALLY SCORED (only if data exists in profile or medium data):
-
-3. **CTC Fit** (Weight: {ctc_weight}%)
-   ONLY score this dimension if current_ctc_lpa OR expected_ctc_lpa is explicitly present.
-   - If NEITHER is present: set score to null, rationale to "CTC information not available -- pending verification via voice screen", data_status to "pending_verification".
-   - If CTC data exists: judge how comfortably the expectation fits the band. Comfortably inside the range scores high; modestly above stretches but can still work; far above scores low. Justify the score with the exact figures.
-    - CTC mismatch shouldn't lower the overall_score — surface it in pending_verification and red_flags instead.
-
-4. **Logistics Fit** (Weight: {logistics_weight}%)
-    ONLY score this dimension if location, notice_period_days, or willing_to_relocate data exists.
-    - If NONE of these exist: set score to null, rationale to "Logistics information not available -- pending verification via voice screen", data_status to "pending_verification".
-    - If data exists: score based on notice period vs max allowed, location match, relocation willingness.
-    - Logistics mismatches shouldn't lower the overall_score — surface them in pending_verification and red_flags instead.
-
-5. **Cultural Fit** (Weight: 0% -- informational only, does NOT affect overall score)
-   Look for signals that match the values and traits in THIS role's company context and evaluation criteria above. Read the fit the way this specific role defines it.
-   - If the context implies no particular cultural signal, or the profile shows none, set score to null and note "Insufficient data for cultural assessment".
-
 ## On working with available data
 
-- Score only what the profile and medium data explicitly state. Assumptions about unstated data introduce noise.
-- When CTC isn't mentioned, treat it as unknown rather than defaulting to a middle value.
-- Same for notice period — if unstated, it's unknown, not a default.
-- Location too — if unstated, treat it as unknown.
-- Base evidence on explicit mentions, not inferred experience.
-- When the profile is sparse, keep scores conservative (30-50) since there's less signal to evaluate.
-- Missing data shouldn't penalize the score — flag the gap in pending_verification instead.
+- Score only what the profile and medium data explicitly state. "Likely knows X" or "may have experience with Y" is NOT evidence.
+- When CTC isn't mentioned, treat it as unknown -- flag it in pending_verification, do not score it. Same for notice period and location -- unknown means flagged, never scored.
+- CTC fit and logistics (notice period, location, relocation) are NEVER scored dimensions. They are surfaced as flags only (pending_verification / red_flags) -- never invent a CTC or logistics entry in criteria_scores.
+- Missing data must never penalize the score -- flag the gap instead.
+
+## How to write each dimension's rationale
+
+The rationale is the most important part of the output: a reviewer reads it to understand WHY the number is what it is. For every scored dimension, the rationale (2-4 sentences) must make clear:
+- What the score primarily reflects -- the strongest one or two pieces of evidence behind it.
+- What specifically held it back -- the missing skill, the shallow signal, the gap. If score < 70, name the deduction explicitly. If an anti_signal applied, name it.
+- What concrete evidence would move it up.
+
+Quote or closely paraphrase the candidate's own words as evidence. Never write a generic rationale that could apply to any candidate. Write a snapshot of THIS candidate, never a narration of the role.
 
 ## Overall Score Calculation
 
-Calculate overall_score as the WEIGHTED AVERAGE of ONLY the dimensions that have real scores (non-null).
-- Skills and Experience are always included.
-- If only Skills and Experience are scored, renormalize their weights to sum to 100%.
-- If CTC and Logistics also have real data, include them with their original weights, renormalized.
-- Cultural fit serves as informational context only and doesn't factor into the overall score.
-- Comp/CTC/notice/location logistics are surfaced in flags rather than reflected in the overall_score.
-- The result is a fair integer in [0, 100] reflecting role fit on skills and experience. No verdict, no tier.
+The system recomputes overall_score as the weighted average of your criteria_scores (using each dimension's own weight) -- still fill overall_score with your own best estimate so it is never missing.
 
 ## Output Format
 
 Respond in this exact JSON format:
 {{
   "overall_score": 0-100,
-  "dimensions": {{
-    "skills_match": {{
-      "score": 0-100,
-      "rationale": "1-2 sentences with specific evidence",
-      "evidence": ["direct quotes from resume or medium data supporting this score"],
-      "missing_skills": ["JD-required skills NOT found in profile"],
-      "data_status": "verified"
-    }},
-    "experience_level": {{
-      "score": 0-100,
-      "rationale": "1-2 sentences with specific evidence",
-      "evidence": ["direct quotes"],
-      "trajectory": "accelerating | steady | stagnant | unclear",
-      "data_status": "verified"
-    }},
-    "ctc_fit": {{
-      "score": 0-100 OR null if no CTC data,
-      "rationale": "1-2 sentences -- cite exact CTC figures if available, or state 'not available'",
-      "evidence": ["direct quotes or empty if no data"],
-      "data_status": "verified | pending_verification"
-    }},
-    "location_notice_fit": {{
-      "score": 0-100 OR null if no logistics data,
-      "rationale": "1-2 sentences -- cite exact notice/location if available, or state 'not available'",
-      "evidence": ["direct quotes or empty if no data"],
-      "data_status": "verified | pending_verification"
-    }},
-    "cultural_fit": {{
-      "score": 0-100 OR null,
-      "rationale": "1-2 sentences",
-      "signals": ["role-specific fit signals found in profile or medium data"],
-      "data_status": "verified | pending_verification"
-    }}
-  }},
+  "criteria_scores": [
+    {{"key": "<dimension key>", "label": "<its label>", "weight": 0, "score": 0-100 or null, "rationale": "2-4 sentences, causal", "evidence": ["direct quotes"], "data_status": "verified | pending_verification"}}
+  ],
   "red_flags": ["any concerns based on ACTUAL data, or empty array"],
   "green_flags": ["any standout positives based on ACTUAL data, or empty array"],
   "skill_gap_analysis": {{
@@ -139,5 +111,5 @@ Respond in this exact JSON format:
     "bonus_skills": ["candidate skills not in JD but valuable"]
   }},
   "pending_verification": ["list of items needing voice screen verification, e.g. 'CTC expectations', 'Notice period', 'Location/relocation willingness'"],
-  "summary": "3-sentence assessment for the recruiter. First sentence: overall fit strength. Second: strongest signal with evidence. Third: what needs verification via voice screen."
+  "summary": "4-5 sentence assessment for the recruiter: the overall fit strength and the main driver of the headline number; the single strongest signal with evidence; the main thing that held the score back (the biggest deduction); and what most needs verification via voice screen."
 }}"""
