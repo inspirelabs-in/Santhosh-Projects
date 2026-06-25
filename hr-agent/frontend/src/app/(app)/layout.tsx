@@ -30,7 +30,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <RecruiterChatProvider>
             <div className="flex h-screen w-full overflow-hidden bg-background">
               <PulseSidebar />
-              <main className="flex min-w-0 flex-1 flex-col overflow-y-auto">
+              <main className="flex min-w-0 min-h-0 flex-1 flex-col overflow-hidden">
                 {children}
               </main>
             </div>
