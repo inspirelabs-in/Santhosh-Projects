@@ -49,6 +49,7 @@ from src.llm.prompts.role_drafting import (
     LINKEDIN_POST_SYSTEM,
 )
 from src.agent.prompts.assignment import ASSIGNMENT_GEN_V1
+from src.llm.prompts.jd_generation import JD_GENERATION_SYSTEM, JD_GENERATION_VERSION
 
 # ---------------------------------------------------------------------------
 # Registry: (langfuse_name, prompt_text, version_var_name, file_path)
@@ -73,6 +74,7 @@ PROMPTS = [
     ("section_rewrite_system", SECTION_REWRITE_SYSTEM, "SECTION_REWRITE_VERSION",    BACKEND / "src" / "llm" / "prompts" / "role_drafting.py"),
     ("linkedin_post_system",  LINKEDIN_POST_SYSTEM,   "LINKEDIN_POST_VERSION",       BACKEND / "src" / "llm" / "prompts" / "role_drafting.py"),
     ("assignment_gen",        ASSIGNMENT_GEN_V1,      "ASSIGNMENT_GEN_VERSION",      BACKEND / "src" / "agent" / "prompts" / "assignment.py"),
+    ("jd_generation",         JD_GENERATION_SYSTEM,   "JD_GENERATION_VERSION",       BACKEND / "src" / "llm" / "prompts" / "jd_generation.py"),
 ]
 
 
