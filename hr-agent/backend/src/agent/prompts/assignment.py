@@ -32,6 +32,8 @@ STEP 1 — Extract from the JD:
   * Key outcomes/responsibilities mentioned
   * Seniority level
 
+{user_brief_override}
+
 STEP 2 — Generate problems that directly test JD requirements:
 
   FOR TECHNICAL ROLES (engineering, data, ML, DevOps, SRE, QA):
@@ -68,6 +70,8 @@ STEP 3 — Verify before outputting:
 # Inputs
 
 This brief is generated at the ROLE level, before any candidate applies. There is NO candidate data. Base everything on the JD and role below; never reference a specific candidate, resume, or prior answers.
+
+{user_brief_section}
 
 Role: {role_title}
 

@@ -95,6 +95,7 @@ async def gen_assignment(
     jd_text: str,
     time_budget_hours: int,
     deadline_days: int,
+    user_brief: str | None = None,
     application_id: UUID,
     candidate_id: UUID,
 ) -> AssignmentBriefOut:
@@ -109,11 +110,24 @@ async def gen_assignment(
     # hardcoded in the prompt. Fetch + inject it so each org grounds assignments
     # in its own context. Falls back to a minimal block if the org is unset.
     company_persona, company_name = await _company_persona()
+    user_brief_section = (
+        (
+            "## Recruiter's Requirements (MANDATORY — overrides JD)\n\n"
+            "The recruiter EXPLICITLY specified these requirements. You MUST generate problems "
+            "that DIRECTLY MATCH what the recruiter described. The recruiter's requirements "
+            "are the PRIMARY SOURCE of truth — override any conflicting signals from the JD below. "
+            "Do NOT fall back to generic JD-based problems. The recruiter's instructions:\n\n"
+            + user_brief
+        )
+        if user_brief
+        else ""
+    )
     prompt = compile_prompt(
         "assignment_gen",
         fallback=ASSIGNMENT_GEN_V1,
         company_persona=company_persona,
         company_name=company_name,
+        user_brief_section=user_brief_section,
         role_title=role_title,
         jd_text=_truncate(jd_text, 8000),
         time_budget_hours=time_budget_hours,
