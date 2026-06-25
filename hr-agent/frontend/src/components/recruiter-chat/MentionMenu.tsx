@@ -9,8 +9,10 @@ const BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
 export interface MentionCandidate {
   application_id: string;
+  candidate_id?: string;
   name: string | null;
   email: string | null;
+  role_title?: string | null;
 }
 
 interface Props {
@@ -84,10 +86,13 @@ export function MentionMenu({ query, visible, onPick, onResults }: Props) {
                 )}
               >
                 <User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                <span className="min-w-0">
-                  <span className="font-medium text-foreground">{c.name || "Unnamed"}</span>
-                  <span className="ml-2 truncate font-mono text-[11px] text-muted-foreground">
+                <span className="min-w-0 flex-1">
+                  <span className="block font-medium text-foreground">{c.name || "Unnamed"}</span>
+                  <span className="block truncate font-mono text-[11px] text-muted-foreground">
                     {c.email}
+                  </span>
+                  <span className="block text-[10px] text-muted-foreground">
+                    {c.role_title ?? "No role"}
                   </span>
                 </span>
               </button>

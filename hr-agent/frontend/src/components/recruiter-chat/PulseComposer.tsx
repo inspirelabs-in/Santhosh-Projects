@@ -13,6 +13,8 @@ import { cn } from "@/lib/utils";
 import { getDashboardKey } from "@/lib/auth";
 import { SLASH_COMMANDS, SlashMenu, type SlashCommand } from "./SlashMenu";
 import { MentionMenu, type MentionCandidate } from "./MentionMenu";
+import { QuickReplies } from "./QuickReplies";
+import type { QuickRepliesData } from "@/lib/useRecruiterChat";
 
 // Matches a trailing "@token" the user is actively typing (token may be empty).
 const MENTION_RE = /(^|\s)@([^\s@]*)$/;
@@ -32,6 +34,11 @@ interface Props {
   isStreaming?: boolean;
   conversationId: string | null;
   placeholder?: string;
+  // When set, the input bar becomes a Claude-style options picker for the
+  // agent's pending questions. onQuickReplySubmit fires with the combined
+  // answers once every question is answered.
+  quickReplies?: QuickRepliesData | null;
+  onQuickReplySubmit?: (combined: string) => void;
 }
 
 export function PulseComposer({
@@ -41,6 +48,8 @@ export function PulseComposer({
   isStreaming = false,
   conversationId,
   placeholder = "Ask Pulse anything. Type / for commands, @ to mention a candidate.",
+  quickReplies = null,
+  onQuickReplySubmit,
 }: Props) {
   const [value, setValue] = useState("");
   const [files, setFiles] = useState<UploadedFile[]>([]);
@@ -214,71 +223,83 @@ export function PulseComposer({
         />
         <div
           className={cn(
-            "flex items-end gap-2 rounded-2xl border border-border/60 bg-card px-3 py-2",
+            "rounded-2xl border border-border/60 bg-card px-3 py-2",
             "shadow-card transition-all",
             "focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/20 focus-within:shadow-pop",
-            disabled && "opacity-60",
+            disabled && !quickReplies && "opacity-60",
             dragOver && "border-primary/60 ring-2 ring-primary/30",
           )}
         >
-          <input
-            ref={fileInputRef}
-            type="file"
-            className="hidden"
-            multiple
-            onChange={(e) => {
-              const list = e.target.files ? Array.from(e.target.files) : [];
-              list.forEach((f) => void upload(f));
-              if (fileInputRef.current) fileInputRef.current.value = "";
-            }}
-          />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={!conversationId || uploading}
-            className="h-8 w-8 shrink-0"
-            title="Attach file"
-          >
-            {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
-          </Button>
-          <textarea
-            ref={taRef}
-            rows={1}
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            onKeyDown={onKey}
-            placeholder={placeholder}
-            disabled={disabled}
-            className="flex-1 resize-none bg-transparent py-1.5 text-sm leading-relaxed outline-none placeholder:text-muted-foreground"
-          />
-          {isStreaming && onStop ? (
-            <Button
-              type="button"
-              size="icon"
-              variant="destructive"
-              onClick={onStop}
-              className="h-8 w-8 shrink-0 rounded-full"
-              aria-label="Stop"
-            >
-              <Square className="h-3.5 w-3.5" />
-            </Button>
+          {quickReplies ? (
+            <QuickReplies
+              key={quickReplies.toolUseId}
+              questions={quickReplies.questions}
+              onComplete={(combined) => onQuickReplySubmit?.(combined)}
+            />
           ) : (
-            <Button
-              type="button"
-              size="icon"
-              onClick={() => void submit()}
-              disabled={disabled || (!value.trim() && files.length === 0)}
-              className="h-8 w-8 shrink-0 rounded-full"
-              aria-label="Send"
-            >
-              <ArrowUp className="h-4 w-4" />
-            </Button>
+            <div className="flex items-end gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden"
+                multiple
+                onChange={(e) => {
+                  const list = e.target.files ? Array.from(e.target.files) : [];
+                  list.forEach((f) => void upload(f));
+                  if (fileInputRef.current) fileInputRef.current.value = "";
+                }}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={!conversationId || uploading}
+                className="h-8 w-8 shrink-0"
+                title="Attach file"
+              >
+                {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
+              </Button>
+              <textarea
+                ref={taRef}
+                rows={1}
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                onKeyDown={onKey}
+                placeholder={placeholder}
+                disabled={disabled}
+                className="flex-1 resize-none bg-transparent py-1.5 text-sm leading-relaxed outline-none placeholder:text-muted-foreground"
+              />
+              {isStreaming && onStop ? (
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="destructive"
+                  onClick={onStop}
+                  className="h-8 w-8 shrink-0 rounded-full"
+                  aria-label="Stop"
+                >
+                  <Square className="h-3.5 w-3.5" />
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  size="icon"
+                  onClick={() => void submit()}
+                  disabled={disabled || (!value.trim() && files.length === 0)}
+                  className="h-8 w-8 shrink-0 rounded-full"
+                  aria-label="Send"
+                >
+                  <ArrowUp className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
           )}
         </div>
         <p className="mt-2 text-[11px] text-muted-foreground">
-          Enter to send · Shift+Enter for newline · Tab to accept slash/mention · @ to mention a candidate · Drop files to attach
+          {quickReplies
+            ? "Pick an option or type your own. Use the arrows to move between questions."
+            : "Enter to send · Shift+Enter for newline · Tab to accept slash/mention · @ to mention a candidate · Drop files to attach"}
         </p>
       </div>
     </div>

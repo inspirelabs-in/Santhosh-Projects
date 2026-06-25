@@ -64,6 +64,8 @@ interface Draft {
   company_context?: CompanyContext;
   assignment?: {
     enabled?: boolean;
+    brief?: string;
+    instructions?: string;
     n_problems?: number;
     time_budget_hours?: number;
     deadline_days?: number;
@@ -72,10 +74,6 @@ interface Draft {
 }
 
 const STAGE_TYPES = [
-  "intake",
-  "parse",
-  "fit",
-  "screening",
   "voice_screen",
   "assignment",
   "interview",
@@ -147,12 +145,13 @@ export function ArtifactPanel({
   artifact: ArtifactData;
   onClose: () => void;
   onSave: (content: Record<string, unknown>) => Promise<void>;
-  onApply: () => Promise<{ ok: boolean; role_url?: string } | null>;
+  onApply: () => Promise<{ ok: boolean; role_url?: string; status?: string } | null>;
 }) {
   const [draft, setDraft] = useState<Draft>({});
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [applying, setApplying] = useState(false);
+  const [applyStatus, setApplyStatus] = useState<string | null>(null);
 
   // Resize state
   const panelRef = useRef<HTMLDivElement>(null);
@@ -165,14 +164,12 @@ export function ArtifactPanel({
   }, [artifact.id, artifact.version]);
 
   const applied = artifact.status === "applied";
-  const readOnly = applied;
   const patch = useCallback(
     (p: Partial<Draft>) => {
-      if (readOnly) return;
       setDraft((d) => ({ ...d, ...p }));
       setDirty(true);
     },
-    [readOnly],
+    [],
   );
 
   const stages = draft.pipeline || [];
@@ -277,12 +274,8 @@ export function ArtifactPanel({
     if (dirty) await handleSave();
     const res = await onApply();
     setApplying(false);
-    if (res?.ok && res.role_url) {
-      try {
-        window.open(res.role_url, "_blank");
-      } catch {
-        /* ignore */
-      }
+    if (res?.ok) {
+      if (res.status) setApplyStatus(res.status);
     }
   };
 
@@ -340,8 +333,8 @@ export function ArtifactPanel({
         </Button>
       </header>
 
-      {/* Scrollable body — read-only when applied (view data, no editing) */}
-      <div className={cn("flex-1 space-y-3 overflow-y-auto px-4 py-4", readOnly && "pointer-events-none opacity-70")}>
+      {/* Scrollable body — always scrollable */}
+      <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
         {/* ====== BASICS ====== */}
         <Section title="Basics" defaultOpen={true}>
           <div className="space-y-3">
@@ -440,6 +433,9 @@ export function ArtifactPanel({
             </Badge>
           }
         >
+          <div className="mb-2 rounded-md border border-muted bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+            These stages always run automatically before your pipeline: <strong>Intake</strong> → <strong>Resume Parse</strong> → <strong>Fit Score</strong>
+          </div>
           <div className="space-y-2">
             {stages.map((s, i) => (
               <div
@@ -694,57 +690,94 @@ export function ArtifactPanel({
               Enable take-home assignment
             </label>
             {draft.assignment?.enabled !== false && (
-              <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-3">
+                {/* Brief textarea */}
                 <div className="space-y-1">
-                  <Label className="text-[11px]">Problems</Label>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={8}
-                    value={draft.assignment?.n_problems ?? 2}
-                    onChange={(e) =>
+                  <Label className="text-[11px]">Assignment brief (markdown)</Label>
+                  <AutoTextarea
+                    value={draft.assignment?.brief || ""}
+                    onChange={(val) =>
                       patch({
                         assignment: {
                           ...draft.assignment,
-                          n_problems: Number(e.target.value),
+                          brief: val,
                         },
                       })
                     }
+                    placeholder="Describe the take-home assignment. If the hiring manager described their own brief, capture it here verbatim. Otherwise leave empty and Pulse can draft one later."
+                    className="min-h-[80px] text-xs"
                   />
                 </div>
+                {/* Instructions textarea */}
                 <div className="space-y-1">
-                  <Label className="text-[11px]">Hours</Label>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={40}
-                    value={draft.assignment?.time_budget_hours ?? 6}
-                    onChange={(e) =>
+                  <Label className="text-[11px]">Submission instructions</Label>
+                  <AutoTextarea
+                    value={draft.assignment?.instructions || ""}
+                    onChange={(val) =>
                       patch({
                         assignment: {
                           ...draft.assignment,
-                          time_budget_hours: Number(e.target.value),
+                          instructions: val,
                         },
                       })
                     }
+                    placeholder="Any specific submission instructions (format, repo link, deadline notes)..."
+                    className="min-h-[60px] text-xs"
                   />
                 </div>
-                <div className="space-y-1">
-                  <Label className="text-[11px]">Deadline (days)</Label>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={60}
-                    value={draft.assignment?.deadline_days ?? 7}
-                    onChange={(e) =>
-                      patch({
-                        assignment: {
-                          ...draft.assignment,
-                          deadline_days: Number(e.target.value),
-                        },
-                      })
-                    }
-                  />
+                {/* Numeric fields */}
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-[11px]">Problems</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={8}
+                      value={draft.assignment?.n_problems ?? 2}
+                      onChange={(e) =>
+                        patch({
+                          assignment: {
+                            ...draft.assignment,
+                            n_problems: Number(e.target.value),
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[11px]">Hours</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={40}
+                      value={draft.assignment?.time_budget_hours ?? 6}
+                      onChange={(e) =>
+                        patch({
+                          assignment: {
+                            ...draft.assignment,
+                            time_budget_hours: Number(e.target.value),
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[11px]">Deadline (days)</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={60}
+                      value={draft.assignment?.deadline_days ?? 7}
+                      onChange={(e) =>
+                        patch({
+                          assignment: {
+                            ...draft.assignment,
+                            deadline_days: Number(e.target.value),
+                          },
+                        })
+                      }
+                    />
+                  </div>
                 </div>
               </div>
             )}
@@ -772,7 +805,7 @@ export function ArtifactPanel({
             variant="outline"
             size="sm"
             onClick={handleSave}
-            disabled={!dirty || saving || applied}
+            disabled={!dirty || saving}
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
           </Button>
