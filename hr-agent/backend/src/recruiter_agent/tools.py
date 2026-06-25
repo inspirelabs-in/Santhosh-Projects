@@ -413,6 +413,7 @@ async def generate_assignment_for_role(
     deadline_days: int = 7,
     save: bool = False,
     prerendered: dict | None = None,
+    user_brief: str | None = None,
 ) -> dict[str, Any]:
     """LLM-draft a take-home assignment with ``n_problems`` distinct problems
     tailored to the role's JD.
@@ -453,6 +454,7 @@ async def generate_assignment_for_role(
             jd_text=role.jd_text or "",
             time_budget_hours=int(time_budget_hours),
             deadline_days=int(deadline_days),
+            user_brief=user_brief,
             application_id=rid,  # role-scoped; reuse generator with role uuid
             candidate_id=rid,
         )
@@ -555,6 +557,9 @@ async def _persist_assignment(
                 if pdf_key:
                     r.assignment_problem_doc_key = pdf_key
                     r.assignment_problem_filename = pdf_filename
+                # Flip paused/draft → open now that the assignment is persisted.
+                if r.status in ("draft", "paused"):
+                    r.status = "open"
 
     return {
         "ok": True,
@@ -579,6 +584,7 @@ async def ensure_role_assignment(
     deadline_days: int = 7,
     source: str = "create",
     attempts: int = 2,
+    user_brief: str | None = None,
 ) -> dict[str, Any]:
     """Generate + persist a take-home for a role *reliably*.
 
@@ -593,6 +599,16 @@ async def ensure_role_assignment(
     from src.db.connection import session_scope
     from src.db.repositories.audit import log_audit
 
+    # Never generate over a brief the team already provided. If the role already
+    # carries an assignment_brief (the company pasted/uploaded their own, captured
+    # during scoping), that IS the take-home -- skip generation entirely.
+    async with session_scope() as session:
+        _role = await session.get(Role, UUID(role_id))
+        _existing_brief = (getattr(_role, "assignment_brief", None) or "").strip() if _role else ""
+    if _existing_brief:
+        logger.info("ensure_role_assignment: role %s already has a company brief, skipping generation", role_id)
+        return {"ok": True, "role_id": role_id, "brief_md": _existing_brief, "source": "company_provided", "skipped": True}
+
     last_err: str | None = None
     for attempt in range(1, max(1, attempts) + 1):
         try:
@@ -602,6 +618,7 @@ async def ensure_role_assignment(
                 time_budget_hours=time_budget_hours,
                 deadline_days=deadline_days,
                 save=True,
+                user_brief=user_brief,
             )
         except Exception as e:  # noqa: BLE001
             last_err = str(e)
@@ -643,20 +660,6 @@ async def ensure_role_assignment(
 # ---------------------------------------------------------------------------
 
 
-_LINKEDIN_STYLE_EXAMPLE = (
-    "Resumes will be rejected. Output is the only currency.\n\n"
-    "We are officially building an elite AI Labs team within the Founder's Office at GrabOn, "
-    "and we aren't looking for traditional applicants.\n\n"
-    "We're looking for Vibe Coders.\n\n"
-    "If you live in Claude Code, deploy OpenClaw, build agents while others are still writing PRDs, "
-    "and believe shipping is the only metric that matters - this is your front-row seat. No middle "
-    "layers, no bureaucracy, just pure 0-to-1 building directly alongside the founder.\n\n"
-    "We don't care about your degree; we care about what you've built.\n"
-    "The mission: Scan the frontier, prototype fast, kill fast, and scale the future of AI.\n\n"
-    "⚡ Apply via the instructions below (Hint: Don't just send a CV)."
-)
-
-
 async def draft_linkedin_post(
     *,
     role_id: str | None = None,
@@ -664,82 +667,40 @@ async def draft_linkedin_post(
     angle: str | None = None,
     apply_url: str | None = None,
 ) -> dict[str, Any]:
-    """Draft a punchy LinkedIn post for an opening.
+    """Return the role's JD reformatted as a plain-text LinkedIn post.
 
-    Either ``role_id`` (load from DB) or ``role_title`` (free-form) is required.
-    ``angle`` is an optional hook ("we want vibe coders", "founder's office team",
-    "Bangalore-only", etc.). ``apply_url`` defaults to the canonical careers page.
+    The JD is already the vibey post; no LLM regeneration is needed.
+    ``role_id`` is required (we need the saved JD text). If only
+    ``role_title`` is provided without a ``role_id``, there is no JD to
+    reuse and the function returns an error.
+    ``angle`` and ``apply_url`` are accepted for forward-compatibility but
+    are not used when the JD already contains the apply block.
     """
     if not role_id and not role_title:
         return {"error": "role_id or role_title required"}
 
-    title = role_title
-    jd = ""
-    location: str | None = None
-    if role_id:
-        async with session_scope() as session:
-            role = await session.get(Role, UUID(role_id))
-            if role is None:
-                return {"error": "role_not_found"}
-            title = role.title
-            jd = role.jd_text or ""
-            location = role.location
+    if not role_id:
+        return {"error": "role_id required to reuse the role JD as the post"}
 
-    from src.agent.schemas import (  # late import to avoid loading LLM stack at module import
-        AssignmentBriefOut,  # noqa: F401  (pyright keepalive)
-    )
-    from src.llm.client import get_llm_client
-    from pydantic import BaseModel, Field
+    from src.services.linkedin_format import jd_to_linkedin_text
 
-    class _LinkedInPostOut(BaseModel):
-        text: str = Field(min_length=80, max_length=3000)
-        hashtags: list[str] = Field(default_factory=list, max_length=8)
+    async with session_scope() as session:
+        role = await session.get(Role, UUID(role_id))
+        if role is None:
+            return {"error": "role_not_found"}
+        title = role.title
+        jd = role.jd_text or ""
 
-    prompt = (
-        "You are a recruiter copywriter. Draft ONE LinkedIn post in the EXACT "
-        "tone, cadence, and structure of the example below. Punchy, contrarian, "
-        "founder-voice, short paragraphs, single ⚡ emoji at the end. No "
-        "markdown headers. Plain text. Hashtags optional and only at the very "
-        "bottom if they add reach.\n\n"
-        f"## STYLE EXAMPLE (do not copy verbatim, but match the energy):\n"
-        f"{_LINKEDIN_STYLE_EXAMPLE}\n\n"
-        f"## ROLE\n"
-        f"Title: {title}\n"
-        f"Location: {location or 'India'}\n"
-        f"Hook angle: {angle or '(none -- pick the strongest from the JD)'}\n"
-        f"Apply URL: {apply_url or 'https://www.grabon.in/careers'}\n\n"
-        f"## JD CONTEXT\n{jd[:3500]}\n\n"
-        "Output JSON: {\"text\": \"<the post body>\", \"hashtags\": [\"#X\", ...]}. "
-        "Body must be 120-300 words. End with a single line CTA + ⚡ pointing "
-        "to Apply URL."
-    )
-    client = get_llm_client()
-    try:
-        result = await client.complete(
-            prompt=prompt,
-            response_model=_LinkedInPostOut,
-            trace_name="recruiter.linkedin_draft",
-            prompt_version="v1",
-            application_id=UUID(role_id) if role_id else uuid_zero(),
-            candidate_id=UUID(role_id) if role_id else uuid_zero(),
-            temperature=0.7,
-            max_tokens=1200,
-        )
-    except Exception as e:  # noqa: BLE001
-        return {"error": f"draft_failed: {e}"}
-
-    full = result.parsed.text.strip()
-    if result.parsed.hashtags:
-        full += "\n\n" + " ".join(result.parsed.hashtags)
+    text = jd_to_linkedin_text(jd)
 
     return {
         "ok": True,
         "role_id": role_id,
         "role_title": title,
-        "text": full,
-        "char_count": len(full),
-        "hashtags": result.parsed.hashtags,
-        "apply_url": apply_url or "https://www.grabon.in/careers",
+        "text": text,
+        "char_count": len(text),
+        "hashtags": [],
+        "apply_url": apply_url or "",
     }
 
 
@@ -1078,7 +1039,6 @@ async def create_role(
     creation, so the role is never left brief-less. ``create_role_with_assignment``
     passes ``auto_assignment=False`` because it owns assignment generation itself.
     """
-    screening_modality = "voice"
     title = (title or "").strip()
     jd_text = (jd_text or "").strip()
     if len(title) < 3:
@@ -1177,25 +1137,11 @@ async def create_role(
         else:
             await stage_repo.seed_default(session, role_id=role_id)
 
-    # Generate the take-home iff the seeded pipeline actually has an assignment
-    # stage (authoritative -- works whether the pipeline came from a template or
-    # the default). Mirrors the artifact-apply path so no create path leaves a
-    # role brief-less. Reliable + audited via ensure_role_assignment.
-    assignment_result = None
-    if auto_assignment:
-        async with session_scope() as session:
-            seeded = await stage_repo.for_role(session, role_id, enabled_only=False)
-        if any(str(getattr(s, "stage_type", "")) == "assignment" for s in seeded):
-            assignment_result = await ensure_role_assignment(
-                role_id=str(role_id), source="create_role_tool",
-            )
-
     return {
         "ok": True,
         "id": str(role_id),
         "title": title,
         "url": f"/roles/{role_id}",
-        "assignment": assignment_result,
         "message": f"Created role '{title}'.",
     }
 
@@ -1238,6 +1184,43 @@ async def archive_role(*, role_id: str) -> dict[str, Any]:
     return await update_role(role_id=role_id, status="closed")
 
 
+async def get_role(
+    *,
+    role_id: str,
+) -> dict[str, Any]:
+    """Read a role by id — returns title, status, pipeline stages,
+    assignment brief + doc state, deadline, and evaluation spec."""
+    rid = UUID(role_id)
+    async with session_scope() as session:
+        role = await session.get(Role, rid)
+        if role is None:
+            return {"error": "role_not_found"}
+        from src.db.repositories import role_pipeline_stage as stage_repo
+        stages = await stage_repo.for_role(session, rid, enabled_only=False)
+        return {
+            "ok": True,
+            "id": str(role.id),
+            "title": role.title,
+            "status": role.status,
+            "jd_text": role.jd_text,
+            "ctc_min_lpa": role.ctc_min_lpa,
+            "ctc_max_lpa": role.ctc_max_lpa,
+            "location": role.location,
+            "remote_policy": role.remote_policy,
+            "pipeline_template": [
+                {"stage_key": s.stage_key, "stage_type": s.stage_type, "label": s.label,
+                 "mode": s.mode, "is_enabled": s.is_enabled}
+                for s in stages
+            ],
+            "assignment_brief": role.assignment_brief,
+            "assignment_instructions": role.assignment_instructions,
+            "assignment_deadline_days": role.assignment_deadline_days,
+            "has_problem_doc": bool(role.assignment_problem_doc_key),
+            "assignment_problem_filename": role.assignment_problem_filename,
+            "evaluation_spec": role.evaluation_spec,
+        }
+
+
 async def set_role_assignment_brief(
     *,
     role_id: str,
@@ -1255,7 +1238,13 @@ async def set_role_assignment_brief(
             role.assignment_instructions = assignment_instructions
         if assignment_deadline_days is not None:
             role.assignment_deadline_days = int(assignment_deadline_days)
-    return {"ok": True, "id": role_id, "message": "Assignment brief saved."}
+        # Editing the brief invalidates the existing PDF; role must be re-published.
+        if role.assignment_problem_doc_key:
+            role.assignment_problem_doc_key = None
+            role.assignment_problem_filename = None
+        if role.status == "open":
+            role.status = "draft"
+    return {"ok": True, "id": role_id, "message": "Assignment brief saved. Post the assignment to re-publish the PDF and re-open the role."}
 
 
 async def override_stage(
@@ -1820,55 +1809,54 @@ async def _complete_draft_from_context(
         return None
 
     from src.llm.client import get_llm_client
+    from src.llm.prompt_manager import compile_prompt
+    from src.llm.prompts.jd_generation import JD_GENERATION_SYSTEM, JD_GENERATION_VERSION
     from src.models.artifacts import RoleDraftContent
+    from src.models.candidate import RemotePolicy
+    from src.models.pipeline import StageType
 
-    # Full schema spec. Plain string (NOT an f-string) so the literal JSON
-    # braces are safe; only ``partial`` + ``transcript`` are interpolated below.
-    schema_spec = """You are a senior hiring partner. From the conversation below, produce a COMPLETE, publish-ready role draft as STRICT JSON. Fill EVERY field. Output ONLY this JSON object:
+    # Real, non-invented values for the JD's "How to apply" block.
+    from src.config import get_settings as _gs
+    _s = _gs()
+    company_name = (_s.voice_agent_company_name or "the company").strip()
+    apply_email = (_s.resend_from_email or "careers@grabon.in").strip()
 
-{
-  "title": "role title incl. seniority, e.g. \\"Full Stack Engineer (Fresher)\\"",
-  "jd_text": "a FULL 300-400 word JD in markdown: a framing paragraph, then 4-6 responsibilities, 4-6 requirements, and nice-to-haves. THE MOST IMPORTANT FIELD. Never empty or thin.",
-  "ctc_min_lpa": 6,
-  "ctc_max_lpa": 6,
-  "location": "Hyderabad",
-  "remote_policy": "onsite",
-  "max_notice_days": 0,
-  "pipeline": [
-    {"stage_key": "fit",          "stage_type": "fit",          "label": "Fit Score",            "position": 0, "mode": "auto"},
-    {"stage_key": "voice_screen", "stage_type": "voice_screen", "label": "Voice Screen",         "position": 1, "mode": "auto"},
-    {"stage_key": "assignment",   "stage_type": "assignment",   "label": "Assignment",           "position": 2, "mode": "manual"},
-    {"stage_key": "technical",    "stage_type": "interview",    "label": "Technical Interview",  "position": 3, "mode": "manual"},
-    {"stage_key": "hr",           "stage_type": "interview",    "label": "HR Interview",         "position": 4, "mode": "manual"},
-    {"stage_key": "offer",        "stage_type": "offer",        "label": "Offer",                "position": 5, "mode": "manual"}
-  ],
-  "evaluation_spec": {
-    "dimensions": [
-      {"key": "snake_case_key", "label": "Human Label", "weight": 20, "what_good_looks_like": ["..."], "anti_signals": ["..."]}
-    ]
-  },
-  "company_context": {
-    "intensity": "standard",
-    "summary": "1-2 sentence grounding a scorer reads before judging candidates for THIS role.",
-    "what_matters_here": ["signal 1", "signal 2"],
-    "hiring_bar": "what clearing the bar looks like for this role"
-  },
-  "assignment": {"enabled": true, "n_problems": 2, "time_budget_hours": 6, "deadline_days": 7}
-}
-
-HARD RULES:
-- jd_text MUST be a full, substantial JD. Never empty.
-- pipeline: COPY the array above as-is (adjust labels/keys only if the conversation clearly calls for it). Every stage MUST have stage_key, label, integer position, mode ("auto" or "manual"), and a stage_type from EXACTLY this set: intake, parse, fit, screening, voice_screen, assignment, interview, decision, offer. Never invent other stage_type values (e.g. "technical_interview" is INVALID; use "interview").
-- evaluation_spec.dimensions: 3 to 6 role-specific dimensions. weight is an integer; the weights MUST sum to 100 (e.g. five 20s, or four 25s).
-- company_context.intensity MUST be exactly one of: light, standard, high, critical (scale it with the seniority/stakes of the role).
-- Honor explicit input (e.g. "6 LPA" -> ctc_min_lpa and ctc_max_lpa = 6; "fresher" -> max_notice_days 0). Infer sensible defaults for anything unsaid.
-"""
+    # Build placeholder values from code so the prompt stays schema-agnostic.
+    _remote_policy = (
+        "<one of: "
+        + ", ".join(m.value for m in RemotePolicy)
+        + " -- derive from the conversation, match what the recruiter stated>"
+    )
+    _pipeline_guidance = (
+        "<array of PipelineStageDef objects; see the `pipeline:` rule below for"
+        " the required shape and allowed stage_type values."
+        " IMPORTANT: intake, parse, fit are mandatory pre-stages that always run"
+        " automatically — do NOT include them in the array. Start from voice_screen onwards.>"
+    )
+    _pipeline_stage_types = ", ".join(
+        m.value for m in StageType
+        if m not in (StageType.INTAKE, StageType.PARSE, StageType.FIT)
+    )
 
     client = get_llm_client()
     try:
+        # JD_GENERATION outputs the flat RoleDraftContent shape directly. We do
+        # NOT route this through Langfuse role_draft_system: that prompt emits a
+        # different {message, draft, quick_replies, ...} envelope and gutted the
+        # draft. (role_draft_system stays in use only for the legacy /roles/new
+        # flow.)
         result = await client.complete(
             prompt=(
-                schema_spec
+                compile_prompt(
+                    "jd_generation",
+                    fallback=JD_GENERATION_SYSTEM,
+                    remote_policy=_remote_policy,
+                    pipeline_guidance=_pipeline_guidance,
+                    pipeline_stage_types=_pipeline_stage_types,
+                )
+                + f"\nCONTEXT (use these REAL values, never invent):\n"
+                + f"- Company name: {company_name}\n"
+                + f"- Application email (for the '## How to apply' section): {apply_email}\n"
                 + f"\nPARTIAL DATA ALREADY KNOWN (merge these in, fill the rest):\n"
                 + json.dumps(partial, indent=2)
                 + f"\n\nCONVERSATION:\n{transcript}\n\n"
@@ -1877,7 +1865,7 @@ HARD RULES:
             response_model=RoleDraftContent,
             model=model_for(Stage.ROLE_DRAFT_CHAT),
             trace_name="recruiter.auto_complete_draft",
-            prompt_version="v3",
+            prompt_version=JD_GENERATION_VERSION,
             temperature=0.4,
             max_tokens=4000,
         )
@@ -1988,6 +1976,7 @@ TOOLS: dict[str, Any] = {
     "list_voice_calls": list_voice_calls,
     "read_audit": read_audit,
     "recall": recall,
+    "get_role": get_role,
     "smart_defaults_for_role": smart_defaults_for_role,
     "generate_assignment_for_role": generate_assignment_for_role,
     "draft_linkedin_post": draft_linkedin_post,
@@ -2026,6 +2015,8 @@ async def call_tool(
     actor_hash: str | None = None,
     conversation_id: str | None = None,
 ) -> dict[str, Any]:
+    if name == "give_choice":
+        return {"error": "give_choice should never be executed on the backend"}
     fn = TOOLS.get(name)
     if fn is None:
         return {"error": f"unknown_tool: {name}"}
