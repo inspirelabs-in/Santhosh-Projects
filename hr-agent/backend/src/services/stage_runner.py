@@ -21,8 +21,9 @@ Contract for an evaluator:
 - ``verdict=PASS``  -> record it, then ``auto_progress`` advances to the next enabled
   stage in the role's pipeline (fires it if auto, parks + raises a ``requires_action``
   event if manual).
-- ``verdict=FAIL``  -> record it, reject the application (+ rejection email on the
-  auto lane via the existing ``auto_reject_if_configured`` / rejection path).
+- ``verdict=FAIL``  -> consult the stage's mode: AUTO -> reject + send rejection
+  email via ``_auto_reject_with_email``; MANUAL -> park for HR with score/threshold
+  in the requires_action payload so HR can pass or reject from the inbox.
 - ``verdict=ON_GOING`` -> record it and STOP (e.g. an interview was scheduled, a call
   placed; the next event -- analysis/eval -- will call back with PASS/FAIL).
 
@@ -46,6 +47,123 @@ from src.models.pipeline import StageVerdict
 logger = logging.getLogger(__name__)
 
 
+async def _get_stage_threshold(application_id: UUID, stage_key: str) -> int | None:
+    """Return the per-stage pass_threshold from the role's pipeline stage eval_spec,
+    or None when unset (falls back to the global config knob inside route_score)."""
+    from src.db.repositories import role_pipeline_stage as stage_repo
+    from src.models.pipeline import StageEvalSpec
+
+    async with session_scope() as session:
+        app = await session.get(Application, application_id)
+        if app is None or app.role_id is None:
+            return None
+        row = await stage_repo.get_stage(session, app.role_id, stage_key)
+        if row is None:
+            return None
+        raw = row.eval_spec
+        if not raw:
+            return None
+        try:
+            spec = StageEvalSpec.model_validate(raw)
+            return spec.pass_threshold
+        except Exception:
+            return None
+
+
+async def _auto_reject_with_email(
+    application_id: UUID,
+    completed_stage_key: str,
+    score: float | int | None,
+    threshold: int | None,
+) -> None:
+    """Set pipeline cursor to REJECTED, send the rejection email, and emit the
+    auto_rejected event.  run_rejection() already writes ApplicationStatus.REJECTED
+    and CandidateStatus.REJECTED, so we only need the cursor/event here.
+    """
+    from src.activities.rejection import RejectionInput, run_rejection
+    from src.db.events import emit_event
+    from src.db.repositories.audit import log_audit
+    from src.db.repositories.v1_application import set_stage
+    from src.models.events import EventType
+    from src.models.pipeline import StageStatus
+    from src.models.v1 import PipelineStage
+    from src.services.events import publish_event
+
+    # Fetch candidate_id before entering the session that sets the stage cursor.
+    candidate_id: UUID | None = None
+    async with session_scope() as session:
+        app = await session.get(Application, application_id)
+        if app is None:
+            return
+        candidate_id = app.candidate_id
+
+    # 1. Send the rejection email + set ApplicationStatus / CandidateStatus.
+    #    run_rejection() is self-contained and must run BEFORE we finalize the
+    #    pipeline cursor so that any observer sees a consistent state afterwards.
+    try:
+        await run_rejection(
+            RejectionInput(
+                candidate_id=candidate_id,
+                application_id=application_id,
+                stage=completed_stage_key,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "auto-reject email failed for %s at stage %s: %s",
+            application_id, completed_stage_key, exc,
+        )
+
+    # 2. Advance the V2 pipeline cursor to REJECTED and emit events.
+    #    We do NOT call set_stage(REJECTED) here because set_stage is legacy-only
+    #    (see V1->V2-migration note in v1_application.py).  Instead we write
+    #    current_stage_key + stage_status directly, matching the convention used
+    #    by _park_for_review / _park_gate in this file.
+    async with session_scope() as session:
+        app = await session.get(Application, application_id, with_for_update=True)
+        if app is None:
+            return
+        app.current_stage_key = "rejected"
+        app.stage_status = str(StageStatus.FAILED)
+        await emit_event(
+            session,
+            type=EventType.STAGE_CHANGED,
+            org_id=app.org_id,
+            application_id=application_id,
+            role_id=app.role_id,
+            payload={
+                "to": "rejected",
+                "from": completed_stage_key,
+                "status": str(StageStatus.FAILED),
+                "reason": "auto_rejected",
+                "score": score,
+                "threshold": threshold,
+            },
+            actor="agent",
+        )
+        await log_audit(
+            session,
+            application_id=application_id,
+            action="auto_rejected",
+            actor="agent",
+            details={
+                "stage_key": completed_stage_key,
+                "score": score,
+                "threshold": threshold,
+                "reason": f"stage '{completed_stage_key}' verdict=fail",
+            },
+        )
+
+    try:
+        await publish_event(
+            application_id,
+            event="auto_rejected",
+            data={"stage_key": completed_stage_key, "score": score, "threshold": threshold},
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+
 async def advance_candidate(
     *,
     application_id: UUID,
@@ -62,10 +180,18 @@ async def advance_candidate(
     # If a raw 0-100 score is supplied, the shared router decides the verdict
     # (pass/needs_review/reject) -- one consistent rule for every stage. The
     # prompt never sees the threshold; routing lives here.
+    # Per-stage threshold override: read the completed stage's eval_spec so a
+    # role can set a higher/lower bar than the global default, while None falls
+    # back to the global knob inside route_score.
     if score is not None:
         from src.services.evaluation import route_score
 
-        verdict = route_score(score)
+        per_stage_threshold = (
+            await _get_stage_threshold(application_id, completed_stage_key)
+            if completed_stage_key
+            else None
+        )
+        verdict = route_score(score, threshold=per_stage_threshold)
     verdict_val = verdict.value if isinstance(verdict, StageVerdict) else str(verdict)
 
     # 1. Record the verdict on the stage that just finished (idempotent overlay write).
@@ -89,15 +215,59 @@ async def advance_candidate(
         await _park_for_review(application_id, completed_stage_key, result_ref)
         return f"needs_review:{completed_stage_key or 'current'}"
 
-    # 3. FAIL -> reject (auto lane sends the rejection email via the existing path).
+    # 3. FAIL -> consult the completed stage's mode.
+    #    AUTO (or no mode — treat as auto for mandatory auto stages like fit):
+    #      immediately reject + send email.
+    #    MANUAL: park for HR with score + threshold in the payload so HR can
+    #      decide; the resolve-review endpoint will call back with PASS/FAIL and
+    #      the FAIL path will then send the email.
     if verdict_val == StageVerdict.FAIL.value:
-        from src.services.auto_progress import auto_reject_if_configured
+        stage_mode: str = "auto"  # default: auto-reject when mode is unset
+        if completed_stage_key:
+            from src.db.repositories import role_pipeline_stage as _stage_repo
 
-        rejected = await auto_reject_if_configured(
-            application_id=application_id,
-            reason=f"stage '{completed_stage_key}' verdict=fail",
+            async with session_scope() as session:
+                _app = await session.get(Application, application_id)
+                if _app is not None and _app.role_id is not None:
+                    _row = await _stage_repo.get_stage(
+                        session, _app.role_id, completed_stage_key
+                    )
+                    if _row is not None and _row.mode:
+                        stage_mode = _row.mode
+
+        if stage_mode == "manual":
+            # Park for HR: include score + threshold so the UI can show context.
+            per_stage_threshold_display = (
+                await _get_stage_threshold(application_id, completed_stage_key)
+                if completed_stage_key
+                else None
+            )
+            await _park_for_review(
+                application_id,
+                completed_stage_key,
+                {
+                    **(result_ref or {}),
+                    "score": score,
+                    "threshold": per_stage_threshold_display,
+                    "verdict": "fail",
+                    "note": "scored below threshold — HR can pass or reject",
+                },
+            )
+            return f"parked_fail_manual:{completed_stage_key}"
+
+        # mode == "auto" (or unset): auto-reject + email.
+        per_stage_threshold_auto = (
+            await _get_stage_threshold(application_id, completed_stage_key)
+            if completed_stage_key
+            else None
         )
-        return f"rejected:{completed_stage_key}" if rejected else f"fail_recorded:{completed_stage_key}"
+        await _auto_reject_with_email(
+            application_id,
+            completed_stage_key or "unknown",
+            score,
+            per_stage_threshold_auto,
+        )
+        return f"rejected:{completed_stage_key}"
 
     # 4. PASS -> advance through the role's pipeline (engine decides the next move).
     from src.services.auto_progress import auto_progress
@@ -107,25 +277,34 @@ async def advance_candidate(
 
 
 async def complete_assignment_submission(
-    application_id: UUID, *, result_ref: Any | None = None
+    application_id: UUID,
+    *,
+    overall_score: int | None = None,
+    result_ref: Any | None = None,
 ) -> str:
     """The candidate submitted their take-home. Decide what "done" means for THIS
     role's pipeline -- the one place the "auto-send on entry, review on submit" rule
     lives, so the careers form (pipeline/v1) and the agentic apply path stay in sync:
 
-    - If the role still has a separate ``assessment_review`` gate (a legacy
-      pipeline), PASS the assignment so that gate performs the human review.
-    - Otherwise (the merged single-stage model) PARK the assignment itself for HR
-      review: the candidate stays on ``assignment`` until a recruiter approves or
-      rejects via the needs-review resolve endpoint. No second stage required.
+    - If ``overall_score`` is provided (from AssignmentParseResult), route through
+      the shared scored path: the stage's mode (auto/manual) and the per-stage
+      threshold gate auto-reject or park exactly like voice/meeting/fit stages.
+    - If ``overall_score`` is None (LLM produced no score), fall back to the
+      NEEDS_REVIEW park so a human reviews it -- never auto-reject without a score.
     """
-    # ASSESSMENT_REVIEW is deprecated — all new pipelines use the merged model
-    # where the assignment stage itself parks for HR review on submit.
-    verdict = StageVerdict.NEEDS_REVIEW
+    if overall_score is not None:
+        return await advance_candidate(
+            application_id=application_id,
+            completed_stage_key="assignment",
+            score=overall_score,
+            result_ref=result_ref,
+        )
+
+    # No score -- park for HR review (NEEDS_REVIEW path).
     return await advance_candidate(
         application_id=application_id,
         completed_stage_key="assignment",
-        verdict=verdict,
+        verdict=StageVerdict.NEEDS_REVIEW,
         result_ref=result_ref,
     )
 

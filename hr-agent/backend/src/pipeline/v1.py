@@ -413,8 +413,9 @@ async def run_assignment_processing(
         candidate_id = app.candidate_id
         role_id = app.role_id
 
+    parse_result = None
     try:
-        await parse_assignment(
+        parse_result = await parse_assignment(
             application_id=application_id,
             candidate_id=candidate_id,
             role_id=role_id,  # type: ignore[arg-type]
@@ -431,16 +432,26 @@ async def run_assignment_processing(
         logger.exception("journey_report failed for %s", application_id)
         await _log_error(application_id, candidate_id, "journey_report", e)
 
-    # Candidate submitted: park the assignment for HR review (merged single-stage
-    # model), or pass through to a legacy assessment_review gate if the role still
-    # has one. complete_assignment_submission owns that decision so the careers
-    # form and the agentic apply path behave identically.
+    # Candidate submitted: route through the scored path when the parser produced
+    # an overall_score so assignment can auto-reject (auto mode) or park-with-score
+    # (manual mode) just like voice / meeting stages. When no score is available,
+    # fall back to NEEDS_REVIEW park for HR.
     try:
         from src.services.stage_runner import complete_assignment_submission
 
+        overall_score = (
+            parse_result.overall_score
+            if parse_result is not None
+            else None
+        )
         await complete_assignment_submission(
             application_id,
-            result_ref={"stage": "assignment", "report": "ready"},
+            overall_score=overall_score,
+            result_ref={
+                "stage": "assignment",
+                "report": "ready",
+                "overall_score": overall_score,
+            },
         )
     except Exception as e:  # noqa: BLE001
         logger.exception("assignment advance failed for %s", application_id)

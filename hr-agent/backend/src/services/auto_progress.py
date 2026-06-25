@@ -262,38 +262,33 @@ async def _park_gate(application_id: UUID, plan: Plan, *, role_id: UUID) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Auto-reject helper -- called from each evaluator on clear_reject verdicts
+# Auto-reject helper -- SUPERSEDED by stage_runner._auto_reject_with_email
 # ---------------------------------------------------------------------------
 
 
 async def auto_reject_if_configured(*, application_id: UUID, reason: str) -> bool:
-    """Reject the application if ``agentic.auto_reject_clear_reject`` is on.
+    """Thin pass-through to the centralised gate in stage_runner.
 
-    Returns True if the rejection happened, False otherwise.
+    The original feature-flag default-off behaviour (``auto_reject_clear_reject``)
+    has been retired. All scored FAIL verdicts are now routed through
+    ``stage_runner._auto_reject_with_email`` which consults the stage's *mode*
+    (auto/manual) and always sends the rejection email. This shim remains only so
+    that any external caller that was not updated yet does not blow up with an
+    ImportError; it delegates immediately and always returns True on success.
     """
+    from src.services.stage_runner import _auto_reject_with_email
 
-    async with session_scope() as session:
-        app = await session.get(Application, application_id)
-        if app is None:
-            return False
-        role = await session.get(Role, app.role_id) if app.role_id else None
-        agentic = _agentic_cfg(role.scoring_rubric if role else None)
-        if not agentic.get("auto_reject_clear_reject"):
-            return False
-        await set_stage(session, application_id, PipelineStage.REJECTED, force=True)
-        await log_audit(
-            session,
-            application_id=application_id,
-            action="auto_rejected",
-            actor="agent",
-            details={"reason": reason[:300]},
+    try:
+        await _auto_reject_with_email(
+            application_id,
+            completed_stage_key="unknown",
+            score=None,
+            threshold=None,
         )
-    await publish_event(
-        application_id,
-        event="auto_rejected",
-        data={"reason": reason[:300]},
-    )
-    return True
+        return True
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("auto_reject_if_configured shim failed for %s: %s", application_id, exc)
+        return False
 
 
 # ---------------------------------------------------------------------------
