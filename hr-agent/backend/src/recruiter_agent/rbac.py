@@ -24,6 +24,7 @@ TOOL_ROLES: dict[str, Role] = {
     "list_candidates": "viewer",
     "get_candidate": "viewer",
     "list_roles": "viewer",
+    "get_role": "viewer",
     "pipeline_metrics": "viewer",
     "stuck_applications": "viewer",
     "audit_tail": "viewer",
