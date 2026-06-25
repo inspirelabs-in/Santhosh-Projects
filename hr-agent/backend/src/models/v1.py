@@ -18,6 +18,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
+from src.models.llm_outputs import CriterionScore, literal_coercer
+
 
 class PipelineStage(StrEnum):
     """Explicit state machine for V1. Stored in applications.current_stage."""
@@ -234,7 +236,10 @@ def can_transition(src: PipelineStage, dst: PipelineStage) -> bool:
 class GeneratedQuestion(BaseModel):
     id: str
     question: str
-    type: Literal["logistics", "skill_probe", "depth", "open_text", "behavioral", "gap_probe"]
+    # Free-text tag, not control flow: the generator is fed dynamic evaluation-spec
+    # dimensions and routinely tags a question with a dimension key. Kept as a plain
+    # str so an out-of-vocabulary tag is preserved (and never crashes the parse).
+    type: str = "open"
     expected_signal: str
     required: bool = True
 
@@ -263,8 +268,16 @@ class ScreeningSubmission(BaseModel):
 class PerQuestionScore(BaseModel):
     question_id: str
     score: int
-    relevance: Literal["low", "medium", "high"]
+    relevance: Literal["low", "medium", "high"] = "medium"
     notes: str
+
+    _norm_relevance = field_validator("relevance", mode="before")(
+        literal_coercer(
+            ("low", "medium", "high"),
+            "medium",
+            synonyms={"moderate": "medium", "med": "medium"},
+        )
+    )
 
 
 class LogisticsCheck(BaseModel):
@@ -326,10 +339,26 @@ class CompletenessCheck(BaseModel):
 
 
 class QualitySignals(BaseModel):
-    depth: Literal["low", "medium", "high"]
-    originality: Literal["low", "medium", "high"]
-    clarity: Literal["low", "medium", "high"]
-    technical_rigor: Literal["low", "medium", "high"]
+    depth: Literal["low", "medium", "high"] = "medium"
+    originality: Literal["low", "medium", "high"] = "medium"
+    clarity: Literal["low", "medium", "high"] = "medium"
+    technical_rigor: Literal["low", "medium", "high"] = "medium"
+
+    _norm_levels = field_validator(
+        "depth", "originality", "clarity", "technical_rigor", mode="before"
+    )(
+        literal_coercer(
+            ("low", "medium", "high"),
+            "medium",
+            synonyms={
+                "moderate": "medium",
+                "med": "medium",
+                "very high": "high",
+                "very low": "low",
+                "none": "low",
+            },
+        )
+    )
 
 
 class AssignmentParseResult(BaseModel):
@@ -341,6 +370,8 @@ class AssignmentParseResult(BaseModel):
     concerns: list[str] = Field(default_factory=list)
     evidence_quotes: list[str] = Field(default_factory=list)
     suggested_hr_focus: list[str] = Field(default_factory=list)
+    criteria_scores: list[CriterionScore] = Field(default_factory=list)
+    overall_score: int | None = None
     summary: str
 
 
@@ -363,7 +394,12 @@ class VoiceQuestion(BaseModel):
 
     id: str
     question: str
-    type: Literal["logistics", "skill_probe", "depth", "behavioral", "open", "background", "work_experience", "company_fit"]
+    # Free-text tag, not control flow (stored on the voice_call row, passed to the
+    # provider, shown as a plain string in the dashboard). The generator is fed the
+    # role's dynamic evaluation-spec dimensions and routinely tags a question with a
+    # dimension key (e.g. "collaboration"); a strict Literal here crashed generation,
+    # so keep it a str and preserve whatever the model produced.
+    type: str = "open"
     expected_signal: str
     follow_up_hint: str | None = None
 
@@ -418,11 +454,34 @@ class ExtractedCandidateFacts(BaseModel):
     notes: str | None = None
 
 
+# Common ways the LLM phrases the three-way screen/meeting verdict. Anything not
+# listed (or unknown) falls back to "needs_hr_review" -- the safe default that
+# routes the candidate to a human rather than auto-passing or auto-rejecting.
+_VERDICT_SYNONYMS = {
+    "pass": "clear_pass",
+    "clear pass": "clear_pass",
+    "strong_pass": "clear_pass",
+    "advance": "clear_pass",
+    "proceed": "clear_pass",
+    "reject": "clear_reject",
+    "clear reject": "clear_reject",
+    "fail": "clear_reject",
+    "no": "clear_reject",
+    "review": "needs_hr_review",
+    "needs review": "needs_hr_review",
+    "needs_review": "needs_hr_review",
+    "hr_review": "needs_hr_review",
+    "borderline": "needs_hr_review",
+    "hold": "needs_hr_review",
+}
+
+
 class VoiceCallScore(BaseModel):
     """LLM evaluation of the call answers (mirrors ScreeningEvaluation shape)."""
 
     overall_score: int
     per_question: list[PerQuestionScore] = Field(default_factory=list)
+    criteria_scores: list[CriterionScore] = Field(default_factory=list)
     red_flags: list[str] = Field(default_factory=list)
     strengths: list[str] = Field(default_factory=list)
     verdict: Literal["clear_pass", "needs_hr_review", "clear_reject"] | None = None
@@ -430,6 +489,14 @@ class VoiceCallScore(BaseModel):
     extracted_facts: ExtractedCandidateFacts | None = None
     evaluated_at: datetime | None = None
     prompt_version: str | None = None
+
+    _norm_verdict = field_validator("verdict", mode="before")(
+        literal_coercer(
+            ("clear_pass", "needs_hr_review", "clear_reject"),
+            "needs_hr_review",
+            synonyms=_VERDICT_SYNONYMS,
+        )
+    )
 
 
 class CallKind(StrEnum):
@@ -481,6 +548,20 @@ class EmotionTimelineEntry(BaseModel):
     confidence: float
 
 
+class ScoreRationale(BaseModel):
+    """Per-score 'why' for each meeting sub-score.
+
+    Lets a reviewer see what each individual number reflects (and what held it
+    back) instead of inferring it from one shared strengths/red_flags pool.
+    All optional: the evaluator fills the scores it actually produced.
+    """
+
+    overall: str = ""
+    technical: str = ""
+    communication: str = ""
+    confidence: str = ""
+
+
 class MeetingAnalysis(BaseModel):
     """Output of meeting_analysis activity, stored on meeting_session.report."""
 
@@ -488,6 +569,8 @@ class MeetingAnalysis(BaseModel):
     communication_score: int | None = None
     confidence_score: int | None = None
     overall_score: int
+    criteria_scores: list[CriterionScore] = Field(default_factory=list)
+    score_rationale: ScoreRationale = Field(default_factory=ScoreRationale)
     strengths: list[str] = Field(default_factory=list)
 
     @field_validator(
@@ -520,3 +603,11 @@ class MeetingAnalysis(BaseModel):
     verdict: Literal["clear_pass", "needs_hr_review", "clear_reject"] | None = None
     evaluated_at: datetime | None = None
     prompt_version: str | None = None
+
+    _norm_verdict = field_validator("verdict", mode="before")(
+        literal_coercer(
+            ("clear_pass", "needs_hr_review", "clear_reject"),
+            "needs_hr_review",
+            synonyms=_VERDICT_SYNONYMS,
+        )
+    )
