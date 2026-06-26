@@ -353,14 +353,18 @@ async def create_role_with_assignment(
     pipeline_template: list[str] | None = None,
     time_budget_hours: int = 6,
     deadline_days: int = 7,
+    brief: str | None = None,
     _prerendered_brief: dict | None = None,
     **_ignored: Any,
 ) -> dict[str, Any]:
-    """One-shot: create a role + draft + persist a take-home with N problems.
+    """Create a role. Does NOT auto-generate a take-home assignment.
 
-    Single confirm card shows the full role + assignment. On confirm, both
-    are saved atomically so the role detail page renders the brief
-    immediately.
+    Pulse never auto-generates assignments. If the recruiter explicitly
+    supplied a ``brief``, it is persisted as text (no PDF render here). The
+    actual assignment PDF is drafted separately via
+    ``generate_assignment_for_role`` (or uploaded). If the seeded pipeline has
+    an assignment stage and no problem doc exists yet, the role is held at
+    ``status="draft"`` until a PDF is added; otherwise it goes ``"open"``.
     """
     role_resp = await create_role(
         title=title,
@@ -374,34 +378,51 @@ async def create_role_with_assignment(
         evaluation_spec=evaluation_spec,
         company_context=company_context,
         pipeline_template=pipeline_template,
-        auto_assignment=False,  # this tool generates the assignment itself below
+        auto_assignment=False,  # assignment is generated separately, not here
     )
     if "error" in role_resp:
         return role_resp
     role_id = role_resp["id"]
 
-    # Generate + persist the assignment in one go (save=True). When the
-    # confirm-card prerender already drafted the brief, reuse it instead of
-    # paying for a second LLM call.
-    asg = await generate_assignment_for_role(
-        role_id=role_id,
-        n_problems=n_problems,
-        time_budget_hours=time_budget_hours,
-        deadline_days=deadline_days,
-        save=True,
-        prerendered=_prerendered_brief,
-    )
+    # No auto-generation. Persist a recruiter-provided brief as text only, and
+    # compute status: draft when an assignment stage exists but no PDF yet.
+    _captured_brief = (brief or "").strip()
+    async with session_scope() as session:
+        role = await session.get(Role, UUID(role_id))
+        if role is not None:
+            if _captured_brief:
+                role.assignment_brief = _captured_brief
+            from src.db.repositories import role_pipeline_stage as stage_repo
+            stages = await stage_repo.for_role(session, role.id, enabled_only=True)
+            has_assignment_stage = any(
+                (str(getattr(s, "stage_type", "")) == "assignment"
+                 or getattr(s, "stage_key", "") == "assignment")
+                for s in (stages or [])
+            )
+            has_problem_doc = bool(getattr(role, "assignment_problem_doc_key", None))
+            role.status = (
+                "draft" if (has_assignment_stage and not has_problem_doc) else "open"
+            )
+            computed_status = role.status
+        else:
+            computed_status = "open"
+
+    if computed_status == "draft":
+        message = (
+            f"Created role '{title}'. It's held as a draft until a take-home "
+            f"assignment PDF is added (upload one or ask me to draft it via "
+            f"generate_assignment_for_role), then it goes live."
+        )
+    else:
+        message = f"Created role '{title}'. It's open for applications."
 
     return {
         "ok": True,
         "role": role_resp,
-        "assignment": asg,
         "role_id": role_id,
         "role_url": f"/roles/{role_id}",
-        "message": (
-            f"Created role '{title}' with a {asg.get('problem_count') or n_problems}-problem "
-            f"take-home assignment. Both saved."
-        ),
+        "status": computed_status,
+        "message": message,
     }
 
 
@@ -429,6 +450,34 @@ async def generate_assignment_for_role(
         if role is None:
             return {"error": "role_not_found"}
 
+    # ROOT-CAUSE FIX (artifact-brief-discarded bug): the recruiter's saved brief is
+    # the SOURCE OF TRUTH for what the assignment is about. On apply,
+    # draft.assignment.brief — which captures BOTH what the recruiter typed in the
+    # panel AND what they described in chat (jd_generation funnels chat →
+    # draft.assignment.brief) — is persisted to role.assignment_brief.
+    #
+    # The LLM agent is an UNRELIABLE narrator for user_brief: in practice it passes a
+    # hallucinated value (observed: user_brief="nodejs + typescript" instead of the
+    # recruiter's actual problems), which silently replaced the real brief with
+    # generic boilerplate. So when the role already carries a saved brief, it
+    # OVERRIDES whatever the agent passed. The agent's user_brief is only used when
+    # there is no saved brief yet (e.g. brand-new ideas described in chat).
+    _existing_brief = (getattr(role, "assignment_brief", None) or "").strip()
+    if _existing_brief:
+        _agent_brief = (user_brief or "").strip()
+        if _agent_brief and _agent_brief != _existing_brief:
+            logger.warning(
+                "generate_assignment_for_role: ignoring agent-passed user_brief=%r; "
+                "grounding on the recruiter's saved role.assignment_brief instead (%s)",
+                _agent_brief[:120], role_id,
+            )
+        user_brief = _existing_brief
+    elif (user_brief or "").strip():
+        logger.info(
+            "generate_assignment_for_role: no saved brief; using agent user_brief for %s",
+            role_id,
+        )
+
     n = max(1, min(int(n_problems), 8))
     # Cached path: confirm-card prerender already produced a brief. Reuse it.
     if isinstance(prerendered, dict) and prerendered.get("problems"):
@@ -448,6 +497,11 @@ async def generate_assignment_for_role(
 
     from src.agent.generators import gen_assignment
 
+    # Pass evaluation_spec / company_context so the generator can ground the
+    # problems in the role's eval dimensions + company context, and problem_count
+    # so it produces the requested number directly. These are new optional params
+    # on gen_assignment (added by the prompts worker); safe getattr fallbacks
+    # because role.evaluation_spec / role.company_context may be None.
     try:
         brief = await gen_assignment(
             role_title=role.title,
@@ -457,16 +511,19 @@ async def generate_assignment_for_role(
             user_brief=user_brief,
             application_id=rid,  # role-scoped; reuse generator with role uuid
             candidate_id=rid,
+            evaluation_spec=getattr(role, "evaluation_spec", None),
+            company_context=getattr(role, "company_context", None),
+            problem_count=n,
         )
     except Exception as e:  # noqa: BLE001
         return {"error": f"assignment_gen_failed: {e}"}
 
     payload = brief.model_dump()
 
-    # The candidate-side generator caps problems at 3. Pad with synthesized
-    # follow-ups when the recruiter wanted 5+. We do this in-prompt-style by
-    # asking the LLM for additional variations.
-    if len(payload.get("problems", [])) < n:
+    # Pad with synthesized follow-ups when more problems were requested than
+    # produced — but NOT when grounded on the recruiter's brief: there the brief's
+    # own list defines the count (e.g. "1 assignment" => exactly 1, no padding).
+    if not _existing_brief and len(payload.get("problems", [])) < n:
         from src.llm.client import get_llm_client
         from src.agent.schemas import AssignmentBriefOut
 
@@ -551,8 +608,13 @@ async def _persist_assignment(
         async with session_scope() as session:
             r = await session.get(Role, rid)
             if r is not None:
-                r.assignment_brief = payload["brief_md"]
-                r.assignment_instructions = (payload.get("submission_format") or {}).get("instructions")
+                # Keep assignment_brief in sync with what the recruiter typed: only
+                # write the generated brief_md when there is no recruiter brief. The
+                # expanded text still goes into the PDF; the brief stays verbatim.
+                if not (r.assignment_brief or "").strip():
+                    r.assignment_brief = payload["brief_md"]
+                if not (r.assignment_instructions or "").strip():
+                    r.assignment_instructions = (payload.get("submission_format") or {}).get("instructions")
                 r.assignment_deadline_days = (payload.get("submission_format") or {}).get("deadline_days") or deadline_days
                 if pdf_key:
                     r.assignment_problem_doc_key = pdf_key
@@ -1034,10 +1096,10 @@ async def create_role(
 ) -> dict[str, Any]:
     """Persist a new role. Returns the created row's id + URL.
 
-    When ``auto_assignment`` is True (default) and the role's pipeline includes an
-    ``assignment`` stage, a take-home brief is generated + persisted right after
-    creation, so the role is never left brief-less. ``create_role_with_assignment``
-    passes ``auto_assignment=False`` because it owns assignment generation itself.
+    This function does NOT generate a take-home assignment. The assignment is
+    created separately via ``generate_assignment_for_role`` (or the recruiter
+    uploads a PDF). The ``auto_assignment`` parameter is retained for backward
+    compatibility but has no effect — no generation happens here.
     """
     title = (title or "").strip()
     jd_text = (jd_text or "").strip()
@@ -1140,9 +1202,10 @@ async def create_role(
     return {
         "ok": True,
         "id": str(role_id),
+        "role_id": str(role_id),
         "title": title,
         "url": f"/roles/{role_id}",
-        "message": f"Created role '{title}'.",
+        "message": f"Role '{title}' created. role_id: {role_id} (use this as role_id for assignment generation or updates).",
     }
 
 
@@ -1794,14 +1857,14 @@ async def _complete_draft_from_context(
     The model previously failed because its prompt never described the nested
     shapes ``RoleDraftContent`` requires (``PipelineStageDef`` needs a
     ``stage_type`` from a fixed enum + ``position``; ``EvaluationSpec`` weights
-    must sum to ~100; ``RoleContext.intensity`` is a literal), so it emitted
-    plausible-but-invalid JSON and the whole draft was rejected -> empty JD.
+    must sum to ~100), so it emitted plausible-but-invalid JSON and the whole
+    draft was rejected -> empty JD.
 
     Fix: the prompt below spells out the EXACT schema -- every field, the
-    allowed enum values, a copy-paste standard pipeline, and the weight /
-    intensity rules -- so the model produces output that passes STRICT
-    validation. Returns None only when there is no transcript or validation
-    still fails after retries (logged loudly, never swallowed silently).
+    allowed enum values, a copy-paste standard pipeline, and the weight rules --
+    so the model produces output that passes STRICT validation. Returns None only
+    when there is no transcript or validation still fails after retries (logged
+    loudly, never swallowed silently).
     """
     transcript = await _format_conversation_for_draft(conversation_id)
     if not transcript.strip():

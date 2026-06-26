@@ -355,14 +355,40 @@ async def apply_artifact(
             evaluation_spec=draft.evaluation_spec.model_dump(mode="json"),
             company_context=draft.company_context.model_dump(mode="json"),
         )
-        # Extract assignment info from artifact; brief will be LLM-generated
-        # via ensure_role_assignment, not stored raw.
+        # Extract a recruiter-provided assignment brief from the artifact and
+        # persist it as text only (no PDF render here — Pulse never auto-generates
+        # on apply; the recruiter either uploads a PDF or drafts one explicitly
+        # via generate_assignment_for_role).
         _captured_brief = (draft.assignment.brief or "").strip() if draft.assignment else ""
         _captured_instructions = (draft.assignment.instructions or "").strip() if draft.assignment else ""
-        _assignment_n_problems = draft.assignment.n_problems if draft.assignment else 2
-        _assignment_time_budget = draft.assignment.time_budget_hours if draft.assignment else 6
-        _assignment_deadline_days = draft.assignment.deadline_days if draft.assignment else 7
-        role.status = "open"
+
+        # Does the role's pipeline contain an assignment stage? Read from the
+        # draft's pipeline (any stage_type/stage_key == "assignment"); fall back
+        # to the canonical DEFAULT_PIPELINE only when the draft has no pipeline.
+        if draft.pipeline:
+            has_assignment_stage = any(
+                (str(st.stage_type) == "assignment" or st.stage_key == "assignment")
+                and st.is_enabled
+                for st in draft.pipeline
+            )
+        else:
+            from src.models.pipeline import DEFAULT_PIPELINE
+            has_assignment_stage = any(
+                s["stage_type"] == "assignment" for s in DEFAULT_PIPELINE
+            )
+
+        # A role goes live ("open") immediately UNLESS it has an assignment stage
+        # but no assignment PDF yet — in that case it is held at "draft" until a
+        # PDF exists (uploaded or published via generate_assignment_for_role).
+        if _captured_brief:
+            role.assignment_brief = _captured_brief
+        if _captured_instructions:
+            role.assignment_instructions = _captured_instructions
+        _has_problem_doc = bool(getattr(role, "assignment_problem_doc_key", None))
+        computed_status = (
+            "draft" if (has_assignment_stage and not _has_problem_doc) else "open"
+        )
+        role.status = computed_status
         session.add(role)
         await session.flush()
         role_id = role.id
@@ -413,46 +439,19 @@ async def apply_artifact(
         conversation_id = art.conversation_id
         role_title = draft.title
 
-    # Generate a proper structured assignment via LLM when the pipeline
-    # has an assignment stage. The user's brief from the artifact is passed
-    # as seed requirements so the LLM produces relevant problems + a real PDF.
-    _assignment_generated = False
-    _has_assignment_stage = bool(
-        draft.pipeline and any(
-            str(st.stage_type) == "assignment" and st.is_enabled
-            for st in draft.pipeline
+    # NOTE: Pulse never auto-generates an assignment on apply. When the pipeline
+    # has an assignment stage but no PDF yet, the role is held at "draft" (set
+    # above) and the recruiter must either upload a PDF or draft one explicitly
+    # via generate_assignment_for_role, which publishes the role to "open".
+    if computed_status == "draft":
+        status_line = (
+            "It's held as a draft until the take-home assignment is added "
+            "(upload a PDF or ask me to draft one), then it goes live."
         )
-    ) if draft.pipeline else False
-    if _has_assignment_stage:
-        from src.recruiter_agent.tools import ensure_role_assignment
-        try:
-            _gen = await ensure_role_assignment(
-                role_id=str(role_id),
-                n_problems=_assignment_n_problems,
-                time_budget_hours=_assignment_time_budget,
-                deadline_days=_assignment_deadline_days,
-                source="artifact_apply",
-                user_brief=_captured_brief or None,
-            )
-            _assignment_generated = _gen.get("ok", False)
-        except Exception:  # noqa: BLE001
-            logger.warning("assignment auto-gen failed for role %s", role_id)
-
-        # If the artifact had custom instructions, overwrite LLM-generated ones.
-        if _captured_instructions and _assignment_generated:
-            async with session_scope() as session:
-                r = await session.get(Role, UUID(role_id))
-                if r is not None:
-                    r.assignment_instructions = _captured_instructions
-
-    status_line = "It's open for applications."
-    if _assignment_generated:
-        if _captured_brief:
-            status_line += " Take-home generated from your requirements."
-        else:
-            status_line += " Take-home assignment auto-generated."
+    else:
+        status_line = "It's open for applications."
     follow_up = (
-        f"Created '{role_title}'. {status_line} "
+        f"Created '{role_title}' (role_id: {role_id}). {status_line} "
         "Want me to draft a LinkedIn post for this role?"
     )
     try:
@@ -470,7 +469,7 @@ async def apply_artifact(
         "ok": True,
         "role_id": str(role_id),
         "role_url": f"/roles/{role_id}",
-        "status": "open",
+        "status": computed_status,
         "follow_up": follow_up,
     }
 

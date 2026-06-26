@@ -155,7 +155,7 @@ RECRUITER_TOOLS: list[dict] = [
                     "max_notice_days": {"type": "integer"},
                     "screening_modality": {"type": "string", "default": "voice"},
                     "evaluation_spec": {"type": "object", "description": "Evaluation dimensions and knockouts for fit scoring. Include dimension keys, weights, rubrics."},
-                    "company_context": {"type": "object", "description": "Role-specific grounding context — what matters here, hiring bar, intensity."},
+                    "company_context": {"type": "object", "description": "Role-specific grounding context — what matters here, hiring bar."},
                     "pipeline_template": {
                         "type": "array",
                         "items": {"type": "string"},
@@ -490,7 +490,7 @@ RECRUITER_TOOLS: list[dict] = [
         "type": "function",
         "function": {
             "name": "create_role_with_assignment",
-            "description": "PREFERRED tool for 'create a role'. One-shot: creates the role AND drafts + persists a take-home with N problems (default 2). Single confirm card shows both. Use this whenever the user asks for a new role -- skip the separate create_role + generate_assignment_for_role calls.",
+            "description": "Create a role. Does NOT auto-generate a take-home assignment — the assignment is created separately via generate_assignment_for_role (or the recruiter uploads a PDF). If the recruiter explicitly described a brief, pass it as 'brief' (stored as text only). If the role's pipeline has an assignment stage but no PDF yet, the role is held as a draft until one is added; otherwise it goes live.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -504,7 +504,7 @@ RECRUITER_TOOLS: list[dict] = [
                     "max_notice_days": {"type": "integer"},
                     "screening_modality": {"type": "string", "default": "voice"},
                     "evaluation_spec": {"type": "object", "description": "Evaluation dimensions and knockouts for fit scoring. Include dimension keys, weights, rubrics."},
-                    "company_context": {"type": "object", "description": "Role-specific grounding context — what matters here, hiring bar, intensity."},
+                    "company_context": {"type": "object", "description": "Role-specific grounding context — what matters here, hiring bar."},
                     "pipeline_template": {
                         "type": "array",
                         "items": {"type": "string"},
@@ -512,6 +512,7 @@ RECRUITER_TOOLS: list[dict] = [
                     },
                     "time_budget_hours": {"type": "integer", "default": 6},
                     "deadline_days": {"type": "integer", "default": 7},
+                    "brief": {"type": "string", "description": "Optional recruiter-provided assignment brief text. Stored as text only (no PDF). The assignment PDF is generated separately via generate_assignment_for_role."},
                 },
                 "required": ["title", "jd_text"],
             },
@@ -521,15 +522,16 @@ RECRUITER_TOOLS: list[dict] = [
         "type": "function",
         "function": {
             "name": "generate_assignment_for_role",
-            "description": "YOU MUST CALL THIS TOOL to create a take-home assignment; it is JD-grounded from the role. Call with save=true to generate AND persist in one step — this is the correct default for actual generation. save=false is preview-only and nothing is saved; only use it when the recruiter explicitly asks to see a preview first. Default n_problems=2, time_budget_hours=6, deadline_days=7.",
+            "description": "YOU MUST CALL THIS TOOL to create a take-home assignment; it is JD-grounded from the role. Generates a full assignment AND persists it as a PDF by default (save=true). Only use save=false when the recruiter explicitly asks for a text preview first. If the recruiter described specific requirements in chat (problem types, focus areas, technologies, difficulty), pass those as user_brief — they become MANDATORY requirements that override the JD. Default n_problems=2, time_budget_hours=6, deadline_days=7.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "role_id": {"type": "string"},
+                    "role_id": {"type": "string", "description": "UUID of the role. Look in the conversation history — it is in the tool result of the create_role or apply_role_draft call (field: role_id or id)."},
                     "n_problems": {"type": "integer", "default": 2, "minimum": 1, "maximum": 8},
                     "time_budget_hours": {"type": "integer", "default": 6},
                     "deadline_days": {"type": "integer", "default": 7},
-                    "save": {"type": "boolean", "default": False},
+                    "save": {"type": "boolean", "default": True, "description": "true = generate AND persist as PDF (correct default). false = text preview only, nothing saved — use only when recruiter explicitly asks for preview first."},
+                    "user_brief": {"type": "string", "description": "Any specific assignment requirements, problem types, technologies, or focus areas the recruiter mentioned in this conversation. Pass verbatim — these override the JD and become mandatory constraints for problem generation."},
                 },
                 "required": ["role_id"],
             },
@@ -627,11 +629,11 @@ RECRUITER_TOOLS: list[dict] = [
                     },
                     "company_context": {
                         "type": "object",
-                        "description": "Role-tuned grounding context generated from the company persona + THIS role. {intensity: light|standard|high|critical, summary, what_matters_here[], hiring_bar}. Scale the intensity to the role: a senior/critical hire gets a deeper, more demanding context + a higher bar than a junior one. This grounds every later stage (fit, voice, interviews).",
+                        "description": "Role-tuned grounding context generated from the company persona + THIS role. {summary, what_matters_here[], hiring_bar}. This grounds every later stage (fit, voice, interviews).",
                     },
                     "assignment": {
                         "type": "object",
-                        "description": "{enabled, n_problems, time_budget_hours, deadline_days}.",
+                        "description": "{enabled, brief, n_problems, time_budget_hours, deadline_days}. brief: the recruiter's verbatim assignment requirements from the conversation (problem types, technologies, features, focus areas). Capture any assignment ideas the recruiter described here — they override the JD during generation. Leave as '' if not mentioned.",
                     },
                     "notes": {"type": "string"},
                 },
