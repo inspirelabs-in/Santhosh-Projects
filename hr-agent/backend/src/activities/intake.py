@@ -153,7 +153,7 @@ async def run_intake(payload: IntakePayload) -> IntakeResult:
                 "consent_version": PRIVACY_NOTICE_VERSION,
                 # Email-specific fields (present only when ingested from inbound mail).
                 "mail_source": payload.raw_payload.get("mail_source") if payload.raw_payload else None,
-                "subject": payload.raw_payload.get("subject") if payload.raw_payload else None,
+                "subject": payload.subject or ((payload.raw_payload or {}).get("subject")),
                 "received_at": payload.raw_payload.get("received_at") if payload.raw_payload else None,
                 "message_id": payload.raw_payload.get("message_id") if payload.raw_payload else None,
             },
@@ -166,16 +166,19 @@ async def run_intake(payload: IntakePayload) -> IntakeResult:
 
     # 7. Auto-acknowledgement (outside the transaction so an email failure
     #    doesn't roll back the intake). Re-open a session purely for auditing.
-    # For mail-ingest path candidate.email is null at this stage (resume parse
-    # runs after intake), so fall back to the forwarder address from the
-    # inbound mail. Forwarder == candidate in the common case.
+    # For referral emails (HR forwards a candidate's resume) msg.from_email is
+    # HR's address, not the candidate's. We skip the ack here; run_apply_to_screening
+    # sends it after parse_resume extracts the real candidate email.
     forwarder_email = (
         payload.raw_payload.get("forwarder_email") if payload.raw_payload else None
     )
     forwarder_name = (
         payload.raw_payload.get("forwarder_name") if payload.raw_payload else None
     )
-    ack_to = candidate_email or forwarder_email
+    is_referral = bool(
+        (payload.raw_payload or {}).get("is_referral")
+    )
+    ack_to = None if is_referral else (candidate_email or forwarder_email)
     ack_sent = False
     if ack_to and not was_duplicate:
         role_title = payload.raw_payload.get("role_title") or "the role you applied for"

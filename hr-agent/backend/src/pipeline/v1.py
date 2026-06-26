@@ -87,10 +87,13 @@ async def run_apply_to_screening(
     role_id: UUID | None,
     resume_r2_key: str | None,
     resume_filename: str | None,
+    send_ack_post_parse: bool = False,
 ) -> None:
     """Parse resume -> generate screening questions -> email link. All-or-nothing.
 
     If any step fails the app stays in APPLIED and an error audit row is written.
+    send_ack_post_parse=True means intake skipped the ack (referral path); send it
+    here once parse_resume has extracted the real candidate email.
     """
     if role_id is None:
         logger.warning("apply %s has no role_id; parking as needs_hr_review", application_id)
@@ -151,7 +154,45 @@ async def run_apply_to_screening(
         # so the downstream gate only fires on actual parse errors.
         parse_succeeded = True
 
-    # 1a. Dedup active applications on (candidate_id, role_id). If the parser
+    # 1a. Referral ack — send to the real candidate email now that parse_resume
+    # has populated it. Intake skipped the ack (is_referral=True) to avoid
+    # sending to the HR forwarder address. Only fires when parse succeeded
+    # AND the ack wasn't already sent.
+    if send_ack_post_parse and parse_succeeded:
+        try:
+            async with session_scope() as session:
+                cand = await session.get(Candidate, candidate_id)
+                role = await session.get(Role, role_id) if role_id else None
+                if cand and cand.email:
+                    from datetime import UTC, datetime as _dt
+                    ack_result = await send_email(
+                        to=cand.email,
+                        template="acknowledgement",
+                        variables={
+                            "candidate_name": cand.name or "Applicant",
+                            "role_title": role.title if role else "the role you applied for",
+                            "reference_id": str(application_id),
+                            "received_at": _dt.now(tz=UTC).strftime("%d %b %Y, %H:%M UTC"),
+                        },
+                        tags={"stage": "intake", "candidate_id": str(candidate_id)},
+                    )
+                    await log_audit(
+                        session,
+                        action="acknowledgement_sent" if ack_result.success else "acknowledgement_failed",
+                        actor="agent",
+                        candidate_id=candidate_id,
+                        application_id=application_id,
+                        details={
+                            "to": cand.email,
+                            "via": "post_parse_referral",
+                            "message_id": ack_result.message_id,
+                            "error": ack_result.error,
+                        },
+                    )
+        except Exception:
+            logger.exception("referral post-parse ack failed for %s", application_id)
+
+    # 1b. Dedup active applications on (candidate_id, role_id). If the parser
     # merged this row into an existing candidate that already has an ACTIVE
     # application for the same role, withdraw the duplicate so we don't dial
     # twice / send two assignment links.
@@ -436,6 +477,7 @@ async def run_assignment_processing(
     # an overall_score so assignment can auto-reject (auto mode) or park-with-score
     # (manual mode) just like voice / meeting stages. When no score is available,
     # fall back to NEEDS_REVIEW park for HR.
+    advance_result = ""
     try:
         from src.services.stage_runner import complete_assignment_submission
 
@@ -444,7 +486,7 @@ async def run_assignment_processing(
             if parse_result is not None
             else None
         )
-        await complete_assignment_submission(
+        advance_result = await complete_assignment_submission(
             application_id,
             overall_score=overall_score,
             result_ref={
@@ -456,6 +498,14 @@ async def run_assignment_processing(
     except Exception as e:  # noqa: BLE001
         logger.exception("assignment advance failed for %s", application_id)
         await _log_error(application_id, candidate_id, "assignment_advance", e)
+
+    # SM-4: when an auto-mode assignment scored in the FAIL band, the runner has
+    # already auto-rejected + emailed the candidate. Do NOT then flip the legacy
+    # cursor to REPORT_READY, tell the candidate they're "under final review", or
+    # ask the tech panel to review a rejected candidate. The post-submission review
+    # block is correct only for advanced / parked-for-review / needs-review outcomes.
+    if advance_result.startswith("rejected"):
+        return
 
     # Set V1 legacy current_stage without overwriting the V2 stage_key
     # (advance_candidate already set it to the correct next stage).

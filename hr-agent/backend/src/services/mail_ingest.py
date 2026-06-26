@@ -220,6 +220,7 @@ async def _ingest_one_resume(
             role_id=role_id,
             resume_r2_key=resume_key,
             resume_filename=resume_filename,
+            send_ack_post_parse=not result.acknowledgement_sent,
         )
     )
     pipeline_task.add_done_callback(_on_pipeline_done)
