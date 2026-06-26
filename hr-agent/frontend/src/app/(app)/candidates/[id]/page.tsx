@@ -834,9 +834,26 @@ function AssignmentSection({
 /*  Meeting reports                                                   */
 /* ------------------------------------------------------------------ */
 
-function MeetingReportsSection({ reports }: { reports: Record<string, any> | null }) {
+function MeetingReportsSection({
+  reports,
+  stageView,
+}: {
+  reports: Record<string, any> | null;
+  stageView?: StageViewEntry[] | null;
+}) {
   if (!reports || Object.keys(reports).length === 0) return null;
-  const roundLabels: Record<string, string> = { technical: "Technical Round", ceo: "CEO Round", hr: "HR Discussion" };
+  // FE-5: reports are keyed by stage_key; resolve each label from the role's
+  // stage_view (so a renamed round, a 2nd technical, or the management round surface
+  // correctly). Fall back to a small map then a humanized key.
+  const fallbackLabels: Record<string, string> = {
+    technical: "Technical Round",
+    ceo: "Management Round",
+    hr: "HR Discussion",
+  };
+  const labelFor = (round: string) =>
+    stageView?.find((s) => s.stage_key === round)?.label ??
+    fallbackLabels[round] ??
+    `${round.replace(/_/g, " ")} round`;
 
   return (
     <Collapsible title="Interview Reports">
@@ -844,7 +861,7 @@ function MeetingReportsSection({ reports }: { reports: Record<string, any> | nul
         {Object.entries(reports).map(([round, report]: [string, any]) => (
           <div key={round} className="rounded-lg border p-3">
             <div className="flex items-center justify-between">
-              <h4 className="text-sm font-semibold">{roundLabels[round] ?? `${round} Round`}</h4>
+              <h4 className="text-sm font-semibold">{labelFor(round)}</h4>
               {report.verdict && (
                 <span className={cn(
                   "rounded-full px-2 py-0.5 text-xs font-medium",
@@ -1305,63 +1322,82 @@ function EvidenceAndDecisions({ data }: { data: any }) {
 /*  Proceed to Next Round                                             */
 /* ------------------------------------------------------------------ */
 
+/* V2 stage_view helpers — render off the role's real pipeline, not field-presence.
+   When stage_view is absent (legacy payload / still loading) these fall back to
+   "don't suppress" so nothing regresses. */
+function pipelineHasStageType(stageView: StageViewEntry[] | null | undefined, type: string): boolean {
+  if (!stageView || stageView.length === 0) return true;
+  return stageView.some((s) => s.stage_type === type && s.is_enabled);
+}
+
+function reachedStageType(stageView: StageViewEntry[] | null | undefined, type: string): boolean {
+  if (!stageView || stageView.length === 0) return true;
+  const current = stageView.find((s) => s.is_current);
+  const currentPos = current ? current.position : Number.POSITIVE_INFINITY;
+  return stageView.some(
+    (s) =>
+      s.stage_type === type &&
+      s.is_enabled &&
+      (s.position <= currentPos ||
+        s.verdict !== "pending" ||
+        s.processing_status !== "unprocessed"),
+  );
+}
+
 function ProceedToNextRound({
   applicationId,
-  currentStage,
+  currentStageKey,
   stageView,
   onChanged,
 }: {
   applicationId: string;
-  currentStage: string;
+  currentStageKey: string;
   stageView?: StageViewEntry[] | null;
   onChanged: () => void;
 }) {
-  // Derive dynamic transition from stage_view when available.
-  let transition: { targetStage: string; nextRound: string; label: string; description: string } | undefined;
-  if (stageView && stageView.length > 0) {
-    const currentIdx = stageView.findIndex((s) => s.stage_key === currentStage || s.is_current);
-    if (currentIdx >= 0) {
-      const nextEnabled = stageView.slice(currentIdx + 1).find((s) => s.is_enabled);
-      if (nextEnabled) {
-        transition = {
-          targetStage: nextEnabled.stage_key,
-          nextRound: nextEnabled.label,
-          label: `Proceed to ${nextEnabled.label}`,
-          description: `Advance candidate to the ${nextEnabled.label} stage.`,
-        };
-      }
-    }
-  }
-  // Fallback to hardcoded transitions
-  if (!transition) {
-    const ROUND_TRANSITIONS: Record<string, { targetStage: string; nextRound: string; label: string; description: string }> = {
-      assignment_submitted: { targetStage: "assessment_evaluated", nextRound: "technical", label: "Proceed to Technical Interview", description: "Advance candidate to the technical interview stage." },
-      assessment_completed: { targetStage: "assessment_evaluated", nextRound: "technical", label: "Proceed to Technical Interview", description: "Advance candidate to the technical interview stage." },
-      assessment_pending_review: { targetStage: "assessment_evaluated", nextRound: "technical", label: "Proceed to Technical Interview", description: "Advance candidate to the technical interview stage." },
-      report_ready: { targetStage: "assessment_evaluated", nextRound: "technical", label: "Proceed to Technical Interview", description: "Advance candidate to the technical interview stage." },
-      technical_meeting_completed: { targetStage: "technical_evaluated", nextRound: "ceo", label: "Proceed to CEO Interview", description: "Advance candidate to the CEO interview stage." },
-      technical_evaluated: { targetStage: "technical_evaluated", nextRound: "ceo", label: "Proceed to CEO Interview", description: "Advance candidate to the CEO interview stage." },
-      technical_pending_approval: { targetStage: "technical_evaluated", nextRound: "ceo", label: "Proceed to CEO Interview", description: "Advance candidate to the CEO interview stage." },
-      ceo_meeting_completed: { targetStage: "ceo_meeting_completed", nextRound: "hr", label: "Proceed to HR Discussion", description: "Advance candidate to the HR discussion stage." },
-      ceo_pending_approval: { targetStage: "ceo_meeting_completed", nextRound: "hr", label: "Proceed to HR Discussion", description: "Advance candidate to the HR discussion stage." },
-    };
-    transition = ROUND_TRANSITIONS[currentStage];
-  }
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
+  const [doneLabel, setDoneLabel] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
 
-  if (!transition && !done) return null;
+  // FE-1: derive the next move purely from the role's stage_view (V2). No hardcoded
+  // chain, no legacy enum. The cursor advances on the backend; we send no target.
+  let current: StageViewEntry | undefined;
+  let next: StageViewEntry | undefined;
+  if (stageView && stageView.length > 0) {
+    const enabled = [...stageView].filter((s) => s.is_enabled).sort((a, b) => a.position - b.position);
+    const idx = enabled.findIndex((s) => s.is_current || s.stage_key === currentStageKey);
+    if (idx >= 0) {
+      current = enabled[idx];
+      next = enabled[idx + 1];
+    }
+  }
+
+  // SM-1 gate: only offer "Proceed" when the current stage is settled — cleared
+  // (verdict pass) or its work is processed — and a next stage exists. Hide while a
+  // stage is still on_going / processing / pending, and never after a fail. This is
+  // what kills the screenshot bug (offering "Proceed to Technical Interview" while
+  // the voice screen is still on_going).
+  const settled =
+    !!current &&
+    current.verdict !== "fail" &&
+    current.verdict !== "on_going" &&
+    (current.verdict === "pass" || current.processing_status === "processed");
+  const canProceed = !!next && settled;
+
+  if (!canProceed && !done) return null;
 
   const handleProceed = async () => {
-    if (!transition) return;
+    if (!next) return;
     setLoading(true);
     setError(null);
     try {
-      await api.post(`/dashboard/v1/candidates/${applicationId}/stage`, {
-        stage: transition.targetStage,
-        note: `Proceeded to ${transition.nextRound} round`,
+      // V2 advance: send NO target stage — the engine walks the role's pipeline from
+      // the current cursor. Replaces the legacy /stage enum POST that 400'd.
+      await api.post(`/dashboard/v1/candidates/${applicationId}/advance`, {
+        note: `Proceeded from ${current?.label ?? currentStageKey}`,
       });
+      setDoneLabel(next.label);
       setDone(true);
       onChanged();
     } catch (e: any) {
@@ -1378,7 +1414,7 @@ function ProceedToNextRound({
           <CheckCircle2 className="h-5 w-5 text-emerald-600" />
           <div>
             <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">
-              Candidate advanced to {transition?.nextRound} round
+              Candidate advanced to {doneLabel}
             </p>
           </div>
         </CardContent>
@@ -1391,13 +1427,15 @@ function ProceedToNextRound({
       <CardContent className="space-y-3 p-4">
         <div className="flex items-center justify-between gap-4">
           <div className="min-w-0">
-            <h3 className="text-sm font-semibold">{transition!.label}</h3>
-            <p className="text-xs text-muted-foreground mt-0.5">{transition!.description}</p>
+            <h3 className="text-sm font-semibold">Proceed to {next!.label}</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Advance candidate to the {next!.label} stage.
+            </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <Button onClick={handleProceed} disabled={loading} className="gap-1.5">
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-              {transition!.label}
+              Proceed to {next!.label}
             </Button>
           </div>
         </div>
@@ -1454,6 +1492,7 @@ export default function CandidateDetailPage() {
   const profile = data.profile ?? {};
   const role = data.role ?? {};
   const isRejected = data.current_stage === "rejected";
+  const isInvalidIntake = !!data.intake_error;
 
   return (
     <div className="flex h-full flex-col">
@@ -1477,8 +1516,19 @@ export default function CandidateDetailPage() {
             <StatusTag stage={data.current_stage as Stage} />
           </div>
 
-          {/* Pipeline stepper */}
-          {data.stage_view?.length > 0 && (
+          {/* Invalid intake banner */}
+          {isInvalidIntake && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+              <span className="font-semibold">Invalid application —</span>{" "}
+              {data.application_mail?.subject
+                ? <>email subject <span className="font-mono">&ldquo;{data.application_mail.subject}&rdquo;</span> did not match any open role.</>
+                : "no matching role found for this application."}
+              {" "}No pipeline evaluation was run.
+            </div>
+          )}
+
+          {/* Pipeline stepper — hidden for invalid intakes */}
+          {!isInvalidIntake && data.stage_view?.length > 0 && (
             <Card>
               <CardContent className="p-4">
                 <PipelineStepper stages={data.stage_view as StageViewEntry[]} />
@@ -1501,7 +1551,7 @@ export default function CandidateDetailPage() {
 
           {/* Score cards */}
           <div className="grid gap-3 sm:grid-cols-3">
-            {data.fit_score != null && (
+            {data.fit_score != null && pipelineHasStageType(data.stage_view as StageViewEntry[] | null | undefined, "fit") && (
               <Card className="p-4">
                 <div className="text-xs font-medium text-muted-foreground">Fit Score</div>
                 <div className="mt-1 flex items-center gap-2">
@@ -1518,7 +1568,7 @@ export default function CandidateDetailPage() {
                 </div>
               </Card>
             )}
-            {data.voice_evaluation?.overall_score != null && (
+            {data.voice_evaluation?.overall_score != null && pipelineHasStageType(data.stage_view as StageViewEntry[] | null | undefined, "voice_screen") && (
               <Card className="p-4">
                 <div className="text-xs font-medium text-muted-foreground">Voice Screen</div>
                 <div className="mt-1 flex items-center gap-2">
@@ -1559,19 +1609,23 @@ export default function CandidateDetailPage() {
             </Collapsible>
           )}
 
-          {/* Fit breakdown */}
-          <FitBreakdownSection breakdown={data.fit_breakdown} />
+          {/* Fit breakdown — gated on the role actually having a fit stage */}
+          {!isInvalidIntake && pipelineHasStageType(data.stage_view as StageViewEntry[] | null | undefined, "fit") && (
+            <FitBreakdownSection breakdown={data.fit_breakdown} />
+          )}
 
-          {/* Screening */}
-          <ScreeningSection evaluation={data.screening_evaluation} />
+          {/* Screening — hidden for invalid intakes (screening is out of scope / [TO_FIX]) */}
+          {!isInvalidIntake && <ScreeningSection evaluation={data.screening_evaluation} />}
 
-          {/* Voice Screen */}
-          <VoiceScreenSection voice={data.voice_evaluation} />
+          {/* Voice Screen — gated on the role actually having a voice_screen stage */}
+          {!isInvalidIntake && pipelineHasStageType(data.stage_view as StageViewEntry[] | null | undefined, "voice_screen") && (
+            <VoiceScreenSection voice={data.voice_evaluation} />
+          )}
 
-          {/* Assignment — only show once candidate has reached the assignment stage */}
-          {(["assignment", "assessment", "assessment_evaluated", "tech_interview"].some(
-            (s) => (data.current_stage_key || data.current_stage || "").startsWith(s)
-          ) || data.assignment_submission) && (
+          {/* Assignment — only when the role has an assignment stage AND the candidate
+              reached it (or already submitted). Replaces the legacy startsWith() list. */}
+          {pipelineHasStageType(data.stage_view as StageViewEntry[] | null | undefined, "assignment") &&
+            (reachedStageType(data.stage_view as StageViewEntry[] | null | undefined, "assignment") || data.assignment_submission) && (
             <AssignmentSection submission={data.assignment_submission} role={role} />
           )}
 
@@ -1584,9 +1638,9 @@ export default function CandidateDetailPage() {
             </Collapsible>
           )}
 
-          {/* Original Application */}
+          {/* Original Application — always open for invalid intakes so subject is visible */}
           {data.application_mail && (
-            <Collapsible title="Original Application" icon={<Mail className="h-4 w-4" />} defaultOpen={false}>
+            <Collapsible title="Original Application" icon={<Mail className="h-4 w-4" />} defaultOpen={isInvalidIntake}>
               <div className="space-y-3">
                 {data.application_mail.subject && (
                   <p className="text-sm font-medium">{data.application_mail.subject}</p>
@@ -1614,13 +1668,16 @@ export default function CandidateDetailPage() {
           {/* Proceed to next round */}
           <ProceedToNextRound
             applicationId={id}
-            currentStage={data.current_stage}
+            currentStageKey={data.current_stage_key || data.current_stage}
             stageView={data.stage_view as StageViewEntry[] | null | undefined}
             onChanged={() => mutate()}
           />
 
           {/* Meeting reports */}
-          <MeetingReportsSection reports={data.meeting_reports} />
+          <MeetingReportsSection
+            reports={data.meeting_reports}
+            stageView={data.stage_view as StageViewEntry[] | null | undefined}
+          />
 
           {/* Evidence & Decisions */}
           <EvidenceAndDecisions data={data} />

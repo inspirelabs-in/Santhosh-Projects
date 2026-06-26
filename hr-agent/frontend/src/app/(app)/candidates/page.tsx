@@ -19,8 +19,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   StatusTag,
-  STAGE_LABELS,
-  STAGE_ORDER,
+  STAGE_KEY_ORDER,
+  humanizeStageKey,
   type Stage,
 } from "@/components/status-tag";
 import { SkeletonLines } from "@/components/skeleton";
@@ -48,13 +48,8 @@ interface Candidate {
   updated_at: string;
 }
 
-const FILTER_STAGES: (Stage | "all")[] = [
-  "all",
-  ...STAGE_ORDER,
-  "needs_hr_review",
-  "rejected",
-  "hired",
-];
+// V2: filter options are role-defined stage_keys, not the frozen legacy enum.
+const FILTER_STAGES: string[] = ["all", ...STAGE_KEY_ORDER];
 
 const REJECTION_CATEGORIES = [
   { value: "experience_mismatch", label: "Experience mismatch" },
@@ -76,8 +71,8 @@ interface CandidatePage {
 export default function CandidatesPage() {
   const sp = useSearchParams();
   const router = useRouter();
-  const initial = (sp.get("stage") as Stage | "all" | null) ?? "all";
-  const [stage, setStage] = useState<Stage | "all">(initial);
+  const initial = sp.get("stage") ?? "all";
+  const [stage, setStage] = useState<string>(initial);
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState<string | null>(null);
@@ -95,8 +90,10 @@ export default function CandidatesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterKey]);
 
+  // NOTE: stage filtering is applied client-side against the V2 ``current_stage_key``.
+  // The legacy backend ``stage`` param only matches the frozen ``current_stage`` enum,
+  // so we intentionally do NOT forward V2 stage_keys to the server.
   const query = new URLSearchParams();
-  if (stage !== "all") query.set("stage", stage);
   if (q.trim()) query.set("q", q.trim());
   query.set("limit", String(limit));
   query.set("offset", String(offset));
@@ -106,7 +103,13 @@ export default function CandidatesPage() {
     swrFetcher,
     { refreshInterval: 15000, keepPreviousData: true },
   );
-  const data = page?.items;
+  const data = useMemo(() => {
+    const items = page?.items;
+    if (!items) return items;
+    if (stage === "all") return items;
+    // Compare against the V2 stage cursor, falling back to the legacy enum.
+    return items.filter((c) => (c.current_stage_key || c.current_stage) === stage);
+  }, [page?.items, stage]);
   const total = page?.total ?? 0;
   const [refreshing, setRefreshing] = useState(false);
   const refreshingNow = refreshing || isValidating;
@@ -263,7 +266,7 @@ export default function CandidatesPage() {
                     : "border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground",
                 )}
               >
-                {s === "all" ? "all" : STAGE_LABELS[s as Stage] ?? s}
+                {s === "all" ? "all" : humanizeStageKey(s)}
               </button>
             ))}
           </div>
@@ -427,7 +430,7 @@ export default function CandidatesPage() {
                           )}
                         </Link>
                         <Link href={`/candidates/${c.application_id}`} className="flex items-center gap-2">
-                          <StatusTag stage={c.current_stage} />
+                          <StatusTag stageKey={c.current_stage_key || c.current_stage} />
                           {isRecentlyProcessed && (
                             <span className="flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
                               <span className="relative flex h-1.5 w-1.5">
