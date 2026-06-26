@@ -115,6 +115,11 @@ async def manual_schedule_meeting(
         attendee_emails=[*body.panel_emails, candidate_email],
     )
 
+    # SM-2: the V2 cursor (current_stage_key) is the source of truth — it is the
+    # interview stage's real stage_key (the FE sends stage_key as ``round``). The
+    # legacy enum write is back-compat only and is keyed by the 3 default rounds; use
+    # .get() so a custom / renamed interview round (e.g. a 2nd technical, or any
+    # stage_key != technical|ceo|hr) does not KeyError -> 500.
     _ROUND_TO_STAGE = {
         "technical": PipelineStage.TECHNICAL_MEETING_SCHEDULED,
         "ceo": PipelineStage.CEO_MEETING_SCHEDULED,
@@ -132,9 +137,9 @@ async def manual_schedule_meeting(
             bot_provider="recall",
         )
         meeting_row.bot_id = ms_meeting_id
-        await set_stage(
-            session, application_id, _ROUND_TO_STAGE[body.round], force=True
-        )
+        _legacy_stage = _ROUND_TO_STAGE.get(body.round)
+        if _legacy_stage is not None:
+            await set_stage(session, application_id, _legacy_stage, force=True)
         _app = await session.get(Application, application_id)
         if _app is not None:
             _app.current_stage_key = body.round

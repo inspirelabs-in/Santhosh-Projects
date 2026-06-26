@@ -452,7 +452,15 @@ async def _fire_assessment(application_id: UUID) -> str:
 
 async def _fire_screening(application_id: UUID) -> str:
     """Dispatch the written/resume screening stage (optional; a role can add a
-    ``screening`` stage before voice). Generates + emails the questionnaire."""
+    ``screening`` stage before voice). Generates + emails the questionnaire.
+
+    [TO_FIX] SM-3: this enqueues ``run_apply_to_screening_stage`` (no such Arq job)
+    and the inline fallback imports ``dispatch_screening_stage`` (doesn't exist) -> a
+    role that adds a written ``screening`` stage parks at NEEDS_HR_REVIEW. The default
+    pipeline uses voice as the screen, so this is unhit today. Screening is OUT OF
+    SCOPE for now (voice is the mandated screen); wire a real screening dispatcher or
+    reject a ``screening`` stage at JD-config time when revisited.
+    """
     queued = await enqueue("run_apply_to_screening_stage", str(application_id))
     if queued:
         return "fired:screening"

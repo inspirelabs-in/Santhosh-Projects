@@ -16,16 +16,23 @@ the next one and says what to do:
     NEXT stage, and these outbound stages pause for the candidate's response rather
     than auto-advancing, so there is nothing for ``manual`` to gate. (``offer`` is the
     exception: firing it is terminal — HIRED — so a manual offer parks for HR.)
-  - a **manual** gate (assessment_review / interview / decision)
+  - a **manual** gate (interview / decision)
     → the engine PARKS the candidate at that stage and raises a distinct
       ``requires_action`` item (so "schedule the HR round" can never be confused
       with "review the assignment" — that overloading was the root of the
       re-send-assignment bug).
   - **inline** stages (intake / parse / fit) run during intake, so the engine
     skips over them.
-  - an **auto** gate (assessment_review/decision marked auto) is auto-advanced
-    (the human review is skipped); an **interview** always needs a human, so it
-    parks for scheduling regardless of mode.
+  - an **auto** gate (decision marked auto) is auto-advanced (the human review is
+    skipped); an **interview** always needs a human, so it parks for scheduling
+    regardless of mode.
+
+  Note (SM-7): ``assessment_review`` is RETIRED — there is no separate "review the
+  assignment" stage. The assignment stage itself auto-sends on entry and parks for
+  HR review on submit, so a legacy ``assessment_review`` row hits the "unknown stage
+  type → skip" fallthrough in ``_action_for`` and the engine walks past it. The
+  ``PARK_REVIEW`` action below is consequently never produced (kept only so old
+  references resolve).
 """
 
 from __future__ import annotations
@@ -45,7 +52,7 @@ class StageAction(StrEnum):
     FIRE_VOICE_SCREEN = "fire_voice_screen"
     FIRE_ASSIGNMENT = "fire_assignment"
     FIRE_OFFER = "fire_offer"
-    PARK_REVIEW = "park_review"        # assessment_review gate (review the work)
+    PARK_REVIEW = "park_review"        # DEAD (SM-7): assessment_review retired; never produced
     PARK_SCHEDULE = "park_schedule"    # interview gate (HR schedules the meeting)
     PARK_DECISION = "park_decision"    # decision gate (hire / reject)
     PARK_MANUAL = "park_manual"        # a "fire" stage set to manual mode
