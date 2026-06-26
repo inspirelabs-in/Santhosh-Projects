@@ -152,6 +152,7 @@ async def dispatch_voice_screening(
                 max_notice_days=role.max_notice_days if role.max_notice_days is not None else "n/a",
                 role_location=role.location or "n/a",
                 remote_policy=role.remote_policy or "n/a",
+                max_questions=settings.voice_agent_max_questions,
                 candidate_profile_json=json.dumps(
                     profile.model_dump(mode="json", exclude_none=True), ensure_ascii=False
                 )[:6000],
@@ -214,7 +215,7 @@ async def dispatch_voice_screening(
     # Outside the DB session: make the HTTP call to the voice provider.
     company_name = settings.voice_agent_company_name
     system_prompt, first_message_override = build_voice_prompt(
-        kind=CallKind.SCREENING, context=voice_ctx, attempt_no=attempt_no
+        kind=CallKind.SCREENING, context=voice_ctx, attempt_no=attempt_no,
     )
 
     spec = VoiceCallSpec(

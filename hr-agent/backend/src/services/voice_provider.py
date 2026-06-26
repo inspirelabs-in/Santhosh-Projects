@@ -119,14 +119,18 @@ class ElevenLabsConvAIProvider:
         }
 
     def _build_initiation(self, spec: VoiceCallSpec) -> dict[str, Any]:
-        """Build the per-call override payload."""
-        if spec.mode == "confirmation":
-            full_prompt = spec.system_prompt
-            first_message = spec.first_message_override or (
-                f"Hi {spec.candidate_name}, this is the {spec.company_name} hiring assistant. "
-                "I'm calling to confirm your upcoming interview."
-            )
-        else:
+        """Build the per-call override payload.
+
+        IMPORTANT — ElevenLabs Security Override toggles:
+        The agent prompt and first_message overrides below are silently ignored
+        (no 400 error, just falls back to dashboard defaults) unless the agent's
+        "Security > Override" toggles for prompt and first_message are enabled
+        in the ElevenLabs dashboard. If you hear silence on outbound calls, that
+        is why. Enable those toggles and set a fallback first_message on the
+        dashboard.
+        """
+        if spec.mode == "screening":
+            # Inject question script and hangup rule reminder for screening calls.
             question_lines = []
             for idx, q in enumerate(spec.questions, start=1):
                 line = f"{idx}. ({q.id}) {q.question}"
@@ -147,6 +151,23 @@ class ElevenLabsConvAIProvider:
                 f"calling about the {spec.role_title} role you applied for. "
                 "Is this a good time to talk?"
             )
+        else:
+            # All other modes (confirmation, meeting_schedule, status_update, etc.)
+            # receive the system prompt as-is — their builders already include
+            # everything needed. No question injection or tool reminder here.
+            full_prompt = spec.system_prompt
+            first_message = spec.first_message_override or (
+                f"Hi {spec.candidate_name}, this is the {spec.company_name} hiring assistant. "
+                "I'm calling regarding your application."
+            )
+
+        logger.info(
+            "elevenlabs outbound: mode=%s candidate=%s first_message_len=%d prompt_len=%d",
+            spec.mode,
+            spec.candidate_name,
+            len(first_message),
+            len(full_prompt),
+        )
         dynamic_vars = {
             "candidate_name": spec.candidate_name,
             "role_title": spec.role_title,
@@ -199,7 +220,6 @@ class ElevenLabsConvAIProvider:
             "to_number": spec.candidate_phone,
             "conversation_initiation_client_data": initiation,
         }
-        logger.info("the black sheep: %s", self._api_key)
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
                 f"{self.BASE}/convai/twilio/outbound-call",
