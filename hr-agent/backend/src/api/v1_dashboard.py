@@ -268,6 +268,7 @@ class CandidateDetail(BaseModel):
     fit_tier: str | None = None
     fit_breakdown: dict[str, Any] | None = None
     voice_evaluation: dict[str, Any] | None = None
+    intake_error: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -426,12 +427,32 @@ async def candidate_detail(
                 "transcript_url": await presigned_get_url(bucket, voice_row.transcript_r2_key, ttl_seconds=3600) if voice_row.transcript_r2_key else None,
             }
 
-        # Build stage_view
+        # Detect invalid intake (wrong subject / no matching role).
+        # When parked_no_role is in the audit trail the email never matched a
+        # role, so showing pipeline/eval data would be misleading.
+        intake_error: str | None = None
+        if app.role_id is None:
+            intake_error = "no_role_matched"
+        else:
+            for a in audit_rows:
+                if a.action == "parked_no_role":
+                    intake_error = "no_role_matched"
+                    break
+
+        # Build stage_view — skip for invalid intakes (role_id is None means
+        # candidate_stage_view would return nothing meaningful anyway)
         stage_view_data: list[dict[str, Any]] | None = None
-        try:
-            stage_view_data = await candidate_stage_view(session, application_id)
-        except Exception:
-            pass
+        if not intake_error:
+            try:
+                stage_view_data = await candidate_stage_view(session, application_id)
+            except Exception:
+                pass
+
+        # Null pipeline evaluation fields for invalid intakes so the UI
+        # doesn't show voice / screening / fit sections that make no sense.
+        if intake_error:
+            voice_evaluation = None
+            fit_breakdown = None
 
         return CandidateDetail(
             application_id=application_id,
@@ -451,9 +472,9 @@ async def candidate_detail(
             current_stage_key=app.current_stage_key or app.current_stage,
             stage_status=app.stage_status,
             stage_view=stage_view_data,
-            screening_questions=app.screening_questions,
-            screening_evaluation=app.screening_evaluation,
-            assignment_submission=app.assignment_submission,
+            screening_questions=None if intake_error else app.screening_questions,
+            screening_evaluation=None if intake_error else app.screening_evaluation,
+            assignment_submission=None if intake_error else app.assignment_submission,
             journey_report=app.journey_report,
             profile=profile_row.parsed_data if profile_row else None,
             audit=[
@@ -471,10 +492,11 @@ async def candidate_detail(
             application_mail=application_mail,
             admin_review=app.admin_review,
             meeting_reports=meeting_reports or None,
-            fit_score=app.fit_score,
-            fit_tier=app.fit_tier,
+            fit_score=None if intake_error else app.fit_score,
+            fit_tier=None if intake_error else app.fit_tier,
             fit_breakdown=fit_breakdown,
             voice_evaluation=voice_evaluation,
+            intake_error=intake_error,
             created_at=app.created_at,
             updated_at=app.updated_at,
         )
@@ -1555,6 +1577,49 @@ async def resolve_needs_review(
         completed_stage_key=stage_key,
         verdict=verdict,
         result_ref={"hr_decision": body.decision, "via": "needs_review_resolve"},
+    )
+    return {"ok": True, "decision": decision}
+
+
+class AdvanceBody(BaseModel):
+    note: str | None = None
+
+
+@router.post("/candidates/{application_id}/advance")
+async def advance_to_next_round(
+    application_id: UUID,
+    body: AdvanceBody,
+    actor: Annotated[str, Depends(require_recruiter)],
+) -> dict:
+    """V2 generic "proceed to next round". Passes the candidate's CURRENT stage and
+    lets the engine pick the next move from the role's pipeline -- no target stage is
+    sent by the caller (that was the SM-1 bug: the FE derived a V2 stage_key and POSTed
+    it to the legacy enum ``/stage`` endpoint, which 400'd on every non-colliding key).
+    Mirrors ``resolve-review`` but is unconditionally a PASS on the current stage."""
+    from src.models.pipeline import StageVerdict
+    from src.services.stage_runner import advance_candidate
+
+    async with session_scope() as session:
+        app = await session.get(Application, application_id)
+        if app is None:
+            raise HTTPException(status_code=404, detail="application_not_found")
+        stage_key = app.current_stage_key
+        if not stage_key:
+            raise HTTPException(status_code=400, detail="no_current_stage")
+        await log_audit(
+            session,
+            application_id=application_id,
+            candidate_id=app.candidate_id,
+            action="advanced_to_next_round",
+            actor=actor,
+            details={"from_stage_key": stage_key, "note": body.note},
+        )
+
+    decision = await advance_candidate(
+        application_id=application_id,
+        completed_stage_key=stage_key,
+        verdict=StageVerdict.PASS,
+        result_ref={"via": "manual_advance", "from_stage_key": stage_key},
     )
     return {"ok": True, "decision": decision}
 

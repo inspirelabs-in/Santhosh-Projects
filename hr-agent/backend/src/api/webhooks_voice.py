@@ -1440,7 +1440,7 @@ async def recover_elevenlabs_conversation(
             transcript=transcript_turns,
             metadata=ElMetadata(
                 call_duration_secs=duration_sec,
-                cost=el_metadata.get("cost"),
+                cost=el_metadata.get("cost") if isinstance(el_metadata.get("cost"), dict) else None,
             ) if el_metadata else None,
             analysis=analysis,
         ),
