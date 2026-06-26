@@ -88,6 +88,10 @@ class Role(Base):
     scoring_rubric: Mapped[dict] = mapped_column(JSONB, default=dict)
     cut_line: Mapped[int] = mapped_column(Integer, default=60, server_default="60")
     interviewer_panel: Mapped[list | dict] = mapped_column(JSONB, default=list)
+    # Column default is "open", but the create/apply paths set "draft" explicitly
+    # when the role has an assignment stage and no published assignment PDF yet —
+    # such a role is held at "draft" (hidden from the careers list) until a PDF is
+    # uploaded or drafted via generate_assignment_for_role.
     status: Mapped[str] = mapped_column(String(20), default="open", server_default="open")
     # role constraints (extensions beyond architecture.md minimal schema)
     ctc_min_lpa: Mapped[float | None] = mapped_column()

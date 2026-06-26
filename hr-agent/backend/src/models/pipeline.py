@@ -133,7 +133,9 @@ DEFAULT_PIPELINE: list[dict] = [
     {"stage_key": "voice_screen", "stage_type": "voice_screen", "label": "Voice Screen", "mode": "auto"},
     {"stage_key": "assignment", "stage_type": "assignment", "label": "Assignment", "mode": "manual"},
     {"stage_key": "technical", "stage_type": "interview", "label": "Technical Interview", "mode": "manual"},
-    {"stage_key": "ceo", "stage_type": "interview", "label": "CEO Interview", "mode": "manual"},
+    # stage_key stays "ceo" (all round/booking/analysis machinery keys off it); the
+    # human-facing LABEL is "Management Round" — the FE renders labels from stage_view.
+    {"stage_key": "ceo", "stage_type": "interview", "label": "Management Round", "mode": "manual"},
     {"stage_key": "hr", "stage_type": "interview", "label": "HR Interview", "mode": "manual"},
     {"stage_key": "decision", "stage_type": "decision", "label": "Decision", "mode": "manual"},
     {"stage_key": "offer", "stage_type": "offer", "label": "Offer", "mode": "manual"},
