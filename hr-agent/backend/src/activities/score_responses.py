@@ -1,12 +1,12 @@
 """Stage 6: Score screening responses.
 
 Three-layer scoring:
-  1. Knock-outs (deterministic)      -- CTC, notice period, must-have skill, location
+  1. Knock-outs (deterministic)      -- notice period, must-have skill, location
   2. Scored questions (weighted)     -- candidate's pick matches/doesn't match rubric
   3. Open-text (LLM rubric)          -- SCORE_OPEN_TEXT_V1 for each free-text answer
 
-Composite is the weighted average scaled to 0-100. Candidates within
-±10 points of the role's `cut_line` go to `needs_hr_review`.
+Composite is the weighted average scaled to 0-100. The verdict is produced by
+``route_score`` using the canonical 70/15 threshold (see eval_constants.py).
 """
 
 # [SCRAPE] dead: no live caller (Temporal-era / Chat-V2 orphan). Safe to delete after burn-in.
@@ -20,12 +20,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio import activity
 
-from src.config import get_settings
 from src.db.base import CandidateProfileRow, ScreeningResponseRow
+from src.services.evaluation import route_score
 from src.db.connection import session_scope
 from src.db.repositories.audit import log_audit
 from src.db.repositories.candidate import get_application, update_application_status
-from src.db.repositories.policy import resolve_policy
 from src.db.repositories.role import get_role
 from src.llm.client import get_llm_client
 from src.llm.model_registry import Stage, model_for
@@ -33,6 +32,7 @@ from src.llm.prompt_manager import compile_prompt
 from src.llm.prompts import SCORE_OPEN_TEXT_V1, SCORE_OPEN_TEXT_VERSION
 from src.models.candidate import ApplicationStatus, CandidateProfile
 from src.models.llm_outputs import OpenTextScore
+from src.models.pipeline import StageVerdict
 from src.models.screening import (
     ScoreResult,
     ScreeningQuestion,
@@ -40,9 +40,6 @@ from src.models.screening import (
 )
 
 logger = logging.getLogger(__name__)
-_settings = get_settings()
-
-_DEFAULT_GREY_ZONE_WIDTH = 10
 
 
 @dataclass
@@ -160,16 +157,7 @@ async def run_score_responses(payload: ScoreResponsesInput) -> ScoreResult:
         responses = [
             ScreeningResponseItem.model_validate(r) for r in (response_row.responses or [])
         ]
-        ctc_multiplier, _ = await resolve_policy(
-            session, "ctc_overshoot_multiplier", role.id, fallback=1.15
-        )
-        grey_zone_width, _ = await resolve_policy(
-            session, "screening_grey_zone_width", role.id, fallback=_DEFAULT_GREY_ZONE_WIDTH
-        )
-
         role_snapshot = {
-            "cut_line": role.cut_line,
-            "ctc_max_lpa": role.ctc_max_lpa,
             "max_notice_days": role.max_notice_days,
             "scoring_rubric": role.scoring_rubric or {},
         }
@@ -179,11 +167,8 @@ async def run_score_responses(payload: ScoreResponsesInput) -> ScoreResult:
     knocked, reason = check_screening_knockouts(
         questions=questions,
         responses_by_id={r.question_id: r for r in responses},
-        profile_expected_ctc=profile.expected_ctc_lpa,
         profile_notice_days=profile.notice_period_days,
-        role_ctc_max=role_snapshot["ctc_max_lpa"],
         role_max_notice_days=role_snapshot["max_notice_days"],
-        ctc_multiplier=ctc_multiplier,
     )
     if knocked:
         composite = 0
@@ -250,15 +235,12 @@ async def run_score_responses(payload: ScoreResponsesInput) -> ScoreResult:
                 )
 
         composite = int(round((weighted_sum / total_weight) * 100)) if total_weight > 0 else 0
-        cut = role_snapshot.get("cut_line")
-        if cut is None:
-            cut = 60
-        if abs(composite - cut) <= grey_zone_width:
-            recommendation = "hr_review"
-        elif composite >= cut:
-            recommendation = "shortlist"
-        else:
-            recommendation = "reject"
+        verdict = route_score(composite)
+        recommendation = {
+            StageVerdict.PASS: "shortlist",
+            StageVerdict.NEEDS_REVIEW: "hr_review",
+            StageVerdict.FAIL: "reject",
+        }[verdict]
 
     # Persist the scored responses + status
     async with session_scope() as session:
@@ -287,7 +269,7 @@ async def run_score_responses(payload: ScoreResponsesInput) -> ScoreResult:
             application_id=payload.application_id,
             details={
                 "composite_score": composite,
-                "cut_line": role_snapshot["cut_line"],
+                "cut_line": 70,
                 "knock_out_triggered": knocked,
                 "knock_out_reason": reason,
                 "recommendation": recommendation,
@@ -303,7 +285,6 @@ async def run_score_responses(payload: ScoreResponsesInput) -> ScoreResult:
         composite_score=composite,
         per_question_scores=per_question if not knocked else [],
         needs_hr_review=(recommendation == "hr_review"),
-        cut_line=role_snapshot["cut_line"],
         recommendation=recommendation,
     )
 

@@ -153,9 +153,6 @@ async def run_fit_score(payload: FitScoreInput) -> FitScoreOutput:
         green_threshold, green_rule_id = await resolve_policy(
             session, "fit_green_threshold", role.id, fallback=60
         )
-        ctc_multiplier, _ = await resolve_policy(
-            session, "ctc_overshoot_multiplier", role.id, fallback=1.15
-        )
         no_profile_score, no_profile_rule_id = await resolve_policy(
             session, "fit_no_profile_default_score", role.id, fallback=40
         )
@@ -206,12 +203,9 @@ async def run_fit_score(payload: FitScoreInput) -> FitScoreOutput:
         medium_data = await _get_medium_data(session, payload.application_id)
 
     ko_result = check_hard_knockouts(
-        expected_ctc=profile.expected_ctc_lpa,
         notice_days=profile.notice_period_days,
-        role_ctc_max=role_snapshot["ctc_max_lpa"],
         role_max_notice_days=role_snapshot["max_notice_days"],
         role_remote_policy=role_snapshot["remote_policy"],
-        ctc_multiplier=ctc_multiplier,
     )
     knock_outs = ko_result.reasons
 

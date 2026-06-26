@@ -5,7 +5,6 @@ All thresholds come from PolicyRule; callers pass pre-resolved values or
 accept defaults.
 
 Knockout types:
-- CTC overshoot: expected CTC > role max * multiplier
 - Notice period: notice days > role max
 - Relocation refusal: won't relocate + on-site role
 - Must-have skill: missing required skill (screening-only)
@@ -25,20 +24,6 @@ class KnockoutResult:
     @property
     def reason_string(self) -> str | None:
         return "; ".join(self.reasons)[:255] or None
-
-
-def check_ctc_knockout(
-    expected_ctc: float | None,
-    role_ctc_max: float | None,
-    multiplier: float = 1.15,
-) -> str | None:
-    """Returns knockout reason if CTC exceeds budget, else None."""
-    if expected_ctc is None or role_ctc_max is None:
-        return None
-    if expected_ctc > role_ctc_max * multiplier:
-        pct = int((multiplier - 1) * 100)
-        return f"expected_ctc_exceeds_budget:{expected_ctc}L>{role_ctc_max}L+{pct}%"
-    return None
 
 
 def check_notice_knockout(
@@ -67,20 +52,13 @@ def check_relocation_knockout(
 
 def check_hard_knockouts(
     *,
-    expected_ctc: float | None = None,
     notice_days: int | None = None,
     willing_to_relocate: bool | None = None,
-    role_ctc_max: float | None = None,
     role_max_notice_days: int | None = None,
     role_remote_policy: str | None = None,
-    ctc_multiplier: float = 1.15,
 ) -> KnockoutResult:
     """Run all hard knockout checks. Used by fit_score and graph.py."""
     reasons: list[str] = []
-
-    r = check_ctc_knockout(expected_ctc, role_ctc_max, ctc_multiplier)
-    if r:
-        reasons.append(r)
 
     r = check_notice_knockout(notice_days, role_max_notice_days)
     if r:
@@ -97,11 +75,8 @@ def check_screening_knockouts(
     *,
     questions: list,
     responses_by_id: dict,
-    profile_expected_ctc: float | None = None,
     profile_notice_days: int | None = None,
-    role_ctc_max: float | None = None,
     role_max_notice_days: int | None = None,
-    ctc_multiplier: float = 1.15,
 ) -> tuple[bool, str | None]:
     """Screening-specific knockouts (question-driven). Used by score_responses.
 
@@ -113,19 +88,7 @@ def check_screening_knockouts(
         if not q.knock_out_value:
             continue
 
-        if q.type == KnockOutType.CTC_CHECK.value:
-            expected = profile_expected_ctc
-            if expected is None:
-                r = responses_by_id.get(q.id)
-                try:
-                    expected = float(r.answer) if r and r.answer else None
-                except (ValueError, AttributeError):
-                    expected = None
-            reason = check_ctc_knockout(expected, role_ctc_max, ctc_multiplier)
-            if reason:
-                return True, reason
-
-        elif q.type == KnockOutType.NOTICE_PERIOD_CHECK.value:
+        if q.type == KnockOutType.NOTICE_PERIOD_CHECK.value:
             notice = profile_notice_days
             if notice is None:
                 r = responses_by_id.get(q.id)
