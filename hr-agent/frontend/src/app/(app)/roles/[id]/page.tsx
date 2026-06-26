@@ -45,6 +45,33 @@ const STATUS_VARIANT: Record<string, "success" | "warning" | "muted" | "destruct
   cancelled: "destructive",
 };
 
+// Human-readable labels for known pipeline stage keys. The role detail API
+// returns `pipeline_template` as an ordered list of stage-key strings; we
+// humanize unknown keys by title-casing them.
+const STAGE_LABELS: Record<string, string> = {
+  intake: "Intake",
+  parse: "Resume Parse",
+  fit_score: "Fit Score",
+  fit: "Fit Score",
+  screening: "Screening",
+  voice_screen: "Voice Screen",
+  assignment: "Assignment",
+  tech_interview: "Technical Interview",
+  ceo_interview: "CEO Interview",
+  interview: "Interview",
+  decision: "Decision",
+  offer: "Offer",
+  hired: "Hired",
+  rejected: "Rejected",
+};
+
+const humanizeStage = (key: string): string =>
+  STAGE_LABELS[key] ??
+  key
+    .split("_")
+    .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : w))
+    .join(" ");
+
 function Skeleton({ className }: { className?: string }) {
   return <div className={cn("animate-pulse rounded-md bg-muted", className)} />;
 }
@@ -154,8 +181,8 @@ export default function RoleDetailPage() {
   // Company context editing
   const [editingCtx, setEditingCtx] = useState(false);
   const [ctxDraft, setCtxDraft] = useState<{
-    intensity: string; summary: string; hiring_bar: string; what_matters_here: string[];
-  }>({ intensity: "standard", summary: "", hiring_bar: "", what_matters_here: [] });
+    summary: string; hiring_bar: string; what_matters_here: string[];
+  }>({ summary: "", hiring_bar: "", what_matters_here: [] });
   const [ctxDirty, setCtxDirty] = useState(false);
 
   useEffect(() => {
@@ -177,7 +204,6 @@ export default function RoleDetailPage() {
     const ctx = role.company_context as Record<string, unknown> | undefined;
     if (ctx) {
       setCtxDraft({
-        intensity: (ctx.intensity as string) ?? "standard",
         summary: (ctx.summary as string) ?? "",
         hiring_bar: (ctx.hiring_bar as string) ?? "",
         what_matters_here: ((ctx.what_matters_here as string[]) ?? []),
@@ -309,6 +335,24 @@ export default function RoleDetailPage() {
     }
   };
 
+  // Publish the assignment: renders the brief to a PDF and flips the role
+  // status from draft -> open. Endpoint exists at
+  // POST /dashboard/roles/{id}/assignment/publish.
+  const [publishing, setPublishing] = useState(false);
+  const publishAssignment = async () => {
+    if (!id) return;
+    setPublishing(true);
+    try {
+      await api.post(`/dashboard/roles/${id}/assignment/publish`, {});
+      await mutate();
+      flash("ok", "Assignment published — role is live");
+    } catch (e: any) {
+      flash("err", e?.message ?? "Failed to publish assignment");
+    } finally {
+      setPublishing(false);
+    }
+  };
+
   const [downloading, setDownloading] = useState(false);
   const [showDocViewer, setShowDocViewer] = useState(false);
 
@@ -434,6 +478,21 @@ export default function RoleDetailPage() {
               </div>
 
               <div className="flex items-center gap-2 shrink-0">
+                {/* Publish assignment: only when role is a draft, has a brief,
+                    and no problem doc has been generated yet. The endpoint
+                    renders the brief to a PDF and flips status draft -> open. */}
+                {(role.status as string) === "draft" &&
+                  !!role.assignment_brief &&
+                  !role.has_problem_doc && (
+                    <Button size="sm" onClick={publishAssignment} disabled={publishing || saving}>
+                      {publishing ? (
+                        <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <FileText className="mr-1.5 h-3.5 w-3.5" />
+                      )}
+                      Publish assignment (generate PDF &amp; go live)
+                    </Button>
+                  )}
                 {role.status === "open" && (
                   <Button variant="outline" size="sm" onClick={() => changeStatus("paused")} disabled={saving}>
                     <Pause className="mr-1.5 h-3.5 w-3.5" /> Pause
@@ -515,6 +574,49 @@ export default function RoleDetailPage() {
                     ) : (
                       <p className="text-sm text-muted-foreground italic py-4">
                         No job description set. Click Edit to add one.
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Pipeline stages — READ-ONLY.
+                    The role detail API (`GET /dashboard/roles/{id}`) returns
+                    `pipeline_template` as an ordered list of stage-key strings
+                    only; the rich per-stage shape (stage_type / mode /
+                    is_enabled) lives in `role_pipeline_stages` rows and is NOT
+                    exposed by this endpoint, and PATCH only accepts a
+                    `string[]` of stage keys (validated server-side). So this
+                    surfaces the ordered pipeline for recruiters to SEE; making
+                    mode/enable/reorder editable here needs a backend endpoint
+                    that returns + persists the rich stage objects. */}
+                <Card>
+                  <div className="px-5 pt-4 pb-2">
+                    <h3 className="text-sm font-semibold">Pipeline stages</h3>
+                    <p className="text-xs text-muted-foreground">
+                      Ordered hiring flow for this role
+                    </p>
+                  </div>
+                  <CardContent className="pt-0">
+                    {role.pipeline_template && role.pipeline_template.length > 0 ? (
+                      <ol className="space-y-1.5">
+                        {role.pipeline_template.map((stageKey, i) => (
+                          <li
+                            key={`${stageKey}-${i}`}
+                            className="flex items-center gap-3 rounded-md border bg-muted/30 px-3 py-2 text-sm"
+                          >
+                            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-medium text-primary">
+                              {i + 1}
+                            </span>
+                            <span className="font-medium">{humanizeStage(stageKey)}</span>
+                            <Badge variant="muted" className="ml-auto text-[10px]">
+                              {stageKey}
+                            </Badge>
+                          </li>
+                        ))}
+                      </ol>
+                    ) : (
+                      <p className="py-4 text-sm italic text-muted-foreground">
+                        Using the default pipeline (no custom stages configured).
                       </p>
                     )}
                   </CardContent>
@@ -854,23 +956,6 @@ export default function RoleDetailPage() {
                         {editingCtx ? (
                           <div className="space-y-2">
                             <div>
-                              <Label className="text-[10px] text-muted-foreground">Intensity</Label>
-                              <Select
-                                value={ctxDraft.intensity}
-                                onValueChange={(v) => { setCtxDraft((p) => ({ ...p, intensity: v })); setCtxDirty(true); }}
-                              >
-                                <SelectTrigger className="mt-0.5 h-7 text-xs">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="light">Light</SelectItem>
-                                  <SelectItem value="standard">Standard</SelectItem>
-                                  <SelectItem value="high">High</SelectItem>
-                                  <SelectItem value="critical">Critical</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div>
                               <Label className="text-[10px] text-muted-foreground">Summary</Label>
                               <textarea
                                 value={ctxDraft.summary}
@@ -944,10 +1029,6 @@ export default function RoleDetailPage() {
                             const whatMatters = ctx.what_matters_here as string[] | undefined;
                             return (
                               <div className="space-y-1.5">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Intensity</span>
-                                  <Badge variant="outline" className="text-[10px]">{(ctx.intensity as string) ?? "standard"}</Badge>
-                                </div>
                                 {summary && <p className="text-xs text-muted-foreground">{summary}</p>}
                                 {hiringBar && (
                                   <div>
