@@ -15,6 +15,7 @@ interface QuickDetail {
   candidate: { name: string | null; email: string | null; phone: string | null };
   role: { title: string } | null;
   current_stage: Stage;
+  current_stage_key?: string;
   profile: Record<string, any> | null;
   screening_evaluation: any;
   created_at: string;
@@ -75,7 +76,7 @@ export function QuickViewPanel({
 
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <StatusTag stage={data.current_stage} />
+                <StatusTag stageKey={data.current_stage_key || data.current_stage} />
                 <ConfidenceBadge value={confidence?.overall} />
               </div>
               {data.role && (

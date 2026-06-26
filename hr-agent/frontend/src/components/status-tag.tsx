@@ -158,10 +158,123 @@ const styles: Record<Stage, Style> = {
   hired:                            HIRED,
 };
 
-export function StatusTag({ stage, className }: { stage: Stage | string; className?: string }) {
+// ---------------------------------------------------------------------------
+// V2: render off the role-defined ``current_stage_key`` (not the frozen legacy
+// enum). Labels resolve from the role's stage_view when available; this map is the
+// fallback for the list/kanban/quick-view surfaces that don't carry stage_view.
+// ---------------------------------------------------------------------------
+export const STAGE_KEY_LABELS: Record<string, string> = {
+  intake: "Intake",
+  parse: "Resume Parse",
+  email_filter: "Inbound Filter",
+  fit: "Fit Score",
+  screening: "Screening",
+  voice_screen: "Voice Screen",
+  assignment: "Assignment",
+  technical: "Technical Interview",
+  ceo: "Management Round", // stage_key stays "ceo"; human-facing label is the management round
+  hr: "HR Interview",
+  decision: "Decision",
+  offer: "Offer",
+  needs_hr_review: "Needs HR Review",
+  rejected: "Rejected",
+  hired: "Hired",
+};
+
+// Canonical column order for the kanban / filters when candidates span roles with
+// different pipelines. Unknown keys sort after these, before the terminal states.
+export const STAGE_KEY_ORDER: string[] = [
+  "intake",
+  "parse",
+  "fit",
+  "screening",
+  "voice_screen",
+  "assignment",
+  "technical",
+  "ceo",
+  "hr",
+  "decision",
+  "offer",
+  "needs_hr_review",
+  "rejected",
+  "hired",
+];
+
+export function humanizeStageKey(stageKey: string): string {
+  return (
+    STAGE_KEY_LABELS[stageKey] ??
+    stageKey
+      .split("_")
+      .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
+      .join(" ")
+  );
+}
+
+function stageKeyStyle(stageKey: string): Style {
+  switch (stageKey) {
+    case "rejected":
+      return DANGER;
+    case "hired":
+      return HIRED;
+    case "needs_hr_review":
+      return { ...WARN, border: "border border-warning/40" };
+    case "offer":
+      return SUCCESS;
+    case "intake":
+    case "parse":
+    case "email_filter":
+      return NEUTRAL;
+    case "fit":
+    case "screening":
+    case "voice_screen":
+    case "assignment":
+      return INFO;
+    case "technical":
+    case "ceo":
+    case "hr":
+    case "decision":
+      return { ...ACCENT, border: "border border-primary/40" };
+    default:
+      return ACCENT;
+  }
+}
+
+export function StatusTag({
+  stage,
+  stageKey,
+  label,
+  className,
+}: {
+  stage?: Stage | string;
+  /** V2 role-defined stage cursor; preferred over the legacy ``stage`` enum. */
+  stageKey?: string;
+  /** Explicit label (e.g. from the role's stage_view) overrides the lookup. */
+  label?: string;
+  className?: string;
+}) {
+  // Prefer the V2 stage_key path when given.
+  if (stageKey) {
+    const s = stageKeyStyle(stageKey);
+    const text = label ?? humanizeStageKey(stageKey);
+    return (
+      <span
+        className={cn(
+          "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 font-mono text-[11px] leading-none",
+          s.bg,
+          s.text,
+          s.border,
+          className,
+        )}
+      >
+        <span className={cn("h-1.5 w-1.5 rounded-full", s.dot)} />
+        {text}
+      </span>
+    );
+  }
+
   const key = (stage as Stage) in styles ? (stage as Stage) : "applied";
   const s = styles[key];
-  const label = STAGE_LABELS[key] ?? String(stage);
+  const tagLabel = label ?? STAGE_LABELS[key] ?? String(stage);
   return (
     <span
       className={cn(

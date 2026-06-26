@@ -1,8 +1,12 @@
 "use client";
 
 import { useMemo } from "react";
-import Link from "next/link";
-import { STAGE_LABELS, STAGE_ORDER, type Stage } from "@/components/status-tag";
+import {
+  StatusTag,
+  STAGE_KEY_ORDER,
+  humanizeStageKey,
+  type Stage,
+} from "@/components/status-tag";
 import { Avatar } from "@/components/ui/avatar";
 import { LazyConfidenceBadge } from "@/components/lazy-confidence-badge";
 import { cn } from "@/lib/utils";
@@ -14,30 +18,34 @@ interface Candidate {
   email: string | null;
   role_title: string | null;
   current_stage: Stage;
+  current_stage_key?: string;
   screening_score: number | null;
   updated_at: string;
 }
 
-const KANBAN_STAGES: Stage[] = [
-  ...STAGE_ORDER,
-  "needs_hr_review" as Stage,
-  "hired" as Stage,
-  "rejected" as Stage,
-];
+// V2: columns are the role-defined stage cursor keys, not the frozen legacy enum.
+// We exclude the noisy ingestion stages (intake/parse) from the board — candidates
+// in those stages are still bucketed if present, just not given dedicated columns.
+// Terminal states (rejected/hired) are kept so closed candidates remain visible.
+const KEY_FALLBACK = "OTHER";
+const OTHER_LABEL = "Other";
 
 const COL_COLORS: Record<string, string> = {
   intake: "border-t-blue-400",
   parse: "border-t-sky-400",
-  fit_score: "border-t-cyan-400",
+  fit: "border-t-cyan-400",
   screening: "border-t-teal-400",
   voice_screen: "border-t-emerald-400",
   assignment: "border-t-yellow-400",
-  tech_interview: "border-t-orange-400",
-  ceo_interview: "border-t-purple-400",
+  technical: "border-t-orange-400",
+  ceo: "border-t-purple-400",
+  hr: "border-t-indigo-400",
+  decision: "border-t-violet-400",
   offer: "border-t-primary",
   hired: "border-t-green-500",
   rejected: "border-t-destructive",
   needs_hr_review: "border-t-warning",
+  [KEY_FALLBACK]: "border-t-border",
 };
 
 export function KanbanView({
@@ -49,14 +57,12 @@ export function KanbanView({
 }) {
   const columns = useMemo(() => {
     const map = new Map<string, Candidate[]>();
-    for (const s of KANBAN_STAGES) map.set(s, []);
+    for (const s of STAGE_KEY_ORDER) map.set(s, []);
+    map.set(KEY_FALLBACK, []);
     for (const c of data) {
-      const list = map.get(c.current_stage);
-      if (list) list.push(c);
-      else {
-        if (!map.has(c.current_stage)) map.set(c.current_stage, []);
-        map.get(c.current_stage)!.push(c);
-      }
+      const key = c.current_stage_key || c.current_stage;
+      const bucket = map.has(key) ? key : KEY_FALLBACK;
+      map.get(bucket)!.push(c);
     }
     return Array.from(map.entries()).filter(([, items]) => items.length > 0);
   }, [data]);
@@ -73,7 +79,7 @@ export function KanbanView({
         >
           <div className="flex items-center justify-between px-3 py-2">
             <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-              {STAGE_LABELS[stage as Stage] ?? stage.replace(/_/g, " ")}
+              {stage === KEY_FALLBACK ? OTHER_LABEL : humanizeStageKey(stage)}
             </span>
             <span className="font-data text-[11px] font-bold tabular-nums text-muted-foreground">
               {items.length}
@@ -100,6 +106,9 @@ export function KanbanView({
                       {c.role_title ?? "No role"}
                     </div>
                   </div>
+                </div>
+                <div className="mt-1.5">
+                  <StatusTag stageKey={c.current_stage_key || c.current_stage} />
                 </div>
                 {c.screening_score != null && (
                   <div className="mt-1.5 flex items-center gap-1">
