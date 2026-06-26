@@ -7,8 +7,6 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
       POSTGRES_DB: grabon_geo
       TZ: Asia/Kolkata
-    ports:
-      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql
@@ -25,7 +23,7 @@ services:
     restart: unless-stopped
 
   web:
-    image: ghcr.io/${GITHUB_REPO}:latest
+    image: ghcr.io/inspirelabs-in/grabon-geo:latest
     container_name: grabon-geo-web
     init: true
     ports:
@@ -55,6 +53,27 @@ services:
       db:
         condition: service_healthy
     restart: always
+
+  # Auto-updates: polls GHCR every 5 min, pulls new image + restarts web
+  watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower
+    environment:
+      WATCHTOWER_CLEANUP: "true"
+      WATCHTOWER_POLL_INTERVAL: "300"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: grabon-geo-web
+    restart: unless-stopped
+
+  # Cloudflare Tunnel: set CLOUDFLARE_TUNNEL_TOKEN in .env
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflare-tunnel
+    command: tunnel run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - web
+    restart: unless-stopped
 
 volumes:
   postgres_data:

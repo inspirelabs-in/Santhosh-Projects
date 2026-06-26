@@ -5,7 +5,8 @@ import re
 import time
 import httpx
 from app.models import PipelineState, PromptItem
-from app.agent.scraper import run_scrape, ALL_ENGINES, VISIBLE_ENGINES
+from app.agent.scraper import run_scrape
+from app.engines import ALL_ENGINES, VISIBLE_ENGINES, AUTH_ENGINES
 from app.agent.parser import parse_response
 from app.agent.serp_parser import parse_serp_html
 from app.database import run_db
@@ -24,15 +25,15 @@ ENGINE_DELAY_MAX = 3
 PROMPT_DELAY_MIN = 1
 PROMPT_DELAY_MAX = 2
 
-BATCH_COOLDOWN_MIN = 3
-BATCH_COOLDOWN_MAX = 6
+BATCH_COOLDOWN_MIN = 15
+BATCH_COOLDOWN_MAX = 30
 ENGINE_COOLDOWN_BASE = 120
 ENGINE_COOLDOWN_MAX = 1800
 CONSECUTIVE_FAIL_THRESHOLD = 10
 
 ENGINE_CONCURRENCY = {
-    "google_aio": 3,
-    "google_ai_mode": 3,
+    "google_aio": 1,
+    "google_ai_mode": 1,
     "gemini": 2,
     "chatgpt": 2,
     "claude": 2,
@@ -62,12 +63,28 @@ async def run_pipeline(prompt: PromptItem, engine_name: str, country_code: str =
 
             _err_lower = (scrape_result.error_log or "").lower()
 
-            if engine_name in ("google_aio", "google_ai_mode") and "captcha" in _err_lower:
-                from app.agent.scraper import rotate_engine_proxy
-                rotate_engine_proxy(engine_name)
-                log.warning(f"[{engine_name}] Captcha detected - rotated proxy, retrying")
-                await asyncio.sleep(5)
-                continue
+            if engine_name in ("google_aio", "google_ai_mode"):
+                if "engine captcha cooldown" in _err_lower:
+                    log.warning(f"[{engine_name}] Global captcha cooldown active — not retrying")
+                    break
+
+                if "captcha" in _err_lower:
+                    from app.agent.scraper import rotate_engine_proxy
+                    rotate_engine_proxy(engine_name)
+                    log.warning(f"[{engine_name}] Captcha detected - rotated proxy, retrying")
+                    await asyncio.sleep(5)
+                    continue
+
+                _is_transient_google = (
+                    "notimplementederror" in _err_lower
+                    or "connection" in _err_lower
+                    or "timeout" in _err_lower
+                    or "browser" in _err_lower
+                )
+                if _is_transient_google:
+                    log.warning(f"[{engine_name}] Transient browser error ({scrape_result.error_log[:80]}) - retrying after delay (attempt {attempt+1}/{MAX_RETRIES})")
+                    await asyncio.sleep(5 + attempt * 5)
+                    continue
 
             if engine_name in ("chatgpt", "claude", "gemini", "perplexity"):
 
@@ -99,15 +116,28 @@ async def run_pipeline(prompt: PromptItem, engine_name: str, country_code: str =
                     log.warning(f"[{engine_name}] Rate limited on {_used_key or 'default'} - rotating to next account")
                     from app.agent.account_pool import get_storage_state as _check_pool
                     _next_state, _next_key = await _check_pool(engine_name)
-                    if not _next_state:
-                        log.warning(f"[{engine_name}] All account slots exhausted or on cooldown")
-                        state.error_log = f"limit_exhausted: {engine_name} all accounts rate limited"
-                        break
-                    log.info(f"[{engine_name}] Retrying with account slot {_next_key}")
-                    await asyncio.sleep(5)
-                    continue
+                    if _next_state:
+                        log.info(f"[{engine_name}] Retrying with account slot {_next_key}")
+                        await asyncio.sleep(5)
+                        continue
+                    from app.agent.account_pool import time_until_next_available
+                    _wait = time_until_next_available(engine_name)
+                    if 0 < _wait <= 120:
+                        log.info(f"[{engine_name}] All slots on cooldown, nearest recovers in {_wait:.0f}s - waiting")
+                        broadcast("scrape_fail", engine=engine_name, prompt=prompt.text[:80],
+                                  error=f"All accounts cooling, waiting {_wait:.0f}s for recovery")
+                        await asyncio.sleep(_wait + 2)
+                        continue
+                    log.warning(f"[{engine_name}] All accounts on cooldown ({_wait:.0f}s until recovery) - skipping for now")
+                    state.error_log = f"limit_exhausted: {engine_name} all accounts on cooldown, next in {_wait:.0f}s"
+                    break
 
-                _is_transient = "transient" in _err_lower or "internal error" in _err_lower
+                _is_transient = (
+                    "transient" in _err_lower
+                    or "internal error" in _err_lower
+                    or "notimplementederror" in _err_lower
+                    or ("timeout" in _err_lower and "session" not in _err_lower)
+                )
                 if _is_transient:
                     log.info(f"[{engine_name}] Transient server error - retrying after delay (attempt {attempt+1}/{MAX_RETRIES})")
                     await asyncio.sleep(10 + attempt * 5)
@@ -152,6 +182,7 @@ async def run_pipeline(prompt: PromptItem, engine_name: str, country_code: str =
         )
         if validation_err == "captcha_detected":
             log.warning(f"[{engine_name}] Captcha/bot page detected - treating as failure")
+            state.error_log = f"Error: captcha/bot detection on {engine_name}"
             _track_engine_failure(engine_name)
             if engine_name in ("google_aio", "google_ai_mode"):
                 from app.agent.scraper import rotate_engine_proxy
@@ -163,6 +194,7 @@ async def run_pipeline(prompt: PromptItem, engine_name: str, country_code: str =
 
         if validation_err == "ui_noise":
             log.warning(f"[{engine_name}] UI noise detected in response - treating as scrape failure")
+            state.error_log = f"Error: {engine_name} returned home/UI page instead of query response"
             _track_engine_failure(engine_name)
             broadcast("scrape_fail", engine=engine_name, prompt=prompt.text[:80],
                       error="UI noise captured instead of actual response")
@@ -176,13 +208,21 @@ async def run_pipeline(prompt: PromptItem, engine_name: str, country_code: str =
                 report_rate_limit(engine_name, _used_key)
             from app.agent.account_pool import get_storage_state as _check_pool2
             _next_state, _next_key = await _check_pool2(engine_name)
-            if not _next_state:
-                log.warning(f"[{engine_name}] All account slots exhausted after rate limit")
-                state.error_log = f"limit_exhausted: {engine_name} all accounts rate limited"
-                break
-            log.info(f"[{engine_name}] Rate limit in response - retrying with slot {_next_key}")
-            await asyncio.sleep(5)
-            continue
+            if _next_state:
+                log.info(f"[{engine_name}] Rate limit in response - retrying with slot {_next_key}")
+                await asyncio.sleep(5)
+                continue
+            from app.agent.account_pool import time_until_next_available
+            _wait = time_until_next_available(engine_name)
+            if 0 < _wait <= 120:
+                log.info(f"[{engine_name}] All slots on cooldown, nearest recovers in {_wait:.0f}s - waiting")
+                broadcast("scrape_fail", engine=engine_name, prompt=prompt.text[:80],
+                          error=f"All accounts cooling, waiting {_wait:.0f}s for recovery")
+                await asyncio.sleep(_wait + 2)
+                continue
+            log.warning(f"[{engine_name}] All accounts on cooldown ({_wait:.0f}s until recovery) - skipping for now")
+            state.error_log = f"limit_exhausted: {engine_name} all accounts on cooldown, next in {_wait:.0f}s"
+            break
 
         if validation_err in ("paa_content", "featured_snippet", "maps_content"):
             log.info(f"[{engine_name}] Invalid content detected ({validation_err}) - treating as no AIO")
@@ -206,7 +246,16 @@ async def run_pipeline(prompt: PromptItem, engine_name: str, country_code: str =
                       error=f"Response truncated ({len(scrape_result.raw_response_text)} chars)")
             continue
 
-        state.raw_response_text = scrape_result.raw_response_text
+        _raw = scrape_result.raw_response_text
+        _raw_lower = (_raw or "").lower()
+        if _raw and ("not redirected within" in _raw_lower or
+                      (_raw_lower.startswith("google search") and "please click" in _raw_lower)):
+            log.warning(f"[{engine_name}] Garbage redirect page detected ({len(_raw)} chars), treating as failure")
+            state.error_log = "Google redirect/interstitial page captured"
+            _track_engine_failure(engine_name)
+            continue
+
+        state.raw_response_text = _raw
         state.raw_html_payload = scrape_result.raw_html_payload
         state.error_log = None
         _engine_fail_count[engine_name] = 0
@@ -230,6 +279,10 @@ async def run_pipeline(prompt: PromptItem, engine_name: str, country_code: str =
 
         if state.raw_response_text.startswith("[No AI Overview]"):
             log.info(f"[{engine_name}] No AI Overview available - skipping parser")
+            break
+
+        if state.raw_response_text.startswith("[No AI Mode]"):
+            log.info(f"[{engine_name}] No AI Mode response available - skipping parser")
             break
 
         extracted = await parse_response(engine_name, prompt.text, state.raw_response_text)
@@ -457,17 +510,6 @@ _auto_heal_in_progress: set[str] = set()
 
 
 def _track_engine_failure(engine_name: str):
-    if engine_name in ("google_aio", "google_ai_mode"):
-        _engine_fail_count[engine_name] = _engine_fail_count.get(engine_name, 0) + 1
-        fails = _engine_fail_count[engine_name]
-        if fails >= CONSECUTIVE_FAIL_THRESHOLD:
-            cooldown = min(60, 15 * (fails - CONSECUTIVE_FAIL_THRESHOLD + 1))
-            _engine_cooldown_until[engine_name] = time.time() + cooldown
-            log.warning(f"[{engine_name}] {fails} consecutive fails - short cooldown {cooldown}s (Google engines never give up)")
-            broadcast("engine_cooldown", engine=engine_name, cooldown_seconds=int(cooldown),
-                      resume_at=time.time() + cooldown, fails=fails)
-        return
-
     _engine_fail_count[engine_name] = _engine_fail_count.get(engine_name, 0) + 1
     fails = _engine_fail_count[engine_name]
 
@@ -477,7 +519,10 @@ def _track_engine_failure(engine_name: str):
         log.info(f"[{engine_name}] {fails} consecutive fails - rotating proxy before cooldown")
 
     if fails >= CONSECUTIVE_FAIL_THRESHOLD:
-        cooldown = min(ENGINE_COOLDOWN_BASE + 30 * (fails - CONSECUTIVE_FAIL_THRESHOLD), ENGINE_COOLDOWN_MAX)
+        if engine_name in ("google_aio", "google_ai_mode"):
+            cooldown = min(ENGINE_COOLDOWN_BASE + 20 * (fails - CONSECUTIVE_FAIL_THRESHOLD), ENGINE_COOLDOWN_MAX // 2)
+        else:
+            cooldown = min(ENGINE_COOLDOWN_BASE + 30 * (fails - CONSECUTIVE_FAIL_THRESHOLD), ENGINE_COOLDOWN_MAX)
         resume_at = time.time() + cooldown
         _engine_cooldown_until[engine_name] = resume_at
         log.warning(f"[{engine_name}] {fails} consecutive failures - cooldown {cooldown:.0f}s")
@@ -499,29 +544,48 @@ def clear_engine_cooldown(engine_name: str):
 
 
 async def _auto_heal_engine(engine_name: str):
-    """Background auto-heal: try reactive refresh then auto-relogin when engine hits fail threshold."""
-    if len(_auto_heal_in_progress) > 0:
-        log.info(f"[{engine_name}] Auto-heal skipped — another heal in progress: {_auto_heal_in_progress}")
-        return
-
-    from app.agent.account_pool import get_storage_state
-    state, _ = await get_storage_state(engine_name)
-    if state and state.get("cookies"):
-        log.info(f"[{engine_name}] Auto-heal skipped — cookies valid ({len(state['cookies'])} cookies). Failures likely from resource pressure, not auth.")
+    """Background auto-heal: proxy rotate, cookie refresh, or re-login depending on error type."""
+    if engine_name in _auto_heal_in_progress:
         return
 
     _auto_heal_in_progress.add(engine_name)
     try:
-        log.info(f"[{engine_name}] Auto-heal triggered after {CONSECUTIVE_FAIL_THRESHOLD}+ consecutive failures")
+        fails = _engine_fail_count.get(engine_name, 0)
+        log.info(f"[{engine_name}] Auto-heal triggered after {fails} consecutive failures")
         broadcast("auto_login", provider=engine_name, step="auto_heal",
-                  message=f"Auto-healing {engine_name} after consecutive failures")
+                  message=f"Auto-healing {engine_name} after {fails} consecutive failures")
 
-        refreshed = await try_reactive_refresh(engine_name)
-        if refreshed:
-            log.info(f"[{engine_name}] Auto-heal: cookie refresh succeeded - clearing cooldown")
-            clear_engine_cooldown(engine_name)
-            broadcast("engine_recovery", engine=engine_name, action="auto_heal_refresh")
+        # Step 1: Rotate proxy (helps with captcha/IP blocks)
+        from app.agent.scraper import rotate_engine_proxy
+        rotate_engine_proxy(engine_name)
+        log.info(f"[{engine_name}] Auto-heal: rotated proxy")
+
+        # Step 2: For Google engines with captcha, proxy rotation + cooldown is the main fix
+        if engine_name in ("google_aio", "google_ai_mode"):
+            cooldown = min(300 + 60 * (fails - CONSECUTIVE_FAIL_THRESHOLD), ENGINE_COOLDOWN_MAX // 2)
+            _engine_cooldown_until[engine_name] = time.time() + cooldown
+            log.info(f"[{engine_name}] Auto-heal: extended cooldown {cooldown}s to let IP cool off")
+            broadcast("engine_recovery", engine=engine_name, action="auto_heal_proxy_rotate",
+                      cooldown=cooldown)
+
+            # Also try cookie refresh since it visits the site (warms the session)
+            refreshed = await try_reactive_refresh(engine_name)
+            if refreshed:
+                log.info(f"[{engine_name}] Auto-heal: cookie refresh also succeeded")
             return
+
+        # Step 3: For auth-based engines, try cookie refresh then re-login
+        from app.agent.account_pool import get_storage_state
+        state, _ = await get_storage_state(engine_name)
+        has_cookies = state and state.get("cookies")
+
+        if has_cookies:
+            refreshed = await try_reactive_refresh(engine_name)
+            if refreshed:
+                log.info(f"[{engine_name}] Auto-heal: cookie refresh succeeded - clearing cooldown")
+                clear_engine_cooldown(engine_name)
+                broadcast("engine_recovery", engine=engine_name, action="auto_heal_refresh")
+                return
 
         from app.routes.auth import try_auto_relogin
         success = await try_auto_relogin(engine_name)
@@ -550,6 +614,7 @@ def get_engine_cooldowns() -> dict:
 
 
 def _get_available_engines() -> list[str]:
+    from app.agent.account_pool import has_available_slot
     now = time.time()
     available = []
     for eng in VISIBLE_ENGINES:
@@ -557,6 +622,8 @@ def _get_available_engines() -> list[str]:
         if now >= cooldown_until:
             if eng in _engine_cooldown_until:
                 del _engine_cooldown_until[eng]
+            available.append(eng)
+        elif eng in AUTH_ENGINES and has_available_slot(eng):
             available.append(eng)
     return available
 
@@ -584,7 +651,7 @@ async def _fetch_oldest_first_batch(batch_size: int) -> list:
                   ) AS covered_engines
            FROM prompts p
            LEFT JOIN execution_logs el ON el.prompt_id = p.id
-           WHERE p.is_canonical = TRUE
+           WHERE p.is_canonical = TRUE AND p.intent_type = 'GEO'
            GROUP BY p.id, p.text, p.merchant_category, p.intent_type, p.tier
            ORDER BY
                CASE WHEN p.tier <= 2 THEN 0 ELSE 1 END,
@@ -625,13 +692,20 @@ async def run_continuous_loop():
         try:
             available = _get_available_engines()
             if not available:
+                from app.agent.account_pool import time_until_next_available as _pool_wait
+                pool_waits = {eng: _pool_wait(eng) for eng in VISIBLE_ENGINES}
+                pool_soonest = min(pool_waits.values()) if pool_waits else 0
+
                 cooldowns = get_engine_cooldowns()
-                if cooldowns:
-                    soonest = min(c["remaining"] for c in cooldowns.values())
-                    log.info(f"All engines on cooldown. Resuming in {soonest}s")
+                engine_soonest = min(c["remaining"] for c in cooldowns.values()) if cooldowns else 0
+
+                soonest = min(pool_soonest, engine_soonest) if (pool_soonest and engine_soonest) else (pool_soonest or engine_soonest)
+                if soonest > 0:
+                    wait_time = min(soonest + 5, 300)
+                    log.info(f"All engines on cooldown. Soonest recovery in {soonest:.0f}s (waiting {wait_time:.0f}s)")
                     broadcast("agent_waiting", reason="all_engines_cooldown",
-                              resume_in=soonest, cooldowns={k: v["remaining"] for k, v in cooldowns.items()})
-                    await asyncio.sleep(min(soonest + 5, 120))
+                              resume_in=int(wait_time), cooldowns={k: v["remaining"] for k, v in cooldowns.items()})
+                    await asyncio.sleep(wait_time)
                     continue
                 await asyncio.sleep(30)
                 continue
@@ -703,6 +777,9 @@ async def _is_fresh(prompt_id: str, engine_name: str, max_age_hours: int = 6) ->
                WHERE prompt_id = %s::uuid AND engine_name = %s
                  AND captured_at >= NOW() - make_interval(hours => %s)
                  AND raw_response_text NOT LIKE 'Error:%%'
+                 AND raw_response_text NOT LIKE 'Google Search%%'
+                 AND raw_response_text NOT LIKE '%%Please click%%'
+                 AND raw_response_text NOT LIKE '%%not redirected%%'
                LIMIT 1""",
             (prompt_id, engine_name, max_age_hours),
         ).fetchone()
@@ -762,6 +839,12 @@ async def run_engine_pipeline(
                     await asyncio.sleep(cooldown_remaining + 1)
                     _engine_cooldown_until.pop(engine_name, None)
                     _engine_fail_count.pop(engine_name, None)
+                elif engine_name in AUTH_ENGINES:
+                    from app.agent.account_pool import has_available_slot
+                    if has_available_slot(engine_name):
+                        log.info(f"[{engine_name}] Engine on cooldown but pool has available slot - proceeding")
+                    else:
+                        return
                 else:
                     return
 

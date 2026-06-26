@@ -19,6 +19,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Install Camoufox browser binary + geoip data (as root so it can write to site-packages)
 RUN python -m camoufox fetch
 
+# Patch Playwright Firefox bug: pageError.location can be undefined, crashes Node.js
+RUN sed -i \
+    -e 's/url: pageError\.location\.url,/url: (pageError.location \&\& pageError.location.url) || "",/g' \
+    -e 's/line: pageError\.location\.lineNumber,/line: (pageError.location \&\& pageError.location.lineNumber) || 0,/g' \
+    -e 's/column: pageError\.location\.columnNumber/column: (pageError.location \&\& pageError.location.columnNumber) || 0/g' \
+    /usr/local/lib/python3.12/site-packages/playwright/driver/package/lib/coreBundle.js
+
 # Create app user and copy Camoufox cache from root to geouser
 RUN groupadd --gid 2001 geo && \
     useradd --uid 2001 --gid geo --shell /bin/bash --create-home geouser && \

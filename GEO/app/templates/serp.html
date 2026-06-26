@@ -15,7 +15,7 @@
                     <span class="info-tip"><strong class="text-slate-200">SEO Rankings</strong><br>Google organic search rankings for your domain. Tracks position, competitors, and SERP features for each keyword.</span>
                 </span>
             </h2>
-            <p class="text-xs text-slate-500 mt-0.5">Google organic rankings for {{ target_domain }} <span class="text-slate-600">| {{ total_serps }} crawls</span></p>
+            <p class="text-xs text-slate-500 mt-0.5">Google organic rankings for {{ target_domain }} <span class="text-slate-600">| <span id="header-crawl-count">{{ total_serps }}</span> crawls</span></p>
         </div>
         <div class="flex items-center gap-1.5 px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 rounded-md text-[9px] text-emerald-400 font-bold uppercase tracking-wider">
             <span class="relative flex h-1.5 w-1.5">
@@ -26,79 +26,108 @@
         </div>
     </div>
 
-    <!-- Command Center: KPIs + Agent Feed in one compact panel -->
-    <div class="glass-panel border border-slate-800/60 rounded-xl overflow-hidden" style="max-height:160px;">
-        <div class="flex flex-col lg:flex-row h-full">
-            <!-- KPI Cards 2x2 -->
-            <div class="flex-shrink-0 lg:w-[380px] grid grid-cols-2 divide-x divide-y divide-slate-900/30">
-                <div class="px-3 py-2">
-                    <div class="text-[9px] text-slate-500 uppercase tracking-wider font-semibold">Keywords Tracked<span class="info-btn ml-1"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Keywords Tracked</strong><br>Number of keywords with SERP data. Coverage % = how many of your total keywords have been crawled.</span></span></div>
-                    <div class="flex items-baseline gap-1 mt-0.5">
-                        <span id="kpi-tracked" class="text-base font-bold text-slate-100">{{ keywords_with_serp }}</span>
+    <!-- Date Range + Export Controls -->
+    {% set page_context = "seo" %}
+    {% set show_comparison = true %}
+    {% set show_export = true %}
+    {% include "components/date_range_picker.html" %}
+
+    <!-- Command Center: KPIs + Agent Feed -->
+    <div class="glass-panel border border-slate-800/60 rounded-xl overflow-hidden">
+        <!-- KPI Row -->
+        <div class="grid grid-cols-2 lg:grid-cols-6 divide-x divide-y lg:divide-y-0 divide-slate-900/30 border-b border-slate-900/40">
+            <!-- Cycle Ring + Keywords -->
+            <div class="px-4 py-3 flex items-center gap-3 col-span-2">
+            <div class="relative flex-shrink-0" style="width:44px;height:44px">
+                    <svg viewBox="0 0 36 36" class="w-full h-full -rotate-90">
+                        <circle cx="18" cy="18" r="15.5" fill="none" stroke="currentColor" class="text-slate-800" stroke-width="2.5"/>
+                        {% set _init_ring_pct = seo_cycle_pct if seo_cycle_pct > 0 else (100 if seo_cycle_completed > 0 else 0) %}
+                        <circle id="kpi-cycle-ring" cx="18" cy="18" r="15.5" fill="none" stroke="currentColor" class="text-cyan-400" stroke-width="2.5" stroke-dasharray="97.39" stroke-dashoffset="{{ 97.39 - (97.39 * _init_ring_pct / 100) }}" stroke-linecap="round" style="transition:stroke-dashoffset 0.6s"/>
+                    </svg>
+                    <span id="kpi-cycle-num" class="absolute inset-0 flex items-center justify-center text-sm font-bold text-slate-100">{% if seo_cycle_pct > 0 %}{{ seo_cycle_completed + 1 }}{% else %}{{ seo_cycle_completed or 0 }}{% endif %}</span>
+                </div>
+                <div class="min-w-0">
+                    <div class="text-[9px] text-slate-500 uppercase tracking-wider font-semibold">Keywords Tracked</div>
+                    <div class="flex items-baseline gap-1">
+                        <span id="kpi-tracked" class="text-lg font-bold text-slate-100">{{ keywords_with_serp }}</span>
                         <span id="kpi-total" class="text-[10px] text-slate-600">/ {{ total_keywords }}</span>
                     </div>
-                    <div class="mt-1 h-1 bg-slate-800 rounded-full overflow-hidden"><div id="kpi-tracked-bar" class="h-full bg-blue-500 rounded-full transition-all" style="width:{{ ((keywords_with_serp / total_keywords * 100) if total_keywords else 0)|round }}%"></div></div>
-                    <div id="kpi-tracked-sub" class="text-[9px] text-slate-600 mt-0.5">{{ ((keywords_with_serp / total_keywords * 100) if total_keywords else 0)|round(1) }}% coverage</div>
-                </div>
-                <div class="px-3 py-2">
-                    <div class="text-[9px] text-slate-500 uppercase tracking-wider font-semibold">Top 10 Rankings<span class="info-btn ml-1"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Top 10 Rankings</strong><br>Keywords ranking in Google positions 1-10 (first page). These get 90%+ of all organic clicks.</span></span></div>
-                    <div class="flex items-baseline gap-1 mt-0.5">
-                        <span id="kpi-top10" class="text-base font-bold text-emerald-400">{{ target_top10 }}</span>
-                        <span id="kpi-top10-pct" class="text-[10px] text-slate-600">{{ ((target_top10 / keywords_with_serp * 100) if keywords_with_serp else 0)|round(1) }}%</span>
-                    </div>
-                    <div class="mt-1 h-1 bg-slate-800 rounded-full overflow-hidden"><div id="kpi-top10-bar" class="h-full bg-emerald-500 rounded-full transition-all" style="width:{{ ((target_top10 / keywords_with_serp * 100) if keywords_with_serp else 0)|round }}%"></div></div>
-                    <div class="text-[9px] text-slate-600 mt-0.5">of tracked keywords</div>
-                </div>
-                <div class="px-3 py-2">
-                    <div class="text-[9px] text-slate-500 uppercase tracking-wider font-semibold">Avg Rank<span class="info-btn ml-1"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Avg Rank</strong><br>Average Google position across all ranked keywords. Lower = better. Target under 10 for meaningful traffic.</span></span></div>
-                    <div class="mt-0.5"><span id="kpi-avg" class="text-base font-bold text-amber-400">{{ avg_rank or '--' }}</span></div>
-                    <div class="mt-1 h-1 bg-slate-800 rounded-full overflow-hidden"><div id="kpi-avg-bar" class="h-full bg-amber-500 rounded-full transition-all" style="width:{{ (100 - (avg_rank or 20) * 5)|int if avg_rank else 0 }}%"></div></div>
-                    <div class="text-[9px] text-slate-600 mt-0.5">lower is better</div>
-                </div>
-                <div class="px-3 py-2">
-                    <div class="text-[9px] text-slate-500 uppercase tracking-wider font-semibold">Speed<span class="info-btn ml-1"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Speed</strong><br>SERP crawl speed in keywords per hour. Green dot = curl (fast), Amber = browser (slower), Red = failed.</span></span></div>
-                    <div class="flex items-baseline gap-0.5 mt-0.5">
-                        <span id="kpi-speed" class="text-base font-bold text-violet-400">--</span>
-                        <span class="text-[9px] text-slate-600">/hr</span>
-                        <span id="kpi-queue" class="text-[9px] text-slate-600 ml-auto">--</span>
-                    </div>
-                    <div class="mt-1 h-1 bg-slate-800 rounded-full overflow-hidden"><div id="kpi-queue-bar" class="h-full bg-violet-500 rounded-full transition-all" style="width:0%"></div></div>
-                    <div class="flex items-center gap-2 mt-0.5 text-[9px]">
-                        <span class="flex items-center gap-0.5"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block"></span><span id="method-curl" class="text-emerald-400 font-bold">0</span></span>
-                        <span class="flex items-center gap-0.5"><span class="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block"></span><span id="method-browser" class="text-amber-400 font-bold">0</span></span>
-                        <span class="flex items-center gap-0.5"><span class="w-1.5 h-1.5 rounded-full bg-rose-400 inline-block"></span><span id="method-fail" class="text-rose-400 font-bold">0</span></span>
+                    <div class="flex items-center gap-2 mt-0.5">
+                        <span id="kpi-cycle-badge" class="text-[9px] font-bold text-cyan-400 bg-cyan-400/10 px-1.5 py-0.5 rounded">{% if seo_cycle_pct > 0 %}Cycle {{ seo_cycle_completed + 1 }}{% elif seo_cycle_completed > 0 %}Cycle {{ seo_cycle_completed }}{% else %}--{% endif %}</span>
+                        <span id="kpi-cycle-progress" class="text-[8px] text-cyan-400/60">{% if seo_cycle_pct > 0 %}{{ seo_cycle_pct }}% done{% elif seo_cycle_completed > 0 %}Complete{% endif %}</span>
                     </div>
                 </div>
             </div>
-
-            <!-- Right: Agent Activity Feed -->
-            <div class="flex-1 flex flex-col border-t lg:border-t-0 lg:border-l border-slate-900/40 min-w-0 overflow-hidden">
-                <div class="px-3 py-1 border-b border-slate-900/40 bg-slate-950/40 flex items-center justify-between flex-shrink-0">
-                    <div class="flex items-center gap-1.5 min-w-0">
-                        <span id="agentPulse" class="relative flex h-1.5 w-1.5 flex-shrink-0">
-                            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                            <span class="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
-                        </span>
-                        <span class="text-[10px] font-semibold text-slate-300 whitespace-nowrap">SERP Agent</span>
-                        <span id="agentStatus" class="text-[9px] text-emerald-400 whitespace-nowrap">Starting...</span>
-                        <span id="agentCounter" class="text-[9px] text-slate-600 whitespace-nowrap"></span>
-                    </div>
-                    <div class="flex items-center gap-1.5 flex-shrink-0">
-                        <button onclick="document.getElementById('agentLog').innerHTML=''" class="text-[9px] text-slate-600 hover:text-slate-400 cursor-pointer">Clear</button>
-                        <form action="/api/serp/trigger" method="POST" class="inline">
-                            <button type="submit" class="flex items-center gap-1 bg-amber-500 hover:bg-amber-600 text-slate-950 px-2 py-0.5 rounded text-[9px] font-bold transition-all active:scale-95 cursor-pointer">
-                                <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-                                Crawl
-                            </button>
-                        </form>
-                    </div>
+            <!-- Coverage -->
+            <div class="px-4 py-3">
+                <div class="text-[9px] text-slate-500 uppercase tracking-wider font-semibold">Coverage</div>
+                {% set cov_pct = ((keywords_with_serp / total_keywords * 100) if total_keywords else 0)|round(1) %}
+                <div class="text-lg font-bold text-cyan-400 mt-0.5" id="kpi-coverage-val">{{ cov_pct }}%</div>
+                <div class="mt-1 h-1.5 bg-slate-800 rounded-full overflow-hidden"><div id="kpi-tracked-bar" class="h-full rounded-full transition-all" style="width:{{ cov_pct|round }}%;background:linear-gradient(90deg,#0891b2,#22d3ee)"></div></div>
+                <div id="kpi-tracked-sub" class="text-[9px] text-slate-600 mt-0.5">{{ total_serps }} total crawls</div>
+            </div>
+            <!-- Top 10 -->
+            <div class="px-4 py-3">
+                <div class="text-[9px] text-slate-500 uppercase tracking-wider font-semibold">Top 10</div>
+                {% set top10pct = ((target_top10 / keywords_with_serp * 100) if keywords_with_serp else 0)|round(1) %}
+                <div class="flex items-baseline gap-1 mt-0.5">
+                    <span id="kpi-top10" class="text-lg font-bold text-emerald-400">{{ target_top10 }}</span>
+                    <span id="kpi-top10-pct" class="text-[10px] text-slate-600">{{ top10pct }}%</span>
                 </div>
-                <div id="agentLog" class="overflow-y-auto overflow-x-hidden px-3 py-1 space-y-0 text-[9px] font-mono leading-tight" style="max-height:130px;">
-                    <div class="text-slate-700 text-center py-2">Waiting for SERP activity...</div>
+                <div class="mt-1 h-1 bg-slate-800 rounded-full overflow-hidden"><div id="kpi-top10-bar" class="h-full bg-emerald-500 rounded-full transition-all" style="width:{{ top10pct|round }}%"></div></div>
+                <div class="text-[9px] text-slate-600 mt-0.5">in Google page 1</div>
+            </div>
+            <!-- Avg Rank -->
+            <div class="px-4 py-3">
+                <div class="text-[9px] text-slate-500 uppercase tracking-wider font-semibold">Avg Rank</div>
+                <div class="text-lg font-bold text-amber-400 mt-0.5" id="kpi-avg">{{ avg_rank or '--' }}</div>
+                <div class="mt-1 h-1 bg-slate-800 rounded-full overflow-hidden"><div id="kpi-avg-bar" class="h-full bg-amber-500 rounded-full transition-all" style="width:{{ (100 - (avg_rank or 20) * 5)|int if avg_rank else 0 }}%"></div></div>
+                <div class="text-[9px] text-slate-600 mt-0.5">lower is better</div>
+            </div>
+            <!-- Speed -->
+            <div class="px-4 py-3">
+                <div class="text-[9px] text-slate-500 uppercase tracking-wider font-semibold">Speed</div>
+                <div class="flex items-baseline gap-0.5 mt-0.5">
+                    <span id="kpi-speed" class="text-lg font-bold text-violet-400">--</span>
+                    <span class="text-[9px] text-slate-600">/hr</span>
+                    <span id="kpi-queue" class="text-[9px] text-slate-600 ml-auto">--</span>
+                </div>
+                <div class="mt-1 h-1 bg-slate-800 rounded-full overflow-hidden"><div id="kpi-queue-bar" class="h-full bg-violet-500 rounded-full transition-all" style="width:0%"></div></div>
+                <div class="flex items-center gap-2 mt-0.5 text-[9px]">
+                    <span class="flex items-center gap-0.5"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block"></span><span id="method-curl" class="text-emerald-400 font-bold">0</span></span>
+                    <span class="flex items-center gap-0.5"><span class="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block"></span><span id="method-browser" class="text-amber-400 font-bold">0</span></span>
+                    <span class="flex items-center gap-0.5"><span class="w-1.5 h-1.5 rounded-full bg-rose-400 inline-block"></span><span id="method-fail" class="text-rose-400 font-bold">0</span></span>
                 </div>
             </div>
         </div>
+        <!-- Agent Activity Feed -->
+        <div class="flex flex-col min-w-0 overflow-hidden" style="max-height:90px;">
+            <div class="px-3 py-1 border-b border-slate-900/40 bg-slate-950/40 flex items-center justify-between flex-shrink-0">
+                <div class="flex items-center gap-1.5 min-w-0">
+                    <span id="agentPulse" class="relative flex h-1.5 w-1.5 flex-shrink-0">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+                    </span>
+                    <span class="text-[10px] font-semibold text-slate-300 whitespace-nowrap">SERP Agent</span>
+                    <span id="agentStatus" class="text-[9px] text-emerald-400 whitespace-nowrap">Starting...</span>
+                    <span id="agentCounter" class="text-[9px] text-slate-600 whitespace-nowrap"></span>
+                </div>
+                <div class="flex items-center gap-1.5 flex-shrink-0">
+                    <button onclick="document.getElementById('agentLog').innerHTML=''" class="text-[9px] text-slate-600 hover:text-slate-400 cursor-pointer">Clear</button>
+                    <form action="/api/serp/trigger" method="POST" class="inline">
+                        <button type="submit" class="flex items-center gap-1 bg-amber-500 hover:bg-amber-600 text-slate-950 px-2 py-0.5 rounded text-[9px] font-bold transition-all active:scale-95 cursor-pointer">
+                            <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                            Crawl
+                        </button>
+                    </form>
+                </div>
+            </div>
+            <div id="agentLog" class="overflow-y-auto overflow-x-hidden px-3 py-1 space-y-0 text-[9px] font-mono leading-tight" style="max-height:65px;">
+                <div class="text-slate-700 text-center py-2">Waiting for SERP activity...</div>
+            </div>
+        </div>
     </div>
+
 
     <!-- Pill Tabs -->
     <div class="flex gap-1 bg-slate-950/60 p-1 rounded-xl w-fit border border-slate-800/50">
@@ -121,6 +150,18 @@
         <button onclick="switchTab('aiserp')" id="tab-aiserp"
             class="tab-pill px-4 py-1.5 rounded-lg text-xs font-semibold transition-all text-slate-500 hover:text-slate-300">
             AI vs SERP
+        </button>
+        <button onclick="switchTab('paa')" id="tab-paa"
+            class="tab-pill px-4 py-1.5 rounded-lg text-xs font-semibold transition-all text-slate-500 hover:text-slate-300">
+            PAA Hub
+        </button>
+        <button onclick="switchTab('warroom')" id="tab-warroom"
+            class="tab-pill px-4 py-1.5 rounded-lg text-xs font-semibold transition-all text-slate-500 hover:text-slate-300">
+            War Room
+        </button>
+        <button onclick="switchTab('volatility')" id="tab-volatility"
+            class="tab-pill px-4 py-1.5 rounded-lg text-xs font-semibold transition-all text-slate-500 hover:text-slate-300">
+            Volatility
         </button>
     </div>
 
@@ -148,10 +189,12 @@
                     <thead>
                         <tr class="border-b border-slate-900/50 text-[10px] text-slate-500 uppercase tracking-wider">
                             <th class="text-left px-4 py-2">Keyword</th>
-                            <th class="text-center px-3 py-2 w-20">Our Rank</th>
-                            <th class="text-center px-3 py-2 w-20">Change</th>
+                            <th class="text-center px-3 py-2 w-20">SERP<span class="info-btn ml-0.5"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip">Google organic position for your target domain.</span></span></th>
+                            <th class="text-center px-3 py-2 w-14">AI<span class="info-btn ml-0.5"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip">Best rank across all AI engines (ChatGPT, Gemini, Perplexity, etc).</span></span></th>
+                            <th class="text-center px-3 py-2 w-14">Chg</th>
+                            <th class="text-left px-3 py-2">Features</th>
                             <th class="text-left px-3 py-2">Competitors</th>
-                            <th class="text-center px-3 py-2 w-28">Crawled</th>
+                            <th class="text-center px-3 py-2 w-24">Crawled</th>
                         </tr>
                     </thead>
                     <tbody id="serp-tbody" class="divide-y divide-slate-900/30"></tbody>
@@ -247,6 +290,14 @@
             <h3 class="text-sm font-semibold text-slate-200 mb-2">SERP Feature Landscape<span class="info-btn ml-1"><svg class="w-3.5 h-3.5 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">SERP Feature Landscape</strong><br>Google SERP features detected: People Also Ask, Answer Boxes, Featured Snippets, Ads, Knowledge Panels. Shows how many keywords trigger each feature.</span></span></h3>
             <div id="serpFeatures" class="flex flex-wrap gap-2"></div>
         </div>
+
+        <div class="glass-panel border border-slate-800/60 rounded-xl p-4">
+            <div class="flex items-center justify-between mb-2">
+                <h3 class="text-sm font-semibold text-slate-200">Daily Rank Trend<span class="info-btn ml-1"><svg class="w-3.5 h-3.5 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Daily Rank Trend</strong><br>Average Google rank and Top 10 keyword count per day. Lower rank line = better. Shows SEO trajectory over time.</span></span></h3>
+                <div id="rank-trend-summary" class="text-[10px] text-slate-500"></div>
+            </div>
+            <div style="height: 200px;"><canvas id="dailyRankTrendChart"></canvas></div>
+        </div>
     </div>
 
     <!-- AI Movement Tab -->
@@ -290,10 +341,25 @@
             </div>
         </div>
 
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
+            <div class="glass-panel border border-slate-800/60 rounded-xl p-4">
+                <h3 class="text-xs font-semibold text-slate-200 mb-2">Engine Breakdown<span class="info-btn ml-1"><svg class="w-3 h-3 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Engine Breakdown</strong><br>Per-engine breakdown showing improved, declined, and stable keywords. Helps identify which AI engines favor your brand.</span></span></h3>
+                <div style="height:180px"><canvas id="aimEngineChart"></canvas></div>
+            </div>
+            <div class="glass-panel border border-slate-800/60 rounded-xl p-4">
+                <h3 class="text-xs font-semibold text-slate-200 mb-2">Daily AI Trend<span class="info-btn ml-1"><svg class="w-3 h-3 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Daily AI Trend</strong><br>Daily count of GrabOn mentions across AI engines and average rank position. Rising mentions with lower rank = winning.</span></span></h3>
+                <div style="height:180px"><canvas id="aimDailyChart"></canvas></div>
+            </div>
+            <div class="glass-panel border border-slate-800/60 rounded-xl p-4">
+                <h3 class="text-xs font-semibold text-slate-200 mb-2">Sentiment<span class="info-btn ml-1"><svg class="w-3 h-3 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Sentiment</strong><br>How AI engines describe GrabOn — positive, neutral, or negative. Tracks brand perception in AI-generated responses.</span></span></h3>
+                <div style="height:180px"><canvas id="aimSentimentChart"></canvas></div>
+            </div>
+        </div>
+
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
             <div class="glass-panel border border-slate-800/60 rounded-xl overflow-hidden">
                 <div class="border-b border-slate-900/60 bg-emerald-500/5 px-4 py-2.5">
-                    <h3 class="text-sm font-semibold text-emerald-400">Winners (Rank Improved)</h3>
+                    <h3 class="text-sm font-semibold text-emerald-400">Winners (Rank Improved)<span class="info-btn ml-1"><svg class="w-3 h-3 text-emerald-700 hover:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Winners</strong><br>Keywords where GrabOn's AI rank improved vs previous scrape. Sorted by biggest gains.</span></span></h3>
                 </div>
                 <div class="overflow-x-auto">
                     <table class="w-full text-xs">
@@ -312,7 +378,7 @@
             </div>
             <div class="glass-panel border border-slate-800/60 rounded-xl overflow-hidden">
                 <div class="border-b border-slate-900/60 bg-rose-500/5 px-4 py-2.5">
-                    <h3 class="text-sm font-semibold text-rose-400">Losers (Rank Dropped)</h3>
+                    <h3 class="text-sm font-semibold text-rose-400">Losers (Rank Dropped)<span class="info-btn ml-1"><svg class="w-3 h-3 text-rose-700 hover:text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Losers</strong><br>Keywords where GrabOn's AI rank dropped — needs attention. Sorted by biggest losses.</span></span></h3>
                 </div>
                 <div class="overflow-x-auto">
                     <table class="w-full text-xs">
@@ -333,7 +399,7 @@
 
         <div class="glass-panel border border-slate-800/60 rounded-xl overflow-hidden">
             <div class="border-b border-slate-900/60 bg-blue-500/5 px-4 py-2.5">
-                <h3 class="text-sm font-semibold text-blue-400">Newly Appearing in AI</h3>
+                <h3 class="text-sm font-semibold text-blue-400">Newly Appearing in AI<span class="info-btn ml-1"><svg class="w-3 h-3 text-blue-700 hover:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">New Entries</strong><br>Keywords where GrabOn was detected in AI results for the first time. These are growth signals.</span></span></h3>
                 <p class="text-[10px] text-slate-600">Keywords where GrabOn was first detected in AI engine results</p>
             </div>
             <div class="overflow-x-auto">
@@ -375,6 +441,11 @@
                 <div id="ais-neither" class="text-xl font-black text-slate-500">-</div>
                 <div class="text-[9px] text-rose-400">Priority targets</div>
             </div>
+        </div>
+
+        <div class="glass-panel border border-slate-800/60 rounded-xl p-4">
+            <h3 class="text-xs font-semibold text-slate-200 mb-2">Gap Trend (14 days)<span class="info-btn ml-1"><svg class="w-3 h-3 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Gap Trend</strong><br>How AI+SERP visibility gap categories change daily. Rising "Both" line = growing dual-channel presence. Falling "Neither" = closing gaps.</span></span></h3>
+            <div style="height:180px"><canvas id="aisGapTrendChart"></canvas></div>
         </div>
 
         <div class="flex flex-wrap items-center gap-3">
@@ -423,14 +494,44 @@
 
     <!-- Overlaps Tab -->
     <div id="panel-overlaps" class="tab-panel space-y-3 hidden">
-        <div class="glass-panel border border-slate-800/60 p-4 rounded-xl">
-            <h3 class="text-sm font-semibold text-slate-200 mb-1">Rank Trend<span class="info-btn ml-1"><svg class="w-3.5 h-3.5 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Rank Trend</strong><br>Organic position over time for your domain. Lower line = better rankings. Watch for upward trends (rank drops).</span></span></h3>
-            <p class="text-[10px] text-slate-500 mb-2">{{ target_domain }} organic position over time (lower = better)</p>
-            <div style="height: 220px;"><canvas id="serpChart"></canvas></div>
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+            <div class="glass-panel border border-slate-800/60 rounded-xl p-3">
+                <div class="text-[9px] text-slate-500 uppercase tracking-wider font-semibold">Total Overlaps<span class="info-btn ml-1"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Total Overlaps</strong><br>URLs cited by AI engines that also appear in Google organic results. High overlap = strong content authority.</span></span></div>
+                <div id="ovl-total" class="text-xl font-black text-violet-400 mt-1">-</div>
+                <div id="ovl-urls" class="text-[9px] text-slate-600">-- unique URLs</div>
+            </div>
+            <div class="glass-panel border border-slate-800/60 rounded-xl p-3">
+                <div class="text-[9px] text-slate-500 uppercase tracking-wider font-semibold">Keywords w/ Overlap<span class="info-btn ml-1"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Keywords with Overlap</strong><br>How many of your GEO keywords have at least one URL appearing in both AI citations and SERP results.</span></span></div>
+                <div id="ovl-kw" class="text-xl font-black text-cyan-400 mt-1">-</div>
+                <div id="ovl-rate" class="text-[9px] text-slate-600">--% overlap rate</div>
+            </div>
+            <div class="glass-panel border border-slate-800/60 rounded-xl p-3">
+                <div class="text-[9px] text-slate-500 uppercase tracking-wider font-semibold">Engines Overlapping<span class="info-btn ml-1"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Engines Overlapping</strong><br>How many AI engines cite URLs that also rank in Google. More engines = stronger cross-channel signal.</span></span></div>
+                <div id="ovl-engines" class="text-xl font-black text-amber-400 mt-1">-</div>
+                <div id="ovl-engine-list" class="text-[9px] text-slate-600"></div>
+            </div>
+            <div class="glass-panel border border-slate-800/60 rounded-xl p-3">
+                <div class="text-[9px] text-slate-500 uppercase tracking-wider font-semibold">Top Overlap Domain<span class="info-btn ml-1"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Top Overlap Domain</strong><br>The domain with the most URLs appearing in both AI citations and Google results.</span></span></div>
+                <div id="ovl-top-domain" class="text-sm font-bold text-emerald-400 mt-1 truncate">-</div>
+                <div id="ovl-top-count" class="text-[9px] text-slate-600"></div>
+            </div>
         </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            <div class="glass-panel border border-slate-800/60 p-4 rounded-xl">
+                <h3 class="text-sm font-semibold text-slate-200 mb-1">Rank Trend<span class="info-btn ml-1"><svg class="w-3.5 h-3.5 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Rank Trend</strong><br>Organic position over time for your domain. Lower line = better rankings.</span></span></h3>
+                <p class="text-[10px] text-slate-500 mb-2">{{ target_domain }} organic position (lower = better)</p>
+                <div style="height: 200px;"><canvas id="serpChart"></canvas></div>
+            </div>
+            <div class="glass-panel border border-slate-800/60 p-4 rounded-xl">
+                <h3 class="text-sm font-semibold text-slate-200 mb-1">Overlaps by Engine<span class="info-btn ml-1"><svg class="w-3.5 h-3.5 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Overlaps by Engine</strong><br>Which AI engines cite the most URLs that also rank in Google. Higher bars = stronger AI-SERP correlation.</span></span></h3>
+                <div style="height: 200px;"><canvas id="overlapEngineChart"></canvas></div>
+            </div>
+        </div>
+
         <div class="glass-panel border border-slate-800/60 rounded-xl overflow-hidden">
             <div class="border-b border-slate-900/60 bg-slate-950/40 px-4 py-2.5">
-                <h3 class="text-sm font-semibold text-slate-200">Citation-SERP Overlaps<span class="info-btn ml-1"><svg class="w-3.5 h-3.5 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Citation-SERP Overlaps</strong><br>URLs that AI engines cite (link to) AND that rank in Google organic results. These pages perform well in both channels.</span></span></h3>
+                <h3 class="text-sm font-semibold text-slate-200">Citation-SERP Overlaps<span class="info-btn ml-1"><svg class="w-3.5 h-3.5 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Citation-SERP Overlaps</strong><br>URLs that AI engines cite AND that rank in Google organic results. These pages perform well in both channels.</span></span></h3>
                 <p class="text-[10px] text-slate-600">URLs cited by AI engines that also rank in Google organic</p>
             </div>
             <div class="overflow-x-auto">
@@ -446,6 +547,67 @@
                     <tbody id="overlap-tbody" class="divide-y divide-slate-900/30"></tbody>
                 </table>
             </div>
+        </div>
+    </div>
+
+    <!-- PAA Intelligence Hub -->
+    <div id="panel-paa" class="tab-panel space-y-3 hidden">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
+            <div class="glass-panel border border-slate-800/60 rounded-xl p-3">
+                <h4 class="text-[10px] text-slate-500 uppercase tracking-wider font-semibold mb-2">PAA Trend<span class="info-btn ml-1"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">PAA Trend</strong><br>Daily count of People Also Ask questions detected in Google results. Rising trend = growing question visibility.</span></span></h4>
+                <div style="height:180px"><canvas id="paaTrendChart"></canvas></div>
+            </div>
+            <div class="glass-panel border border-slate-800/60 rounded-xl p-3">
+                <h4 class="text-[10px] text-slate-500 uppercase tracking-wider font-semibold mb-2">By Category<span class="info-btn ml-1"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">By Category</strong><br>PAA question distribution by keyword category. Shows which categories trigger the most questions.</span></span></h4>
+                <div style="height:180px"><canvas id="paaCategoryChart"></canvas></div>
+            </div>
+            <div class="glass-panel border border-slate-800/60 rounded-xl p-3">
+                <h4 class="text-[10px] text-slate-500 uppercase tracking-wider font-semibold mb-2">Stats<span class="info-btn ml-1"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">PAA Stats</strong><br>Summary statistics for People Also Ask questions: total count, unique questions, categories, and average per keyword.</span></span></h4>
+                <div id="paaStats" class="space-y-2 text-xs text-slate-400">Loading...</div>
+            </div>
+        </div>
+        <div class="glass-panel border border-slate-800/60 rounded-xl overflow-hidden">
+            <div class="border-b border-slate-900/60 bg-slate-950/40 px-4 py-2.5 flex items-center justify-between">
+                <h3 class="text-xs font-bold text-slate-200">People Also Ask — Top Questions</h3>
+                <input id="paaSearch" type="text" placeholder="Filter questions..." oninput="filterPaaTable()" class="text-[10px] px-2.5 py-1 bg-slate-950 border border-slate-800 rounded-lg text-slate-300 placeholder-slate-600 outline-none w-48">
+            </div>
+            <div id="paaTable" class="overflow-x-auto max-h-[500px] overflow-y-auto"></div>
+        </div>
+    </div>
+
+    <!-- Competitor Domain War Room -->
+    <div id="panel-warroom" class="tab-panel space-y-3 hidden">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            <div class="glass-panel border border-slate-800/60 rounded-xl p-4">
+                <h3 class="text-xs font-bold text-slate-200 mb-3">Share of SERP — Top 30 Domains<span class="info-btn ml-1"><svg class="w-3 h-3 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Share of SERP</strong><br>How often each domain appears across all tracked SERP results. Your domain highlighted in amber.</span></span></h3>
+                <div style="height:350px"><canvas id="warShareChart"></canvas></div>
+            </div>
+            <div class="glass-panel border border-slate-800/60 rounded-xl p-4">
+                <h3 class="text-xs font-bold text-slate-200 mb-3">Head-to-Head vs GrabOn<span class="info-btn ml-1"><svg class="w-3 h-3 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Head-to-Head</strong><br>Direct competitor comparison: how many keywords they beat us on vs we beat them. Green = we win, Red = they win.</span></span></h3>
+                <div id="warH2H" class="overflow-x-auto max-h-[350px] overflow-y-auto"></div>
+            </div>
+        </div>
+        <div class="glass-panel border border-slate-800/60 rounded-xl p-4">
+            <h3 class="text-xs font-bold text-slate-200 mb-2">New Entrants (Last 7 Days)<span class="info-btn ml-1"><svg class="w-3 h-3 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">New Entrants</strong><br>Domains that appeared in the top 10 for the first time in the last 7 days. Watch for new competitors entering your keywords.</span></span></h3>
+            <p class="text-[9px] text-slate-600 mb-3">Domains that appeared in top 10 for the first time recently</p>
+            <div id="warNewEntrants" class="overflow-x-auto"></div>
+        </div>
+    </div>
+
+    <!-- SERP Volatility Index -->
+    <div id="panel-volatility" class="tab-panel space-y-3 hidden">
+        <div class="glass-panel border border-slate-800/60 rounded-xl p-4">
+            <h3 class="text-xs font-bold text-slate-200 mb-3">Global SERP Volatility (14 days)<span class="info-btn ml-1"><svg class="w-3 h-3 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Global Volatility</strong><br>How much Google results are shifting each day across all tracked keywords. Red bars = high volatility (algorithm update likely).</span></span></h3>
+            <div style="height:200px"><canvas id="volGlobalChart"></canvas></div>
+        </div>
+        <div class="glass-panel border border-slate-800/60 rounded-xl p-4">
+            <div class="flex items-center justify-between mb-3">
+                <div>
+                    <h3 class="text-xs font-bold text-slate-200">Per-Keyword Volatility<span class="info-btn ml-1"><svg class="w-3 h-3 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Per-Keyword Volatility</strong><br>How much each keyword's top 10 results change between crawls. High score = unstable SERP (opportunity to break in).</span></span></h3>
+                    <p class="text-[9px] text-slate-600">Higher score = more SERP changes (top 10 reshuffling)</p>
+                </div>
+            </div>
+            <div id="volKeywordTable" class="overflow-x-auto max-h-[500px] overflow-y-auto"></div>
         </div>
     </div>
 </div>
@@ -535,6 +697,8 @@ const TARGET_DOMAIN = '{{ target_domain }}';
 let _currentPage = 1, _totalPages = 1;
 let _seoDistChart = null, _rankChart = null, _historyChart = null;
 let _insightsLoaded = false, _overlapsLoaded = false, _aimLoaded = false, _aisLoaded = false;
+let _paaLoaded = false, _warLoaded = false, _volLoaded = false;
+let _paaData = [];
 let _searchTimeout = null;
 let _evtSource = null, _evtCount = 0;
 
@@ -548,10 +712,13 @@ function switchTab(tab) {
     const btn = document.getElementById('tab-' + tab);
     btn.classList.add('bg-slate-800', 'text-slate-100', 'shadow-sm');
     btn.classList.remove('text-slate-500');
-    if (tab === 'insights' && !_insightsLoaded) { _insightsLoaded = true; loadMovementCards(); loadSeoDistribution(); loadCompetitors(); loadSerpFeatures(); }
-    if (tab === 'overlaps' && !_overlapsLoaded) { _overlapsLoaded = true; loadOverlaps(); }
-    if (tab === 'aimovement' && !_aimLoaded) { _aimLoaded = true; loadAiMovement(); }
-    if (tab === 'aiserp' && !_aisLoaded) { _aisLoaded = true; loadAiSerpCategories(); loadAiSerpMatrix(1); }
+    if (tab === 'insights' && !_insightsLoaded) { _insightsLoaded = true; loadMovementCards(); loadSeoDistribution(); loadCompetitors(); loadSerpFeatures(); loadDailyRankTrend(); }
+    if (tab === 'overlaps' && !_overlapsLoaded) { _overlapsLoaded = true; loadOverlaps(); loadOverlapStats(); }
+    if (tab === 'aimovement' && !_aimLoaded) { _aimLoaded = true; loadAiMovement(); loadAiMovementBreakdown(); }
+    if (tab === 'aiserp' && !_aisLoaded) { _aisLoaded = true; loadAiSerpCategories(); loadAiSerpMatrix(1); loadAiSerpGapTrend(); }
+    if (tab === 'paa' && !_paaLoaded) { _paaLoaded = true; loadPaaHub(); }
+    if (tab === 'warroom' && !_warLoaded) { _warLoaded = true; loadWarRoom(); }
+    if (tab === 'volatility' && !_volLoaded) { _volLoaded = true; loadVolatility(); }
 }
 
 function timeAgo(dateStr) {
@@ -591,12 +758,15 @@ function initAgentSSE() {
         document.getElementById('agentStatus').className = 'text-[9px] text-amber-400';
     });
 
+    let _serpRefreshTimer = null;
     _evtSource.addEventListener('serp_done', e => {
         const d = JSON.parse(e.data);
         const m = d.method === 'curl' ? '<span class="text-emerald-400">curl</span>' : '<span class="text-amber-400">brw</span>';
         addLine(`<span class="text-slate-600">${ts()}</span> <span class="text-emerald-400">OK</span> ${m} <span class="text-slate-500">${d.organic || 0}r</span> <span class="text-slate-600">${(d.prompt || '').slice(0,35)}</span>`);
         document.getElementById('agentStatus').textContent = 'Active';
         document.getElementById('agentStatus').className = 'text-[9px] text-emerald-400';
+        clearTimeout(_serpRefreshTimer);
+        _serpRefreshTimer = setTimeout(() => { loadRankings(_currentPage); refreshKPIs(); }, 3000);
     });
 
     _evtSource.addEventListener('serp_mode', e => {
@@ -623,7 +793,7 @@ function loadRankings(page) {
         const tbody = document.getElementById('serp-tbody');
 
         if (d.rows.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" class="px-4 py-6 text-center text-slate-500 text-xs">No SERP data yet. Click "Crawl Now" to start.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" class="px-4 py-6 text-center text-slate-500 text-xs">No SERP data yet. Click "Crawl Now" to start.</td></tr>';
         } else {
             tbody.innerHTML = d.rows.map(r => {
                 let rankBadge = '<span class="text-slate-600 text-[10px]">--</span>';
@@ -633,6 +803,13 @@ function loadRankings(page) {
                     else rankBadge = `<span class="px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 font-semibold text-[10px]">#${r.serp_rank}</span>`;
                 } else if (r.crawled_at) {
                     rankBadge = '<span class="text-rose-400 text-[10px]">Not found</span>';
+                }
+
+                let aiCell = '<span class="text-slate-700 text-[9px]">--</span>';
+                if (r.ai_rank) {
+                    const aiCls = r.ai_rank <= 3 ? 'text-violet-400 font-bold' : 'text-violet-400/70';
+                    const citedDot = r.cited_in_ai ? '<span class="w-1 h-1 rounded-full bg-cyan-400 inline-block ml-0.5" title="Cited with URL"></span>' : '';
+                    aiCell = `<span class="${aiCls} text-[10px]">#${r.ai_rank}</span>${citedDot}`;
                 }
 
                 let changeBadge = '<span class="text-slate-700 text-[10px]">--</span>';
@@ -645,38 +822,50 @@ function loadRankings(page) {
                     changeBadge = '<span class="text-emerald-400/60 text-[9px]">new</span>';
                 }
 
-                // Competitor column: show top 3 competitors, or #2/#3 if we're #1
+                const FI = {paa:'P',people_also_ask:'P',answer_box:'A',ads:'$',featured_snippet:'S',knowledge_panel:'K',related_keyword:'R'};
+                const FIC = {paa:'bg-blue-500/20 text-blue-400',people_also_ask:'bg-blue-500/20 text-blue-400',answer_box:'bg-emerald-500/20 text-emerald-400',ads:'bg-rose-500/20 text-rose-400',featured_snippet:'bg-amber-500/20 text-amber-400',knowledge_panel:'bg-violet-500/20 text-violet-400',related_keyword:'bg-slate-700 text-slate-400'};
+                const feats = r.feature_types || [];
+                let featCell = '<span class="text-slate-700 text-[9px]">--</span>';
+                if (feats.length > 0) {
+                    featCell = feats.map(f => `<span class="inline-flex w-4 h-4 items-center justify-center rounded text-[7px] font-bold ${FIC[f]||'bg-slate-800 text-slate-500'}" title="${f}">${FI[f]||f[0].toUpperCase()}</span>`).join('');
+                }
+                if (r.target_has_table) featCell += '<span class="inline-flex w-4 h-4 items-center justify-center rounded bg-cyan-500/20 text-cyan-400 text-[7px] font-bold ml-0.5" title="Has table in snippet">T</span>';
+
                 const comps = r.top_competitors || [];
                 let compCell = '<span class="text-slate-600 text-[10px]">--</span>';
                 if (r.serp_rank && comps.length > 0) {
                     if (r.serp_rank === 1) {
                         const others = comps.filter(c => c.rank > 1).slice(0, 2);
                         if (others.length > 0) {
-                            compCell = `<div class="text-[10px]"><span class="text-emerald-400 font-semibold">We are #1</span><span class="text-slate-600 mx-1">|</span>${others.map(c => `<span class="text-slate-500">#${c.rank} ${c.domain.length > 18 ? c.domain.slice(0,18)+'..' : c.domain}</span>`).join(' ')}</div>`;
+                            compCell = `<div class="text-[10px]"><span class="text-emerald-400 font-semibold">#1</span><span class="text-slate-600 mx-1">|</span>${others.map(c => `<span class="text-slate-500">#${c.rank} ${c.domain.length > 15 ? c.domain.slice(0,15)+'..' : c.domain}</span>`).join(' ')}</div>`;
                         } else {
                             compCell = '<span class="text-emerald-400 text-[10px] font-semibold">We are #1</span>';
                         }
                     } else {
                         const top = comps.filter(c => c.rank < r.serp_rank).slice(0, 2);
                         if (top.length > 0) {
-                            compCell = `<div class="text-[10px]">${top.map(c => `<span class="text-amber-400 font-semibold">#${c.rank}</span> <span class="text-slate-500">${c.domain.length > 18 ? c.domain.slice(0,18)+'..' : c.domain}</span>`).join(' ')}</div>`;
+                            compCell = `<div class="text-[10px]">${top.map(c => `<span class="text-amber-400 font-semibold">#${c.rank}</span> <span class="text-slate-500">${c.domain.length > 15 ? c.domain.slice(0,15)+'..' : c.domain}</span>`).join(' ')}</div>`;
                         } else {
-                            compCell = `<div class="text-[10px]"><span class="text-amber-400 font-semibold">#1</span> <span class="text-slate-500">${(r.top_domain || '').slice(0,22)}</span></div>`;
+                            compCell = `<div class="text-[10px]"><span class="text-amber-400 font-semibold">#1</span> <span class="text-slate-500">${(r.top_domain || '').slice(0,20)}</span></div>`;
                         }
                     }
                 } else if (r.top_domain && r.crawled_at) {
-                    compCell = `<span class="text-slate-500 text-[10px]">#1 ${(r.top_domain || '').slice(0,22)}</span>`;
+                    compCell = `<span class="text-slate-500 text-[10px]">#1 ${(r.top_domain || '').slice(0,20)}</span>`;
                 }
 
                 const clickable = r.prompt_id && r.serp_id ? `onclick="openSerpDetail('${r.prompt_id}')"` : '';
+                const snippetPreview = r.target_snippet ? `<p class="text-[8px] text-slate-600 truncate mt-0.5 max-w-[260px]" title="${(r.target_snippet||'').replace(/"/g,'&quot;')}">${(r.target_snippet||'').slice(0,80)}</p>` : '';
 
                 return `<tr ${clickable} class="hover:bg-slate-900/30 transition-colors ${r.serp_id ? 'cursor-pointer' : ''}">
                     <td class="px-4 py-2">
                         <p class="font-medium text-slate-200 text-xs">${r.keyword}</p>
                         <span class="px-1.5 py-0.5 rounded bg-slate-900/80 text-[8px] text-slate-500">${r.category || ''}</span>
+                        ${snippetPreview}
                     </td>
                     <td class="text-center px-3 py-2">${rankBadge}</td>
+                    <td class="text-center px-3 py-2">${aiCell}</td>
                     <td class="text-center px-3 py-2">${changeBadge}</td>
+                    <td class="px-3 py-2"><div class="flex items-center gap-0.5">${featCell}</div></td>
                     <td class="px-3 py-2">${compCell}</td>
                     <td class="text-center px-3 py-2 text-[10px] text-slate-500" title="${r.crawled_at || ''}">${timeAgo(r.crawled_at)}</td>
                 </tr>`;
@@ -882,8 +1071,38 @@ function refreshKPIs() {
 
         document.getElementById('kpi-tracked').textContent = crawled;
         document.getElementById('kpi-total').textContent = '/ ' + total;
-        document.getElementById('kpi-tracked-bar').style.width = pct + '%';
-        document.getElementById('kpi-tracked-sub').textContent = pct + '% coverage';
+
+        const cycleBadge = document.getElementById('kpi-cycle-badge');
+        const cycleProg = document.getElementById('kpi-cycle-progress');
+        const comp = d.seo_cycle_completed || 0;
+        const nextPct = d.seo_cycle_pct || 0;
+
+        const covEl = document.getElementById('kpi-coverage-val');
+        if (covEl) covEl.textContent = pct + '%';
+        document.getElementById('kpi-tracked-bar').style.width = Math.min(pct, 100) + '%';
+        document.getElementById('kpi-tracked-sub').textContent = (d.total_crawls || '') + ' total crawls';
+
+        const workingCycle = nextPct > 0 ? comp + 1 : Math.max(comp, 1);
+        if (cycleBadge) {
+            cycleBadge.textContent = 'Cycle ' + workingCycle;
+            if (cycleProg) {
+                if (nextPct > 0) {
+                    cycleProg.textContent = nextPct + '% done';
+                } else if (comp > 0) {
+                    cycleProg.textContent = 'Complete';
+                } else {
+                    cycleProg.textContent = '';
+                }
+            }
+        }
+        const ringEl = document.getElementById('kpi-cycle-ring');
+        const numEl = document.getElementById('kpi-cycle-num');
+        if (numEl) numEl.textContent = workingCycle;
+        if (ringEl) {
+            const circ = 97.39;
+            const ringPct = nextPct > 0 ? nextPct : (comp > 0 ? 100 : 0);
+            ringEl.style.strokeDashoffset = circ - (circ * Math.min(ringPct, 100) / 100);
+        }
 
         if (d.target_top10 !== undefined) {
             document.getElementById('kpi-top10').textContent = d.target_top10;
@@ -1124,6 +1343,379 @@ function aisPage(delta) {
     if (next >= 1 && next <= _aisTotalPages) loadAiSerpMatrix(next);
 }
 
+// ─── PAA Intelligence Hub ────────────────────────────────────────
+async function loadPaaHub() {
+    try {
+        const d = await fetch('/api/insights/paa-hub').then(r => r.json());
+        _paaData = d.questions || [];
+        const trends = d.trends || [];
+        const cats = d.by_category || [];
+
+        const statsEl = document.getElementById('paaStats');
+        const totalQ = _paaData.reduce((s, q) => s + q.frequency, 0);
+        const uniqueQ = _paaData.length;
+        statsEl.innerHTML = `
+            <div class="flex justify-between py-1.5 border-b border-slate-800/50"><span class="text-slate-500">Total PAA</span><span class="text-amber-400 font-bold">${totalQ}</span></div>
+            <div class="flex justify-between py-1.5 border-b border-slate-800/50"><span class="text-slate-500">Unique Questions</span><span class="text-cyan-400 font-bold">${uniqueQ}</span></div>
+            <div class="flex justify-between py-1.5 border-b border-slate-800/50"><span class="text-slate-500">Categories</span><span class="text-violet-400 font-bold">${cats.length}</span></div>
+            <div class="flex justify-between py-1.5"><span class="text-slate-500">Avg per Keyword</span><span class="text-emerald-400 font-bold">${uniqueQ > 0 ? (totalQ / Math.max(1, _paaData.reduce((s,q) => s + q.keyword_count, 0) / uniqueQ)).toFixed(1) : '0'}</span></div>
+        `;
+
+        if (trends.length) {
+            const sorted = [...trends].sort((a,b) => a.day.localeCompare(b.day));
+            if (_paaChart) _paaChart.destroy();
+            _paaChart = new Chart(document.getElementById('paaTrendChart'), {
+                type: 'line',
+                data: {
+                    labels: sorted.map(t => t.day.slice(5)),
+                    datasets: [
+                        { label: 'PAA Count', data: sorted.map(t => t.paa_count), borderColor: '#f59e0b', borderWidth: 2, pointRadius: 2, tension: 0.3 },
+                        { label: 'Unique Q', data: sorted.map(t => t.unique_questions), borderColor: '#06b6d4', borderWidth: 1.5, pointRadius: 1, tension: 0.3 },
+                    ]
+                },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { boxWidth: 8, font: { size: 9 } } } }, scales: { x: { ticks: { font: { size: 8 } } }, y: { beginAtZero: true, ticks: { font: { size: 8 } } } } }
+            });
+        }
+
+        if (cats.length) {
+            if (_paaCatChart) _paaCatChart.destroy();
+            _paaCatChart = new Chart(document.getElementById('paaCategoryChart'), {
+                type: 'bar',
+                data: {
+                    labels: cats.map(c => c.category),
+                    datasets: [{ label: 'PAA Count', data: cats.map(c => c.paa_count), backgroundColor: '#f59e0bcc', borderRadius: 4 }]
+                },
+                options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true, ticks: { font: { size: 8 } } }, y: { ticks: { font: { size: 8 } } } } }
+            });
+        }
+
+        renderPaaTable(_paaData);
+    } catch(e) { console.error('paa-hub:', e); }
+}
+
+let _paaChart = null, _paaCatChart = null;
+
+function renderPaaTable(questions) {
+    const el = document.getElementById('paaTable');
+    if (!questions.length) { el.innerHTML = '<div class="p-4 text-xs text-slate-600">No PAA questions found.</div>'; return; }
+    let html = `<table class="w-full text-[10px]"><thead class="sticky top-0 bg-slate-950 z-10"><tr class="text-slate-500 border-b border-slate-800 uppercase tracking-wider">
+        <th class="text-left px-4 py-2">Question</th><th class="text-center px-2 py-2 w-16">Freq</th>
+        <th class="text-center px-2 py-2 w-20">Keywords</th><th class="text-left px-2 py-2">Categories</th>
+    </tr></thead><tbody>`;
+    questions.forEach(q => {
+        const cats = (q.categories || []).slice(0, 3).join(', ');
+        html += `<tr class="border-b border-slate-900/30 hover:bg-slate-900/20">
+            <td class="px-4 py-2 text-slate-300">${q.question_text}</td>
+            <td class="text-center px-2 py-2 text-amber-400 font-bold">${q.frequency}</td>
+            <td class="text-center px-2 py-2 text-cyan-400">${q.keyword_count}</td>
+            <td class="px-2 py-2 text-[9px] text-slate-500">${cats}</td>
+        </tr>`;
+    });
+    html += '</tbody></table>';
+    el.innerHTML = html;
+}
+
+function filterPaaTable() {
+    const q = (document.getElementById('paaSearch').value || '').toLowerCase();
+    const filtered = q ? _paaData.filter(p => p.question_text.toLowerCase().includes(q)) : _paaData;
+    renderPaaTable(filtered);
+}
+
+// ─── Competitor Domain War Room ─────────────────────────────────
+async function loadWarRoom() {
+    try {
+        const d = await fetch('/api/insights/competitor-warroom').then(r => r.json());
+        const share = d.share_of_serp || [];
+        const h2h = d.head_to_head || [];
+        const newE = d.new_entrants || [];
+
+        if (share.length) {
+            const top15 = share.slice(0, 15);
+            const isTarget = (dom) => dom.includes('grabon');
+            if (window._warShareChart) window._warShareChart.destroy();
+            window._warShareChart = new Chart(document.getElementById('warShareChart'), {
+                type: 'bar',
+                data: {
+                    labels: top15.map(s => s.domain.replace('www.', '')),
+                    datasets: [
+                        { label: 'Appearances', data: top15.map(s => s.appearances), backgroundColor: top15.map(s => isTarget(s.domain) ? '#f59e0bcc' : '#334155cc'), borderRadius: 4 },
+                        { label: 'Top 3', data: top15.map(s => s.top3), backgroundColor: '#10b981cc', borderRadius: 4 },
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+                    plugins: { legend: { labels: { boxWidth: 10, font: { size: 9 } } } },
+                    scales: { x: { stacked: false, beginAtZero: true }, y: { ticks: { font: { size: 9 } } } }
+                }
+            });
+        }
+
+        const h2hEl = document.getElementById('warH2H');
+        if (!h2h.length) { h2hEl.innerHTML = '<div class="text-xs text-slate-600">No head-to-head data.</div>'; }
+        else {
+            let html = `<table class="w-full text-[10px]"><thead><tr class="text-slate-500 border-b border-slate-800 uppercase tracking-wider">
+                <th class="text-left px-3 py-2">Domain</th><th class="text-center px-2 py-2">Overlap</th>
+                <th class="text-center px-2 py-2">They Beat Us</th><th class="text-center px-2 py-2">We Beat</th>
+                <th class="text-center px-2 py-2">Their Avg</th><th class="text-center px-2 py-2">Our Avg</th>
+            </tr></thead><tbody>`;
+            h2h.forEach(r => {
+                const winCls = r.beats_us > r.we_beat ? 'text-rose-400' : 'text-emerald-400';
+                html += `<tr class="border-b border-slate-900/30 hover:bg-slate-900/20">
+                    <td class="px-3 py-2 text-slate-300 font-medium">${r.domain.replace('www.', '')}</td>
+                    <td class="text-center px-2 py-2 text-slate-400">${r.overlap_count}</td>
+                    <td class="text-center px-2 py-2 text-rose-400 font-bold">${r.beats_us}</td>
+                    <td class="text-center px-2 py-2 text-emerald-400 font-bold">${r.we_beat}</td>
+                    <td class="text-center px-2 py-2 text-slate-500">#${r.their_avg}</td>
+                    <td class="text-center px-2 py-2 ${winCls}">#${r.our_avg}</td>
+                </tr>`;
+            });
+            html += '</tbody></table>';
+            h2hEl.innerHTML = html;
+        }
+
+        const newEl = document.getElementById('warNewEntrants');
+        if (!newE.length) { newEl.innerHTML = '<div class="text-emerald-400 text-xs py-2">No new competitors in the last 7 days.</div>'; }
+        else {
+            newEl.innerHTML = '<div class="flex flex-wrap gap-2">' + newE.map(e =>
+                `<span class="px-3 py-1.5 rounded-lg bg-rose-500/10 text-rose-400 border border-rose-500/20 text-xs font-medium">${e.domain.replace('www.','')} <span class="text-[8px] text-rose-300/50 ml-1">${timeAgo(e.first_seen)}</span></span>`
+            ).join('') + '</div>';
+        }
+    } catch(e) { console.error('warroom:', e); }
+}
+
+// ─── SERP Volatility Index ──────────────────────────────────────
+async function loadVolatility() {
+    try {
+        const d = await fetch('/api/insights/serp-volatility').then(r => r.json());
+        const perKw = d.per_keyword || [];
+        const global = d.daily_global || [];
+
+        if (global.length) {
+            const sorted = [...global].sort((a,b) => a.day.localeCompare(b.day));
+            if (window._volChart) window._volChart.destroy();
+            window._volChart = new Chart(document.getElementById('volGlobalChart'), {
+                type: 'bar',
+                data: {
+                    labels: sorted.map(g => g.day.slice(5)),
+                    datasets: [{
+                        label: 'Avg New Domains in Top 10',
+                        data: sorted.map(g => g.avg_new_domains),
+                        backgroundColor: sorted.map(g => g.avg_new_domains > 3 ? '#ef4444cc' : g.avg_new_domains > 1.5 ? '#f59e0bcc' : '#10b981cc'),
+                        borderRadius: 3,
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: { x: { ticks: { font: { size: 9 } } }, y: { beginAtZero: true, title: { display: true, text: 'Avg changes', font: { size: 9 } } } }
+                }
+            });
+        }
+
+        const tableEl = document.getElementById('volKeywordTable');
+        if (!perKw.length) { tableEl.innerHTML = '<div class="text-xs text-slate-600 p-4">Need at least 2 days of data for volatility.</div>'; return; }
+
+        const maxVol = Math.max(...perKw.map(k => k.volatility_score));
+        let html = `<table class="w-full text-[10px]"><thead class="sticky top-0 bg-slate-950 z-10"><tr class="text-slate-500 border-b border-slate-800 uppercase tracking-wider">
+            <th class="text-left px-4 py-2">Keyword</th><th class="text-left px-2 py-2">Category</th>
+            <th class="text-center px-2 py-2">Score</th><th class="px-2 py-2 min-w-[120px]">Volatility</th>
+            <th class="text-center px-2 py-2">Days</th>
+        </tr></thead><tbody>`;
+        perKw.forEach(k => {
+            const pct = maxVol > 0 ? (k.volatility_score / maxVol * 100) : 0;
+            const color = k.volatility_score > 5 ? '#ef4444' : k.volatility_score > 2 ? '#f59e0b' : '#10b981';
+            html += `<tr class="border-b border-slate-900/30 hover:bg-slate-900/20">
+                <td class="px-4 py-2 text-slate-300">${k.keyword}</td>
+                <td class="px-2 py-2 text-[9px] text-slate-500">${k.category}</td>
+                <td class="text-center px-2 py-2 font-bold" style="color:${color}">${k.volatility_score}</td>
+                <td class="px-2 py-2"><div class="h-1.5 bg-slate-800 rounded-full overflow-hidden"><div class="h-full rounded-full" style="width:${pct}%;background:${color}"></div></div></td>
+                <td class="text-center px-2 py-2 text-slate-600">${k.days_tracked}</td>
+            </tr>`;
+        });
+        html += '</tbody></table>';
+        tableEl.innerHTML = html;
+    } catch(e) { console.error('volatility:', e); }
+}
+
+// ─── Daily Rank Trend (Insights tab) ────────────────────────────
+let _dailyRankChart = null;
+async function loadDailyRankTrend() {
+    try {
+        const data = await fetch('/api/serp/daily-rank-trend?days=30').then(r => r.json());
+        if (!data.length) return;
+        const sorted = [...data].sort((a,b) => a.day.localeCompare(b.day));
+        const sumEl = document.getElementById('rank-trend-summary');
+        if (sorted.length >= 2) {
+            const first = sorted[0].avg_rank, last = sorted[sorted.length-1].avg_rank;
+            const d = first - last;
+            if (d > 0) sumEl.innerHTML = `<span class="text-emerald-400 font-bold">+${d.toFixed(1)} improved</span> over ${sorted.length} days`;
+            else if (d < 0) sumEl.innerHTML = `<span class="text-rose-400 font-bold">${d.toFixed(1)} dropped</span> over ${sorted.length} days`;
+            else sumEl.textContent = `Stable over ${sorted.length} days`;
+        }
+        if (_dailyRankChart) _dailyRankChart.destroy();
+        _dailyRankChart = new Chart(document.getElementById('dailyRankTrendChart'), {
+            type: 'line',
+            data: {
+                labels: sorted.map(d => d.day.slice(5)),
+                datasets: [
+                    { label: 'Avg Rank', data: sorted.map(d => d.avg_rank), borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.08)', fill: true, tension: 0.3, borderWidth: 2, pointRadius: 2, yAxisID: 'y' },
+                    { label: 'Top 10', data: sorted.map(d => d.top10_count), borderColor: '#10b981', borderWidth: 1.5, pointRadius: 1, tension: 0.3, borderDash: [4,2], yAxisID: 'y1' }
+                ]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { labels: { boxWidth: 8, font: { size: 9 } } } },
+                scales: {
+                    x: { ticks: { font: { size: 8 }, maxTicksLimit: 10 }, grid: { color: 'rgba(51,65,85,0.15)' } },
+                    y: { reverse: true, min: 1, title: { display: true, text: 'Avg Rank', font: { size: 8 } }, ticks: { font: { size: 8 } }, grid: { color: 'rgba(51,65,85,0.15)' } },
+                    y1: { position: 'right', beginAtZero: true, title: { display: true, text: 'Top 10', font: { size: 8 } }, ticks: { font: { size: 8 } }, grid: { display: false } }
+                }
+            }
+        });
+    } catch(e) { console.error('daily-rank-trend:', e); }
+}
+
+// ─── Overlap Stats (Overlaps tab) ──────────────────────────────
+let _overlapEngineChart = null;
+async function loadOverlapStats() {
+    try {
+        const d = await fetch('/api/serp/overlap-stats').then(r => r.json());
+        document.getElementById('ovl-total').textContent = d.total_overlaps;
+        document.getElementById('ovl-urls').textContent = d.unique_urls + ' unique URLs';
+        document.getElementById('ovl-kw').textContent = d.keywords_with_overlap;
+        document.getElementById('ovl-rate').textContent = d.overlap_rate + '% overlap rate';
+        document.getElementById('ovl-engines').textContent = d.engines_with_overlap;
+        const engineNames = (d.by_engine || []).map(e => ENGINE_SHORT[e.engine_name] || e.engine_name);
+        document.getElementById('ovl-engine-list').textContent = engineNames.join(', ');
+        const topD = (d.top_domains || [])[0];
+        if (topD) {
+            document.getElementById('ovl-top-domain').textContent = topD.domain.replace('www.','');
+            document.getElementById('ovl-top-count').textContent = topD.overlap_count + ' overlaps across ' + topD.engines + ' engines';
+        }
+
+        if (d.by_engine && d.by_engine.length) {
+            const be = d.by_engine;
+            if (_overlapEngineChart) _overlapEngineChart.destroy();
+            _overlapEngineChart = new Chart(document.getElementById('overlapEngineChart'), {
+                type: 'bar',
+                data: {
+                    labels: be.map(e => ENGINE_SHORT[e.engine_name] || e.engine_name),
+                    datasets: [
+                        { label: 'Overlaps', data: be.map(e => e.overlap_count), backgroundColor: '#8b5cf6cc', borderRadius: 4 },
+                        { label: 'Unique URLs', data: be.map(e => e.unique_urls), backgroundColor: '#06b6d4cc', borderRadius: 4 }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { labels: { boxWidth: 8, font: { size: 9 } } } },
+                    scales: { x: { ticks: { font: { size: 9 } } }, y: { beginAtZero: true, ticks: { font: { size: 8 } } } }
+                }
+            });
+        }
+    } catch(e) { console.error('overlap-stats:', e); }
+}
+
+// ─── AI Movement Breakdown (AI Movement tab) ──────────────────
+let _aimEngineChart = null, _aimDailyChart = null, _aimSentimentChart = null;
+async function loadAiMovementBreakdown() {
+    try {
+        const d = await fetch('/api/analytics/ai-movement-breakdown?days=7').then(r => r.json());
+        const eb = d.engine_breakdown || [];
+        if (eb.length) {
+            if (_aimEngineChart) _aimEngineChart.destroy();
+            _aimEngineChart = new Chart(document.getElementById('aimEngineChart'), {
+                type: 'bar',
+                data: {
+                    labels: eb.map(e => ENGINE_SHORT[e.engine_name] || e.engine_name),
+                    datasets: [
+                        { label: 'Improved', data: eb.map(e => e.improved), backgroundColor: '#10b981cc', borderRadius: 3 },
+                        { label: 'Declined', data: eb.map(e => e.declined), backgroundColor: '#ef4444cc', borderRadius: 3 },
+                        { label: 'Stable', data: eb.map(e => e.stable), backgroundColor: '#64748bcc', borderRadius: 3 }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { labels: { boxWidth: 8, font: { size: 8 } } } },
+                    scales: {
+                        x: { stacked: true, ticks: { font: { size: 8 } } },
+                        y: { stacked: true, beginAtZero: true, ticks: { font: { size: 8 } } }
+                    }
+                }
+            });
+        }
+
+        const dt = d.daily_trend || [];
+        if (dt.length) {
+            const sorted = [...dt].sort((a,b) => a.day.localeCompare(b.day));
+            if (_aimDailyChart) _aimDailyChart.destroy();
+            _aimDailyChart = new Chart(document.getElementById('aimDailyChart'), {
+                type: 'line',
+                data: {
+                    labels: sorted.map(t => t.day.slice(5)),
+                    datasets: [
+                        { label: 'Mentions', data: sorted.map(t => t.mentions), borderColor: '#f59e0b', borderWidth: 2, pointRadius: 2, tension: 0.3, yAxisID: 'y' },
+                        { label: 'Avg Rank', data: sorted.map(t => t.avg_rank), borderColor: '#8b5cf6', borderWidth: 1.5, pointRadius: 1, tension: 0.3, borderDash: [4,2], yAxisID: 'y1' }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { labels: { boxWidth: 8, font: { size: 8 } } } },
+                    scales: {
+                        x: { ticks: { font: { size: 8 } } },
+                        y: { beginAtZero: true, title: { display: true, text: 'Mentions', font: { size: 8 } }, ticks: { font: { size: 8 } } },
+                        y1: { position: 'right', reverse: true, min: 1, title: { display: true, text: 'Rank', font: { size: 8 } }, ticks: { font: { size: 8 } }, grid: { display: false } }
+                    }
+                }
+            });
+        }
+
+        const sent = d.sentiment || [];
+        if (sent.length) {
+            const SC = {positive:'#10b981', neutral:'#64748b', negative:'#ef4444', mixed:'#f59e0b'};
+            if (_aimSentimentChart) _aimSentimentChart.destroy();
+            _aimSentimentChart = new Chart(document.getElementById('aimSentimentChart'), {
+                type: 'doughnut',
+                data: {
+                    labels: sent.map(s => s.sentiment),
+                    datasets: [{ data: sent.map(s => s.cnt), backgroundColor: sent.map(s => SC[s.sentiment] || '#475569'), borderWidth: 0 }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false, cutout: '60%',
+                    plugins: { legend: { position: 'right', labels: { boxWidth: 8, font: { size: 9 }, color: '#94a3b8' } } }
+                }
+            });
+        }
+    } catch(e) { console.error('ai-movement-breakdown:', e); }
+}
+
+// ─── AI vs SERP Gap Trend ──────────────────────────────────────
+let _aisGapChart = null;
+async function loadAiSerpGapTrend() {
+    try {
+        const data = await fetch('/api/analytics/ai-serp-gap-trend?days=14').then(r => r.json());
+        if (!data.length) return;
+        const sorted = [...data].sort((a,b) => a.day.localeCompare(b.day));
+        if (_aisGapChart) _aisGapChart.destroy();
+        _aisGapChart = new Chart(document.getElementById('aisGapTrendChart'), {
+            type: 'line',
+            data: {
+                labels: sorted.map(d => d.day.slice(5)),
+                datasets: [
+                    { label: 'Both', data: sorted.map(d => d.both), borderColor: '#8b5cf6', backgroundColor: 'rgba(139,92,246,0.08)', fill: true, borderWidth: 2, pointRadius: 2, tension: 0.3 },
+                    { label: 'AI Only', data: sorted.map(d => d.ai_only), borderColor: '#f59e0b', borderWidth: 1.5, pointRadius: 1, tension: 0.3 },
+                    { label: 'SERP Only', data: sorted.map(d => d.serp_only), borderColor: '#06b6d4', borderWidth: 1.5, pointRadius: 1, tension: 0.3 },
+                    { label: 'Neither', data: sorted.map(d => d.neither), borderColor: '#64748b', borderWidth: 1, pointRadius: 1, tension: 0.3, borderDash: [3,3] }
+                ]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { labels: { boxWidth: 8, font: { size: 9 } } } },
+                scales: { x: { ticks: { font: { size: 8 } } }, y: { beginAtZero: true, ticks: { font: { size: 8 } } } }
+            }
+        });
+    } catch(e) { console.error('gap-trend:', e); }
+}
+
 // -- Init --
 fetch('/api/serp/categories').then(r => r.json()).then(cats => {
     const sel = document.getElementById('serp-category');
@@ -1141,15 +1733,59 @@ initAgentSSE();
 setInterval(refreshKPIs, 15000);
 
 function refreshInsights() {
-    loadMovementCards(); loadSeoDistribution(); loadCompetitors(); loadSerpFeatures();
+    loadMovementCards(); loadSeoDistribution(); loadCompetitors(); loadSerpFeatures(); loadDailyRankTrend();
 }
 setInterval(refreshInsights, 60000);
 
 setTimeout(() => {
-    if (!_insightsLoaded) { _insightsLoaded = true; loadMovementCards(); loadSeoDistribution(); loadCompetitors(); loadSerpFeatures(); }
-    if (!_overlapsLoaded) { _overlapsLoaded = true; loadOverlaps(); }
-    if (!_aimLoaded) { _aimLoaded = true; loadAiMovement(); }
-    if (!_aisLoaded) { _aisLoaded = true; loadAiSerpCategories(); loadAiSerpMatrix(1); }
+    if (!_insightsLoaded) { _insightsLoaded = true; loadMovementCards(); loadSeoDistribution(); loadCompetitors(); loadSerpFeatures(); loadDailyRankTrend(); }
+    if (!_overlapsLoaded) { _overlapsLoaded = true; loadOverlaps(); loadOverlapStats(); }
+    if (!_aimLoaded) { _aimLoaded = true; loadAiMovement(); loadAiMovementBreakdown(); }
+    if (!_aisLoaded) { _aisLoaded = true; loadAiSerpCategories(); loadAiSerpMatrix(1); loadAiSerpGapTrend(); }
 }, 2000);
+
+window.onDateRangeChange = function(range) {
+    refreshKPIs();
+    refreshInsights();
+};
+
+window.onComparisonResult = function(data) {
+    var el = document.getElementById('comparisonResults');
+    if (!el) {
+        var panel = document.getElementById('comparisonPanel');
+        if (!panel) return;
+        el = document.createElement('div');
+        el.id = 'comparisonResults';
+        el.className = 'mt-3';
+        panel.appendChild(el);
+    }
+    if (!data || !data.period_a) { el.innerHTML = '<p class="text-xs text-slate-500">No data</p>'; return; }
+    var a = data.period_a, b = data.period_b, d = data.deltas || {};
+    function delta(key) {
+        var v = d[key]; var p = d[key + '_pct'];
+        if (v === undefined || v === null) return '<span class="text-slate-600">--</span>';
+        var color = v > 0 ? 'text-emerald-400' : v < 0 ? 'text-rose-400' : 'text-slate-500';
+        var arrow = v > 0 ? '↑' : v < 0 ? '↓' : '→';
+        return '<span class="' + color + '">' + arrow + ' ' + Math.abs(v) + (p !== undefined ? ' (' + (p > 0 ? '+' : '') + p + '%)' : '') + '</span>';
+    }
+    var metrics = ['keywords', 'top_10', 'rank_1', 'avg_rank', 'competing_domains'];
+    var labels = {'keywords':'Keywords','top_10':'Top 10','rank_1':'#1 Rank','avg_rank':'Avg Rank','competing_domains':'Competing Domains'};
+    var html = '<div class="flex items-center gap-2 mt-2"><span class="text-[10px] text-cyan-400 font-bold">' + (data.period_a_label || 'Period A') + '</span><span class="text-slate-600 text-[10px]">vs</span><span class="text-[10px] text-slate-400">' + (data.period_b_label || 'Period B') + '</span></div>';
+    html += '<div class="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-2">';
+    metrics.forEach(function(m) {
+        if (a[m] === undefined && b[m] === undefined) return;
+        html += '<div class="glass-card rounded-lg p-2 text-center">';
+        html += '<div class="text-[9px] text-slate-500 uppercase font-semibold">' + (labels[m] || m) + '</div>';
+        html += '<div class="flex items-center justify-center gap-2 mt-1">';
+        html += '<span class="text-xs text-slate-300 font-bold">' + (a[m] !== null ? a[m] : '--') + '</span>';
+        html += '<span class="text-[9px] text-slate-600">vs</span>';
+        html += '<span class="text-xs text-slate-400">' + (b[m] !== null ? b[m] : '--') + '</span>';
+        html += '</div>';
+        html += '<div class="text-[10px] mt-0.5">' + delta(m) + '</div>';
+        html += '</div>';
+    });
+    html += '</div>';
+    el.innerHTML = html;
+};
 </script>
 {% endblock %}

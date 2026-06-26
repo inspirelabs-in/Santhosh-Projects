@@ -470,6 +470,26 @@ def _init_schema_sync():
             ON notifications (created_at DESC)
         """)
 
+        # Migration: add dedup_key + metadata to notifications
+        for col, defn in [
+            ("dedup_key", "VARCHAR(200)"),
+            ("metadata", "JSONB DEFAULT '{}'"),
+        ]:
+            col_exists = conn.execute(
+                """SELECT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'notifications' AND column_name = %s
+                )""", (col,)
+            ).fetchone()
+            if col_exists and not col_exists["exists"]:
+                conn.execute(f"ALTER TABLE notifications ADD COLUMN {col} {defn}")
+                log.info(f"Added notifications.{col} column")
+
+        conn.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_dedup_key
+            ON notifications (dedup_key) WHERE dedup_key IS NOT NULL
+        """)
+
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_brand_mentions_brand_lower
             ON brand_mentions (LOWER(brand_name))
@@ -495,8 +515,45 @@ def _init_schema_sync():
             ON serp_organic_entries (serp_id, is_target) WHERE is_target = TRUE
         """)
 
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_brand_mentions_target
+            ON brand_mentions (is_target_brand) WHERE is_target_brand = TRUE
+        """)
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_execution_logs_latest
+            ON execution_logs (prompt_id, engine_name, captured_at DESC)
+        """)
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_execution_logs_captured_at
+            ON execution_logs (captured_at DESC)
+        """)
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_brand_mentions_log_id
+            ON brand_mentions (log_id)
+        """)
+
         conn.commit()
         log.info("Database schema initialized")
+
+        junk_codes = (
+            "CODE", "CODES", "COUPON", "COUPONS", "PROMO", "PROMOS",
+            "VOUCHER", "VOUCHERS", "DISCOUNT", "DISCOUNTS",
+            "DUNIA", "KARO", "GURU", "DIME", "MART", "RAJA", "WAPAS",
+            "TIONAL", "TIONS", "IONAL", "ALLY", "MENT", "NESS",
+            "AVAILABLE", "MENTIONED", "PROMOTIONAL", "INTERNATIONAL",
+            "COUPONCODE", "PROMOCODE", "VOUCHERCODE", "DISCOUNTCODE",
+        )
+        ph = ",".join(["%s"] * len(junk_codes))
+        cur = conn.execute(
+            f"DELETE FROM ai_hallucinated_coupons WHERE UPPER(coupon_code) IN ({ph})",
+            junk_codes,
+        )
+        if cur.rowcount:
+            log.info(f"Cleaned {cur.rowcount} junk coupon codes from DB")
+        conn.commit()
 
 
 async def init_schema():

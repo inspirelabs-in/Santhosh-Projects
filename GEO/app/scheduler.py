@@ -5,6 +5,7 @@ from app.agent.pipeline import run_continuous_loop
 from app.agent.serp_scheduler import run_serp_loop
 from app.agent.diagnosis_scheduler import run_diagnosis_loop
 from app.agent.verification import verify_all_monitoring_fixes
+from app.agent.alert_engine import generate_alerts, cleanup_old_alerts
 from app.routes.auth import (
     refresh_google_cookies, refresh_chatgpt_cookies,
     refresh_gemini_cookies, refresh_claude_cookies,
@@ -116,8 +117,25 @@ def init_scheduler():
         replace_existing=True,
     )
 
+    _scheduler.add_job(
+        generate_alerts,
+        "interval",
+        minutes=30,
+        id="alert_generation",
+        replace_existing=True,
+    )
+
+    _scheduler.add_job(
+        cleanup_old_alerts,
+        "cron",
+        hour=3, minute=30,
+        id="alert_cleanup",
+        replace_existing=True,
+        kwargs={"days": 30},
+    )
+
     _scheduler.start()
-    log.info("Scheduler started - continuous oldest-first, cookies every 6h, health check every 15m")
+    log.info("Scheduler started - continuous oldest-first, cookies every 6h, alerts every 30m, health check every 15m")
 
 
 def shutdown_scheduler():

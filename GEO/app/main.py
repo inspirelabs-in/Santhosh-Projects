@@ -22,9 +22,13 @@ from app.database import init_schema, close_pool
 from app.scheduler import init_scheduler, shutdown_scheduler
 from app.routes.dashboard import router as dashboard_router
 from app.routes.api import router as api_router
+from app.routes.api_analytics import router as api_analytics_router
+from app.routes.api_serp import router as api_serp_router
+from app.routes.api_insights import router as api_insights_router
 from app.routes.logs import router as logs_router
-from app.routes.auth import router as auth_router, cleanup_browsers, _warmup_camoufox
+from app.routes.auth import router as auth_router, cleanup_browsers, warmup_camoufox
 from app.routes.verification import router as verification_router
+from app.routes.reports import router as reports_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -104,14 +108,17 @@ def _remove_crash_marker():
 
 
 async def _watchdog_loop():
-    """Periodic self-check: verify DB connectivity and event loop responsiveness."""
+    """Periodic self-check: verify DB connectivity, event loop health, and engine auto-heal."""
     await asyncio.sleep(60)
+    _heal_check_counter = 0
     while True:
         try:
             from app.database import run_db
             t0 = time.time()
+            def _ping(conn):
+                return conn.execute("SELECT 1").fetchone()
             await asyncio.wait_for(
-                run_db("SELECT 1", fetchone=True),
+                run_db(_ping),
                 timeout=15,
             )
             elapsed = time.time() - t0
@@ -128,7 +135,47 @@ async def _watchdog_loop():
             )
         except Exception as e:
             log.error(f"Watchdog check failed: {e}")
+
+        _heal_check_counter += 1
+        if _heal_check_counter % 5 == 0:
+            try:
+                await _watchdog_engine_heal()
+            except Exception as e:
+                log.error(f"Watchdog engine heal check failed: {e}")
+
         await asyncio.sleep(60)
+
+
+async def _watchdog_engine_heal():
+    """Check engine error rates and trigger auto-heal for degraded engines."""
+    from app.database import run_db
+    from app.agent.pipeline import (
+        _auto_heal_in_progress, _auto_heal_engine,
+        _engine_fail_count, CONSECUTIVE_FAIL_THRESHOLD,
+    )
+    from app.agent.scraper import VISIBLE_ENGINES
+
+    def _check(conn):
+        return conn.execute("""
+            SELECT engine_name,
+                   COUNT(*) AS total,
+                   COUNT(*) FILTER (WHERE raw_response_text LIKE 'Error:%%') AS errors
+            FROM execution_logs
+            WHERE captured_at >= NOW() - INTERVAL '1 hour'
+              AND engine_name = ANY(%s)
+            GROUP BY engine_name
+        """, (list(VISIBLE_ENGINES),)).fetchall()
+
+    rows = await run_db(_check)
+    for r in rows:
+        eng = r["engine_name"]
+        if r["total"] < 5:
+            continue
+        error_rate = r["errors"] / r["total"]
+        if error_rate >= 0.6 and eng not in _auto_heal_in_progress:
+            _engine_fail_count[eng] = max(_engine_fail_count.get(eng, 0), CONSECUTIVE_FAIL_THRESHOLD)
+            log.warning(f"Watchdog: {eng} has {error_rate:.0%} error rate in last hour — triggering auto-heal")
+            asyncio.ensure_future(_auto_heal_engine(eng))
 
 
 def _handle_unhandled_exception(loop, context):
@@ -159,7 +206,7 @@ async def lifespan(app: FastAPI):
     from app.agent.account_pool import init_all_pools
     await init_all_pools()
     init_scheduler()
-    asyncio.create_task(_warmup_camoufox())
+    asyncio.create_task(warmup_camoufox())
     watchdog_task = asyncio.create_task(_watchdog_loop())
     yield
     watchdog_task.cancel()
@@ -190,6 +237,10 @@ async def favicon():
 
 app.include_router(dashboard_router)
 app.include_router(api_router)
+app.include_router(api_analytics_router)
+app.include_router(api_serp_router)
+app.include_router(api_insights_router)
 app.include_router(logs_router)
 app.include_router(auth_router)
 app.include_router(verification_router)
+app.include_router(reports_router)

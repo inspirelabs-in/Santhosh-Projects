@@ -19,6 +19,7 @@ log = logging.getLogger("geo.parser")
 KNOWN_BRANDS = [
     "GrabOn", "CouponDunia", "DesiDime", "CashKaro", "GoPaisa", "PaisaWapas",
     "Zingoy", "MagicPin", "CouponzGuru", "Zoutons", "WeThrift", "CouponFollow",
+    "CouponAnnie", "SimplyCodes", "Knoji", "Offers.com",
     "Groupon", "RetailMeNot", "Honey", "Woohoo", "Gyftr",
     "Flipkart", "Amazon", "Myntra", "Ajio", "Nykaa", "Meesho", "Tata CLiQ",
     "Swiggy", "Zomato", "BookMyShow", "MakeMyTrip", "Goibibo", "Cleartrip",
@@ -35,8 +36,17 @@ KNOWN_BRANDS = [
     "Urban Company", "Cashify", "Croma", "Reliance Digital",
     "FirstCry", "Mamaearth", "WOW Skin Science", "mCaffeine",
     "Shoppers Stop", "Lifestyle", "Pepperfry", "Urban Ladder",
-    "Reddit", "Quora",
 ]
+
+# AI engine names and generic non-brand terms that must never be matched as brands.
+# Social platforms (Reddit, YouTube, etc.) are NOT blocked — if an AI engine
+# recommends them, that's trackable data.
+BRAND_BLOCKLIST = {
+    "gemini", "claude", "chatgpt", "perplexity", "bing", "bard",
+    "google", "google ai", "openai", "anthropic", "meta ai",
+    "wikipedia", "wikihow", "medium", "substack", "wordpress",
+    "visa", "mastercard", "apple",
+}
 
 NEGATIVE_WORDS = {
     "worst", "terrible", "avoid", "scam", "fake", "fraud", "unreliable",
@@ -55,7 +65,7 @@ POSITIVE_WORDS = {
 COUPON_PATTERN = re.compile(r'\b([A-Z][A-Z0-9]{2,14})\b')
 _COUPON_MUST_HAVE_DIGIT = True
 COUPON_CONTEXT_PATTERN = re.compile(
-    r'(?:code|coupon|promo|voucher|offer|discount code|use|apply|enter)[:\s\-]*["\']?([A-Z][A-Z0-9]{2,14})["\']?\b',
+    r'\b(?:code|coupon|promo|voucher|discount code|use code|apply code|enter code)[:\s\-]+["\']?([A-Z][A-Z0-9]{2,14})["\']?\b',
     re.IGNORECASE,
 )
 SKIP_CODES = {
@@ -76,6 +86,12 @@ SKIP_CODES = {
     "BELOW", "ABOVE", "AFTER", "UNDER", "THESE", "THOSE", "OTHER",
     "WHERE", "WHICH", "WHILE", "BEING", "STILL", "MIGHT", "WOULD",
     "COULD", "SHOULD", "EVERY", "NEVER", "OFTEN", "SINCE",
+    "CODE", "CODES", "COUPON", "COUPONS", "PROMO", "PROMOS",
+    "VOUCHER", "VOUCHERS", "DISCOUNT", "DISCOUNTS",
+    "DUNIA", "KARO", "GURU", "DIME", "MART", "RAJA", "WAPAS",
+    "TIONAL", "TIONS", "IONAL", "ALLY", "MENT", "NESS",
+    "AVAILABLE", "MENTIONED", "PROMOTIONAL", "INTERNATIONAL",
+    "COUPONCODE", "PROMOCODE", "VOUCHERCODE", "DISCOUNTCODE",
 }
 
 
@@ -105,6 +121,8 @@ class _RegexBrain:
         brand_lower = brand.lower()
         if brand_lower in self.known_lower:
             return
+        if brand_lower in BRAND_BLOCKLIST:
+            return
         self.known_lower.add(brand_lower)
         escaped = re.escape(brand)
         pat = re.compile(r'\b' + escaped + r'(?:\.(?:com|in|co\.in))?\b', re.IGNORECASE)
@@ -129,6 +147,8 @@ class _RegexBrain:
             new_count = 0
             for r in rows:
                 name = r["brand_name"]
+                if name.lower() in BRAND_BLOCKLIST:
+                    continue
                 if name.lower() not in self.known_lower and len(name) > 2:
                     self._add_brand_pattern(name)
                     self.learned_brands.add(name)
@@ -195,6 +215,8 @@ class _RegexBrain:
             name = m.get("brand_name") if isinstance(m, dict) else m.brand_name
             if not name or len(name) < 2:
                 continue
+            if name.lower() in BRAND_BLOCKLIST:
+                continue
             if name.lower() not in self.known_lower:
                 if re.search(r'\b' + re.escape(name) + r'\b', raw_text, re.IGNORECASE):
                     self._add_brand_pattern(name)
@@ -214,13 +236,42 @@ class _RegexBrain:
         if new_brands:
             log.info(f"[regex-brain] Learned {new_brands} new brands from LLM parse")
 
-    def is_confident(self, text: str) -> bool:
-        """Return True if regex brain has enough learned brands to parse this text reliably."""
+    def is_confident(self, text: str, regex_result: "ExtractedData | None" = None) -> bool:
+        """Return True if regex brain captured enough of the text's brand landscape."""
         if len(self.learned_brands) < 20:
             return False
-        text_lower = text.lower()
-        hits = sum(1 for _, brand in self.brand_patterns if brand.lower() in text_lower)
-        return hits >= 2
+
+        regex_count = len(regex_result.brand_mentions) if regex_result and regex_result.brand_mentions else 0
+
+        # Heuristic 1: numbered/bulleted lists suggest structured recommendations.
+        # Count list items and compare to brands found.
+        list_items = len(re.findall(r'(?m)^(?:\d+[\.\)]\s|[-*]\s)', text))
+        if list_items >= 3 and regex_count < list_items - 1:
+            return False
+
+        # Heuristic 2: long text with very few brands — likely missed some.
+        if len(text) > 600 and regex_count <= 1:
+            return False
+
+        # Heuristic 3: text has bold/header markers (**Name** or ### Name)
+        # hinting at brand names the regex may not know.
+        bold_names = re.findall(r'\*\*([A-Z][A-Za-z0-9. ]{2,25})\*\*', text)
+        unknown_bolds = [n for n in bold_names
+                         if n.lower().strip() not in self.known_lower
+                         and n.lower().strip() not in BRAND_BLOCKLIST]
+        if len(unknown_bolds) >= 2:
+            return False
+
+        # Heuristic 4: URLs pointing to domains regex doesn't know.
+        url_domains = re.findall(r'https?://(?:www\.)?([a-z0-9-]+)\.[a-z]{2,}', text.lower())
+        unknown_urls = [d for d in set(url_domains)
+                        if d not in self.known_lower
+                        and d not in BRAND_BLOCKLIST
+                        and d not in {"google", "youtube", "wikipedia", "github", "t", "bit"}]
+        if len(unknown_urls) >= 2 and regex_count < len(unknown_urls):
+            return False
+
+        return regex_count >= 2
 
     async def ensure_ready(self):
         self._build_base_patterns()
@@ -281,7 +332,7 @@ def _find_merchant_for_coupon(text: str, code: str, code_pos: int) -> str:
 
 
 def _parse_with_regex(engine_name: str, prompt_text: str, raw_text: str) -> ExtractedData:
-    mentions = []
+    raw_matches = []
     seen_brands = set()
 
     for pat, canonical_name in _brain.brand_patterns:
@@ -290,23 +341,30 @@ def _parse_with_regex(engine_name: str, prompt_text: str, raw_text: str) -> Extr
             if brand_lower in seen_brands:
                 continue
             seen_brands.add(brand_lower)
-            context = _extract_context(raw_text, match.start(), match.end())
-            sentiment = _detect_sentiment(canonical_name, context)
-            cited_url = None
-            url_match = re.search(
-                r'https?://[^\s\)"\',<>]+' + re.escape(canonical_name.lower().replace(" ", "")),
-                raw_text[:match.end() + 500], re.IGNORECASE
-            )
-            if url_match:
-                cited_url = url_match.group(0).rstrip(".,;:)")
+            raw_matches.append((match.start(), canonical_name, match.start(), match.end()))
+            break
 
-            mentions.append({
-                "rank_position": len(mentions) + 1,
-                "brand_name": canonical_name,
-                "sentiment": sentiment,
-                "context_snippet": context,
-                "cited_url": cited_url,
-            })
+    raw_matches.sort(key=lambda x: x[0])
+
+    mentions = []
+    for rank, (_, canonical_name, m_start, m_end) in enumerate(raw_matches, 1):
+        context = _extract_context(raw_text, m_start, m_end)
+        sentiment = _detect_sentiment(canonical_name, context)
+        cited_url = None
+        url_match = re.search(
+            r'https?://[^\s\)"\',<>]+' + re.escape(canonical_name.lower().replace(" ", "")),
+            raw_text[:m_end + 500], re.IGNORECASE
+        )
+        if url_match:
+            cited_url = url_match.group(0).rstrip(".,;:)")
+
+        mentions.append({
+            "rank_position": rank,
+            "brand_name": canonical_name,
+            "sentiment": sentiment,
+            "context_snippet": context,
+            "cited_url": cited_url,
+        })
 
     coupons = []
     seen_codes = set()
@@ -391,13 +449,18 @@ async def _log_cost(provider: str, model: str, input_tokens: int, output_tokens:
 
 
 SYSTEM_PROMPT = """You are an expert SEO Auditing LLM Judge.
-Analyze the provided conversational/search response text from a Generative AI engine and extract:
+Analyze the provided response text from a Generative AI engine and extract brands and coupon codes.
 
-1. All brand mentions (names like GrabOn, CashKaro, CouponDunia, DesiDime, Grabon.in, etc.).
-   Assign rank placement order (1-indexed based on first appearance).
-   Identify sentiment and pull exact context snippets.
+CRITICAL RULES:
+- Extract ALL brands, websites, and platforms that are mentioned, recommended, or compared in the response — including coupon sites like GrabOn, GrabOn.in, GrabOn.com, CashKaro, CouponDunia, etc.
+- Extract social platforms (Reddit, YouTube, Instagram, etc.) if they are mentioned or recommended in the response.
+- Do NOT extract the AI engine's own name (ChatGPT, Claude, Gemini, Perplexity, etc.).
+- Do NOT infer or guess brands that are not literally present in the text.
+- Assign rank_position by order of first meaningful appearance (1-indexed).
 
-2. Any coupon/promo codes mentioned, matching them with their merchant. Set status_flag to 'AI-Mentioned' for all codes (we track what AI engines say, not validity).
+1. Brand mentions: extract brand_name, rank_position, sentiment (Positive/Neutral/Negative), context_snippet (the sentence where it appears), and cited_url if present.
+
+2. Coupon/promo codes: extract coupon_code, associated_merchant, and set status_flag to 'AI-Mentioned'.
 
 Always output valid JSON conforming to the requested schema.
 
@@ -494,11 +557,22 @@ async def _parse_with_openai(user_content: str, api_key: str) -> ExtractedData |
 #  Main entry point
 # ══════════════════════════════════════════════════════════════════════
 
+_SOURCE_LABEL_RE = re.compile(
+    r'^(?:Source|Sources|Via|From|Cited from|Reference|References|Attribution'
+    r'|Powered by|According to|Based on|Data from|Info from|Retrieved from)[:\s]',
+    re.IGNORECASE,
+)
+
 def _pre_clean_for_parser(raw_text: str) -> str:
     """Strip residual noise before sending to LLM or regex parser."""
     text = re.sub(r"<tool_calls>.*?</tool_calls>", "", raw_text, flags=re.DOTALL)
     text = re.sub(r"<search_web>.*?</search_web>", "", text, flags=re.DOTALL)
     text = re.sub(r"<(?:thinking|reflection)>.*?</(?:thinking|reflection)>", "", text, flags=re.DOTALL)
+
+    # Strip citation/source footnote sections (often at end of AI responses)
+    text = re.sub(r'\n---+\s*\n.*', '', text, flags=re.DOTALL)
+    text = re.sub(r'\[?\d+\]\s*https?://\S+', '', text)
+
     lines = text.split("\n")
     seen = set()
     cleaned = []
@@ -506,14 +580,72 @@ def _pre_clean_for_parser(raw_text: str) -> str:
         stripped = line.strip()
         if not stripped:
             continue
-        if stripped in seen and len(stripped) < 120:
+        if stripped in seen:
             continue
         seen.add(stripped)
+
+        # Drop only AI engine source labels, not brand names we want to track
+        if len(stripped.split()) <= 2 and stripped.lower() in BRAND_BLOCKLIST:
+            continue
+        if _SOURCE_LABEL_RE.match(stripped):
+            continue
+
         cleaned.append(stripped)
     result = "\n".join(cleaned)
-    # Cap input size — avg is ~5k chars; 8k covers 99th percentile without waste
     if len(result) > 8000:
         result = result[:8000]
+    return result
+
+
+def _get_brand(m) -> str:
+    return m.get("brand_name", "") if isinstance(m, dict) else getattr(m, "brand_name", "")
+
+
+def _get_rank(m) -> int:
+    return m.get("rank_position", 0) if isinstance(m, dict) else getattr(m, "rank_position", 0)
+
+
+def _set_rank(m, rank: int):
+    if isinstance(m, dict):
+        m["rank_position"] = rank
+    else:
+        m.rank_position = rank
+
+
+def _get_coupon(c) -> str:
+    return c.get("coupon_code", "") if isinstance(c, dict) else getattr(c, "coupon_code", "")
+
+
+def _validate_rank_positions(result: ExtractedData, raw_text: str) -> ExtractedData:
+    """Re-rank brand mentions by their actual first appearance in the text."""
+    if not result.brand_mentions or len(result.brand_mentions) <= 1:
+        return result
+
+    positioned = []
+    for m in result.brand_mentions:
+        brand = _get_brand(m)
+        pos = -1
+        for pat, canonical in _brain.brand_patterns:
+            if canonical.lower() == brand.lower():
+                match = pat.search(raw_text)
+                if match:
+                    pos = match.start()
+                break
+        if pos == -1:
+            pos = raw_text.lower().find(brand.lower())
+        if pos == -1:
+            pos = len(raw_text)
+        positioned.append((pos, m))
+
+    positioned.sort(key=lambda x: x[0])
+
+    for new_rank, (_, m) in enumerate(positioned, 1):
+        old_rank = _get_rank(m)
+        if old_rank != new_rank:
+            log.debug(f"Rank corrected: {_get_brand(m)} #{old_rank} -> #{new_rank}")
+        _set_rank(m, new_rank)
+
+    result.brand_mentions = [m for _, m in positioned]
     return result
 
 
@@ -526,24 +658,37 @@ async def parse_response(engine_name: str, prompt_text: str, raw_text: str) -> E
         log.warning(f"[{engine_name}] Text too short after pre-clean ({len(cleaned_text)} chars), skipping parse")
         return ExtractedData(brand_mentions=[], ai_hallucinated_coupons=[])
 
-    # Try regex brain first when confident (saves LLM call entirely)
-    if _brain.is_confident(cleaned_text):
-        regex_result = _parse_with_regex(engine_name, prompt_text, cleaned_text)
-        if regex_result and regex_result.brand_mentions:
-            log.info(f"[{engine_name}] Regex brain confident — skipped LLM")
-            return regex_result
+    # Always run regex first (free, fast)
+    regex_result = _parse_with_regex(engine_name, prompt_text, cleaned_text)
 
-    # OpenAI for full extraction
+    # Check if regex captured enough — pass result so heuristics can inspect gaps
+    if _brain.is_confident(cleaned_text, regex_result):
+        if regex_result and regex_result.brand_mentions:
+            log.info(f"[{engine_name}] Regex brain confident ({len(regex_result.brand_mentions)} brands) — skipped LLM")
+            return _validate_rank_positions(regex_result, cleaned_text)
+
+    # Regex missed something — call LLM for full extraction
     if settings.openai_api_key:
         try:
             user_content = _build_user_content(engine_name, prompt_text, cleaned_text)
             llm_result = await _parse_with_openai(user_content, settings.openai_api_key)
             if llm_result:
                 _brain.learn_from_llm_result(cleaned_text, llm_result)
-                return llm_result
+                # Merge: keep LLM brands but add any regex-only brands it missed
+                if regex_result and regex_result.brand_mentions:
+                    llm_brands = {_get_brand(m).lower() for m in llm_result.brand_mentions}
+                    for rm in regex_result.brand_mentions:
+                        if _get_brand(rm).lower() not in llm_brands:
+                            llm_result.brand_mentions.append(rm)
+                    llm_codes = {_get_coupon(c).upper() for c in llm_result.ai_hallucinated_coupons}
+                    for rc in regex_result.ai_hallucinated_coupons:
+                        if _get_coupon(rc).upper() not in llm_codes:
+                            llm_result.ai_hallucinated_coupons.append(rc)
+                return _validate_rank_positions(llm_result, cleaned_text)
         except Exception as e:
-            log.warning(f"OpenAI failed ({e}), using regex parser")
+            log.warning(f"OpenAI failed ({e}), using regex result")
 
-    # Regex fallback
-    log.info(f"Using regex parser for {engine_name}")
-    return _parse_with_regex(engine_name, prompt_text, cleaned_text)
+    # No API key or LLM failed — regex is all we have
+    if regex_result and regex_result.brand_mentions:
+        log.info(f"[{engine_name}] Regex fallback ({len(regex_result.brand_mentions)} brands)")
+    return _validate_rank_positions(regex_result, cleaned_text)

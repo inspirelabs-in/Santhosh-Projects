@@ -1,13 +1,15 @@
-name: Build & Deploy
+name: Build & Push GEO Image
 
 on:
   push:
-    branches: [main]
+    branches: [main, development, geo-agent]
+    paths:
+      - "GEO/**"
   workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  IMAGE_NAME: ${{ github.repository_owner }}/grabon-geo
 
 jobs:
   test:
@@ -20,10 +22,10 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r GEO/requirements.txt
 
       - name: Lint check
-        run: python -m py_compile run.py && python -m py_compile app/main.py
+        run: python -m py_compile GEO/run.py && python -m py_compile GEO/app/main.py
 
   build-and-push:
     needs: test
@@ -41,28 +43,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Extract branch name
+        id: branch
+        run: echo "name=${GITHUB_REF##*/}" >> "$GITHUB_OUTPUT"
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: ./GEO
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.branch.outputs.name }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-
-  deploy:
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    steps:
-      - name: Deploy to server via SSH
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          script: |
-            cd ~/grabon-geo-agent
-            git pull origin main
-            docker compose pull web
-            docker compose up -d web
-            docker image prune -f

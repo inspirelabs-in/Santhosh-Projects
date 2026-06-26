@@ -32,3 +32,19 @@ graphify-out/
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
+
+# Export artifacts
+geo-export/
+geo-export.zip
+*.tar
+
+# Cookie files
+ms_copilot_cookies.json
+
+# Node (Tailwind build)
+node_modules/
+package.json
+package-lock.json
+
+# Windows artifacts
+nul

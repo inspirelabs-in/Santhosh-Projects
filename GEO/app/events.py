@@ -31,6 +31,8 @@ def broadcast(event_type: str, **data):
 def subscribe() -> asyncio.Queue:
     q: asyncio.Queue = asyncio.Queue(maxsize=100)
     for evt in _recent:
+        if evt.get("type") == "notification":
+            continue
         try:
             q.put_nowait(evt)
         except asyncio.QueueFull:

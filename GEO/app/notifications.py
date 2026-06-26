@@ -58,12 +58,16 @@ async def _send_teams(title: str, message: str, severity: str):
         log.error(f"Teams alert failed: {e}")
 
 
-async def _store_notification(ntype: str, title: str, message: str, severity: str):
+async def _store_notification(ntype: str, title: str, message: str, severity: str,
+                              dedup_key: str | None = None, metadata: dict | None = None):
+    import json as _json
     def _insert(conn):
         conn.execute(
-            """INSERT INTO notifications (type, title, message, severity)
-               VALUES (%s, %s, %s, %s)""",
-            (ntype, title, message, severity),
+            """INSERT INTO notifications (type, title, message, severity, dedup_key, metadata)
+               VALUES (%s, %s, %s, %s, %s, %s::jsonb)
+               ON CONFLICT (dedup_key) WHERE dedup_key IS NOT NULL DO NOTHING""",
+            (ntype, title, message, severity, dedup_key,
+             _json.dumps(metadata or {})),
         )
         conn.commit()
     try:

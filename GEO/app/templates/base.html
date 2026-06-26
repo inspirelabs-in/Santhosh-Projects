@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}GEO Agent{% endblock %} - GrabOn</title>
-    <link rel="stylesheet" href="/static/css/app.css">
+    <link rel="stylesheet" href="/static/css/app.css?v=20260626b">
     {% block head_scripts %}{% endblock %}
     <style>
         body { background: #0a0f1d; }
@@ -66,6 +66,7 @@
         .sidebar.collapsed nav a { justify-content: center; padding-left: 0; padding-right: 0; }
         .sidebar.collapsed .theme-toggle { justify-content: center; padding-left: 0; padding-right: 0; }
         .sidebar.collapsed nav a svg, .sidebar.collapsed nav a img { margin: 0; }
+        .sidebar.collapsed .sidebar-logo { flex-direction: column; gap: 0.5rem; }
         /* Pre-render collapsed state from <html> class (set in <head> before body) */
         html.sidebar-is-collapsed .sidebar { width: 64px; padding-left: 0.75rem; padding-right: 0.75rem; }
         html.sidebar-is-collapsed .sidebar .sidebar-label { display: none; }
@@ -76,6 +77,7 @@
         html.sidebar-is-collapsed .sidebar nav a { justify-content: center; padding-left: 0; padding-right: 0; }
         html.sidebar-is-collapsed .sidebar .theme-toggle { justify-content: center; padding-left: 0; padding-right: 0; }
         html.sidebar-is-collapsed .sidebar nav a svg, html.sidebar-is-collapsed .sidebar nav a img { margin: 0; }
+        html.sidebar-is-collapsed .sidebar .sidebar-logo { flex-direction: column; gap: 0.5rem; }
 
         /* Hide sidebar scrollbar */
         .sidebar-nav { scrollbar-width: none; -ms-overflow-style: none; }
@@ -122,7 +124,7 @@
 
         html.light .bg-slate-950\/80, html.light .bg-slate-950\/60, html.light .bg-slate-950\/70,
         html.light .bg-slate-950\/50, html.light .bg-slate-950\/40, html.light .bg-slate-950\/30,
-        html.light .bg-slate-950\/90 { background-color: rgba(241,245,249,0.7) !important; }
+        html.light .bg-slate-950\/90, html.light .bg-slate-950\/95 { background-color: rgba(241,245,249,0.7) !important; }
         html.light .bg-slate-900\/80, html.light .bg-slate-900\/60,
         html.light .bg-slate-900\/50 { background-color: rgba(241,245,249,0.7) !important; }
         html.light .bg-slate-900\/40, html.light .bg-slate-900\/30,
@@ -180,9 +182,27 @@
 
         /* Light theme: modals */
         html.light .bg-black\/70 { background-color: rgba(0,0,0,0.25) !important; }
-        html.light [id$="Modal"] > div { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        html.light [id$="Modal"] > div:not(.absolute) { background: #ffffff !important; border-color: #e2e8f0 !important; }
         html.light [id$="Modal"] pre { background: #f1f5f9 !important; color: #1e293b !important; }
         html.light [id$="Modal"] .border-slate-800\/60 { border-color: #e2e8f0 !important; }
+
+        /* Light theme: Smart Alerts panel */
+        html.light #alertPanel > div:last-child {
+            background: #ffffff !important;
+            border-left-color: #e2e8f0 !important;
+        }
+        html.light #alertPanel .bg-black\/40 { background: rgba(0,0,0,0.15) !important; }
+        html.light #alertPanel .border-slate-800\/80,
+        html.light #alertPanel .border-slate-800\/60 { border-color: #e2e8f0 !important; }
+        html.light #alertPanel .hover\:bg-slate-800:hover { background: #f1f5f9 !important; }
+
+        html.light #notifOverlay { background: rgba(0,0,0,0.15) !important; }
+
+        /* Light: alert card hover states */
+        html.light .hover\:bg-slate-900\/40:hover { background: rgba(241,245,249,0.6) !important; }
+        html.light .hover\:border-slate-700\/60:hover { border-color: #cbd5e1 !important; }
+        html.light .hover\:bg-slate-800:hover { background: #f1f5f9 !important; }
+        html.light .border-l-2.border-slate-800\/80 { border-color: #cbd5e1 !important; }
 
         /* Light theme: response text in cards */
         html.light .response-text { color: #1e293b !important; }
@@ -218,10 +238,6 @@
                     </div>
                 </button>
                 <div class="flex items-center gap-1 sidebar-header-text">
-                    <button onclick="toggleNotifPanel()" class="p-1.5 rounded-lg hover:bg-slate-900/50 text-slate-500 hover:text-amber-400 transition-colors cursor-pointer relative" title="Notifications" id="notifBellBtn">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
-                        <span id="notifBadge" class="absolute -top-0.5 -right-0.5 w-4 h-4 bg-rose-500 text-white font-bold rounded-full items-center justify-center hidden" style="font-size:9px;">0</span>
-                    </button>
                     <button onclick="toggleSidebar()" class="p-1.5 rounded-lg hover:bg-slate-900/50 text-slate-600 hover:text-slate-400 transition-colors cursor-pointer" title="Collapse sidebar">
                         <svg id="collapseIcon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7"/></svg>
                     </button>
@@ -317,7 +333,7 @@
         </aside>
 
         <!-- Main Content -->
-        <main class="flex-1 px-6 py-5 overflow-y-auto">
+        <main class="flex-1 px-6 py-5 overflow-y-auto relative">
             {% block content %}{% endblock %}
         </main>
     </div>
@@ -450,137 +466,53 @@
     </style>
     {% block scripts %}{% endblock %}
 
-    <!-- Notification Panel (slide-out) -->
-    <div id="notifOverlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.4); z-index:9998;" onclick="toggleNotifPanel()"></div>
-    <div id="notifPanel" style="position:fixed; top:0; right:0; height:100%; width:320px; background:#020617; border-left:1px solid #1e293b; z-index:9999; transform:translateX(100%); transition:transform 0.2s ease; display:flex; flex-direction:column;">
-        <div style="padding:16px; border-bottom:1px solid #1e293b;">
-            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
-                <h2 style="font-size:14px; font-weight:700; color:#f1f5f9; margin:0;">Notifications</h2>
-                <button onclick="toggleNotifPanel()" style="padding:4px; border-radius:4px; color:#64748b; cursor:pointer; background:none; border:none;" onmouseover="this.style.color='#cbd5e1'" onmouseout="this.style.color='#64748b'">
-                    <svg style="width:16px;height:16px;" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
-                </button>
-            </div>
-            <button onclick="markAllRead()" style="font-size:10px; color:#f59e0b; cursor:pointer; background:none; border:none; padding:0;" onmouseover="this.style.color='#fbbf24'" onmouseout="this.style.color='#f59e0b'">Mark all read</button>
-        </div>
-        <div id="notifList" style="flex:1; overflow-y:auto; padding:8px;">
-            <p style="font-size:12px; color:#475569; text-align:center; padding:32px 0;">No notifications</p>
-        </div>
-    </div>
-
     <!-- Toast container -->
-    <div id="toastContainer" style="position:fixed; top:16px; right:16px; z-index:10000; max-width:340px; pointer-events:none;"></div>
+    <div id="toastContainer" style="position:fixed; top:16px; right:16px; z-index:10000; max-width:340px; pointer-events:none; display:flex; flex-direction:column; gap:8px;"></div>
 
     <script>
     (function() {
-        const badge = document.getElementById('notifBadge');
-        const panel = document.getElementById('notifPanel');
-        const overlay = document.getElementById('notifOverlay');
-        const list = document.getElementById('notifList');
-        let panelOpen = false;
-        let unreadCount = 0;
+        const MAX_TOASTS = 3;
+        const TOAST_TTL = 5000;
+        const _seenToasts = new Set();
 
-        window.toggleNotifPanel = function() {
-            panelOpen = !panelOpen;
-            panel.style.transform = panelOpen ? 'translateX(0)' : 'translateX(100%)';
-            overlay.style.display = panelOpen ? 'block' : 'none';
-            if (panelOpen) loadNotifications();
-        };
+        function esc(s) { const d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
 
-        window.markAllRead = async function() {
-            await fetch('/api/notifications/read-all', {method: 'POST'});
-            unreadCount = 0;
-            updateBadge();
-            list.querySelectorAll('.notif-item.unread').forEach(el => el.classList.remove('unread', 'bg-slate-900/60'));
-        };
-
-        function updateBadge() {
-            if (unreadCount > 0) {
-                badge.textContent = unreadCount > 99 ? '99+' : unreadCount;
-                badge.classList.remove('hidden');
-                badge.classList.add('flex');
-            } else {
-                badge.classList.add('hidden');
-                badge.classList.remove('flex');
-            }
+        function _removeToast(el) {
+            el.style.opacity='0'; el.style.transition='opacity 0.3s';
+            setTimeout(()=>el.remove(), 300);
         }
-
-        async function loadUnreadCount() {
-            try {
-                const r = await fetch('/api/notifications/unread-count');
-                const d = await r.json();
-                unreadCount = d.count || 0;
-                updateBadge();
-            } catch(e) {}
-        }
-
-        async function loadNotifications() {
-            try {
-                const r = await fetch('/api/notifications?limit=50');
-                const items = await r.json();
-                if (!items.length) {
-                    list.innerHTML = '<p class="text-xs text-slate-600 text-center py-8">No notifications</p>';
-                    return;
-                }
-                list.innerHTML = items.map(n => {
-                    const sev = {critical:'text-rose-400',warning:'text-amber-400',info:'text-sky-400'}[n.severity]||'text-slate-400';
-                    const sevIcon = {critical:'!!',warning:'!',info:'i'}[n.severity]||'i';
-                    const unread = !n.is_read;
-                    const ago = timeAgo(n.created_at);
-                    return `<div class="notif-item ${unread?'unread bg-slate-900/60':''} rounded-lg p-2.5 hover:bg-slate-900/40 cursor-pointer transition-colors" data-id="${n.id}" onclick="readNotif(this,'${n.id}')">
-                        <div class="flex items-start gap-2">
-                            <span class="shrink-0 w-5 h-5 rounded-full ${sev} bg-slate-800 flex items-center justify-center text-[9px] font-bold mt-0.5">${sevIcon}</span>
-                            <div class="flex-1 min-w-0">
-                                <div class="flex items-center justify-between gap-2">
-                                    <span class="text-xs font-semibold text-slate-200 truncate">${esc(n.title)}</span>
-                                    ${unread?'<span class="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>':''}
-                                </div>
-                                <p class="text-xs text-slate-500 mt-0.5 line-clamp-2">${esc(n.message)}</p>
-                                <span class="text-[9px] text-slate-600 mt-1 block">${ago}</span>
-                            </div>
-                        </div>
-                    </div>`;
-                }).join('');
-            } catch(e) {
-                list.innerHTML = '<p class="text-xs text-rose-400 text-center py-4">Failed to load</p>';
-            }
-        }
-
-        window.readNotif = async function(el, id) {
-            if (el.classList.contains('unread')) {
-                el.classList.remove('unread', 'bg-slate-900/60');
-                el.querySelector('.bg-amber-500')?.remove();
-                await fetch(`/api/notifications/${id}/read`, {method:'POST'});
-                unreadCount = Math.max(0, unreadCount - 1);
-                updateBadge();
-            }
-        };
 
         function showToast(title, message, severity) {
+            const key = title + '|' + (message||'').substring(0, 80);
+            if (_seenToasts.has(key)) return;
+            _seenToasts.add(key);
+            setTimeout(() => _seenToasts.delete(key), 60000);
+
             const container = document.getElementById('toastContainer');
+            const existing = container.querySelectorAll('.geo-toast');
+            if (existing.length >= MAX_TOASTS) {
+                _removeToast(existing[0]);
+            }
+
             const colors = {critical:'border-rose-500/60 bg-rose-950/90',warning:'border-amber-500/60 bg-amber-950/90',info:'border-sky-500/60 bg-sky-950/90'};
             const toast = document.createElement('div');
-            toast.className = `pointer-events-auto border ${colors[severity]||colors.info} rounded-lg p-3 shadow-xl backdrop-blur-sm animate-slide-in`;
-            toast.innerHTML = `<div class="flex items-start gap-2"><div class="flex-1"><p class="text-xs font-semibold text-slate-100">${esc(title)}</p><p class="text-xs text-slate-400 mt-0.5">${esc(message).substring(0,120)}</p></div><button onclick="this.closest('div.pointer-events-auto').remove()" class="text-slate-500 hover:text-slate-300 text-xs cursor-pointer">✕</button></div>`;
+            toast.className = `geo-toast pointer-events-auto border ${colors[severity]||colors.info} rounded-lg p-3 shadow-xl backdrop-blur-sm animate-slide-in`;
+            toast.innerHTML = `<div class="flex items-start gap-2"><div class="flex-1"><p class="text-xs font-semibold text-slate-100">${esc(title)}</p><p class="text-xs text-slate-400 mt-0.5 line-clamp-2">${esc(message).substring(0,120)}</p></div><button onclick="this.closest('.geo-toast').remove()" class="text-slate-500 hover:text-slate-300 text-xs cursor-pointer flex-shrink-0">&#x2715;</button></div>`;
             container.appendChild(toast);
-            setTimeout(() => { toast.style.opacity='0'; toast.style.transition='opacity 0.3s'; setTimeout(()=>toast.remove(),300); }, 6000);
+            setTimeout(() => { if(toast.parentNode) _removeToast(toast); }, TOAST_TTL);
 
             if ('Notification' in window && Notification.permission === 'granted') {
                 new Notification(title, {body: message.substring(0, 120), icon: '/static/logos/google_aio.svg'});
             }
         }
 
-        // SSE listener for real-time notifications
-        const existingES = window._geoNotifES;
-        if (!existingES) {
+        if (!window._geoNotifES) {
             const es = new EventSource('/api/activity-stream');
             window._geoNotifES = es;
             es.addEventListener('notification', function(e) {
                 try {
                     const d = JSON.parse(e.data);
-                    unreadCount++;
-                    updateBadge();
                     showToast(d.title || 'Notification', d.message || '', d.severity || 'info');
-                    if (panelOpen) loadNotifications();
                 } catch(err) {}
             });
             window.addEventListener('beforeunload', function() {
@@ -589,22 +521,9 @@
             });
         }
 
-        // Request browser notification permission
         if ('Notification' in window && Notification.permission === 'default') {
             Notification.requestPermission();
         }
-
-        function esc(s) { const d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
-
-        function timeAgo(ts) {
-            const diff = (Date.now() - new Date(ts).getTime()) / 1000;
-            if (diff < 60) return 'just now';
-            if (diff < 3600) return Math.floor(diff/60) + 'm ago';
-            if (diff < 86400) return Math.floor(diff/3600) + 'h ago';
-            return Math.floor(diff/86400) + 'd ago';
-        }
-
-        loadUnreadCount();
     })();
     </script>
     <style>

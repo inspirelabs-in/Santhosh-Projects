@@ -41,11 +41,17 @@ SIDEBAR_PHRASES = frozenset([
     "chatgpt plus", "upgrade to plus", "get gpt-4",
     "temporary chat", "today", "yesterday", "previous 7 days",
     "search chats", "my gpts", "explore gpts",
+    "write a whatsapp message", "help me prepare for my exams",
+    "turn photo into profile pic", "create a study plan",
+    "summarize this article", "plan a trip",
     # Perplexity UI noise
     "perplexity pro", "try pro", "copilot",
+    "trending searches", "popular searches",
     # Gemini UI noise
     "gemini advanced", "try gemini advanced",
     "google apps", "search your chats",
+    "about gemini", "get gemini app", "subscriptions",
+    "for business", "gemini is ai and can make mistakes",
 ])
 
 

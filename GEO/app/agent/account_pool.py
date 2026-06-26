@@ -12,8 +12,20 @@ from app.database import run_db
 
 log = logging.getLogger("geo.account_pool")
 
-_COOLDOWN_ON_RATE_LIMIT = 1800  # 30 min per account on rate limit
+_COOLDOWN_ON_RATE_LIMIT = 1800  # 30 min default per account on rate limit
 _COOLDOWN_ON_AUTH_FAIL = 300    # 5 min on auth failure (reactive refresh usually fixes it)
+
+_ENGINE_COOLDOWNS: dict[str, int] = {
+    "claude": 18000,     # 5 hours — Claude free plan resets on 5h rolling window
+    "chatgpt": 3600,     # 1 hour
+    "perplexity": 1800,  # 30 min
+    "gemini": 1800,      # 30 min
+    "google": 1800,      # 30 min
+}
+
+
+def _get_cooldown(engine_name: str) -> int:
+    return _ENGINE_COOLDOWNS.get(engine_name, _COOLDOWN_ON_RATE_LIMIT)
 
 
 @dataclass
@@ -166,13 +178,14 @@ def report_rate_limit(engine_name: str, db_key: str):
     pool = _resolve_pool(engine_name)
     if not pool:
         return
+    cooldown = _get_cooldown(engine_name)
     for slot in pool.slots:
         if slot.db_key == db_key:
             slot.consecutive_fails += 1
-            slot.cooldown_until = time.time() + _COOLDOWN_ON_RATE_LIMIT
+            slot.cooldown_until = time.time() + cooldown
             log.warning(
                 f"[pool:{engine_name}] Slot {slot.slot_index} ({db_key}) rate-limited, "
-                f"cooldown {_COOLDOWN_ON_RATE_LIMIT}s"
+                f"cooldown {cooldown}s ({cooldown // 60}min)"
             )
             break
 
@@ -203,6 +216,25 @@ def clear_cooldown(engine_name: str, db_key: str | None = None):
             slot.cooldown_until = 0
             slot.consecutive_fails = 0
     log.info(f"[pool:{engine_name}] Cooldown cleared for {db_key or 'all slots'}")
+
+
+def has_available_slot(engine_name: str) -> bool:
+    """Check if engine has at least one non-cooldown slot right now."""
+    pool = _resolve_pool(engine_name)
+    if not pool:
+        return False
+    now = time.time()
+    return any(now >= s.cooldown_until for s in pool.slots)
+
+
+def time_until_next_available(engine_name: str) -> float:
+    """Seconds until the soonest account slot recovers. 0 if one is available now."""
+    pool = _resolve_pool(engine_name)
+    if not pool or not pool.slots:
+        return 0
+    now = time.time()
+    soonest = min(s.cooldown_until for s in pool.slots)
+    return max(0, soonest - now)
 
 
 def get_pool_status() -> dict:

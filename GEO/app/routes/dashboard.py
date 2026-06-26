@@ -3,20 +3,12 @@ from fastapi import APIRouter, Request, Query
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from app.database import run_db
-from app.agent.scraper import ALL_ENGINES, VISIBLE_ENGINES
+from app.engines import ALL_ENGINES, VISIBLE_ENGINES, ENGINE_LABELS as ENGINE_DISPLAY
 from app.config import get_settings
+from app.routes.api_helpers import classify_error as _classify_error
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
-
-ENGINE_DISPLAY = {
-    "google_aio": "AI Overview",
-    "google_ai_mode": "AI Mode",
-    "perplexity": "Perplexity",
-    "gemini": "Gemini",
-    "chatgpt": "ChatGPT",
-    "claude": "Claude",
-}
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -28,6 +20,7 @@ async def dashboard_page(
     tier: int = Query(0, alias="tier"),  # kept for backward compat, not shown in UI
     page: int = Query(1, alias="page"),
     page_size: int = Query(50, alias="page_size"),
+    search: str = Query("", alias="search"),
 ):
     active_engines = [e.strip() for e in engines.split(",") if e.strip()]
     offset = (page - 1) * page_size
@@ -36,38 +29,49 @@ async def dashboard_page(
         engine_count = len(active_engines)
         engine_placeholders = ",".join(["%s"] * engine_count)
 
-        where_parts = [
-            f"""(SELECT COUNT(DISTINCT el.engine_name) FROM execution_logs el
-                 WHERE el.prompt_id = p.id AND el.engine_name IN ({engine_placeholders})) = {engine_count}"""
-        ]
-        prompt_params: list = list(active_engines)
+        coverage_cte = f"""full_cov AS (
+            SELECT prompt_id
+            FROM execution_logs
+            WHERE engine_name IN ({engine_placeholders})
+            GROUP BY prompt_id
+            HAVING COUNT(DISTINCT engine_name) >= 1
+        )"""
+        cte_params: list = list(active_engines)
+
+        where_parts: list[str] = []
+        filter_params: list = []
         if tier > 0:
             where_parts.append("p.tier = %s")
-            prompt_params.append(tier)
+            filter_params.append(tier)
         if category != "All":
             where_parts.append("p.merchant_category = %s")
-            prompt_params.append(category)
+            filter_params.append(category)
         if intent != "All":
             where_parts.append("p.intent_type = %s")
-            prompt_params.append(intent)
+            filter_params.append(intent)
+        if search:
+            where_parts.append("p.text ILIKE %s")
+            filter_params.append(f"%{search}%")
 
-        where_sql = " AND ".join(where_parts)
+        extra_where = (" AND " + " AND ".join(where_parts)) if where_parts else ""
 
         total_prompts = conn.execute(
-            f"SELECT COUNT(*) as cnt FROM prompts p WHERE {where_sql}", prompt_params
+            f"WITH {coverage_cte} SELECT COUNT(*) as cnt FROM prompts p JOIN full_cov fc ON fc.prompt_id = p.id WHERE TRUE{extra_where}",
+            cte_params + filter_params,
         ).fetchone()["cnt"]
 
-        page_params = list(prompt_params) + [page_size, offset]
         prompts = conn.execute(
-            f"""SELECT p.* FROM prompts p
+            f"""WITH {coverage_cte}
+                SELECT p.* FROM prompts p
+                JOIN full_cov fc ON fc.prompt_id = p.id
                 LEFT JOIN (
                     SELECT prompt_id, MAX(captured_at) as max_captured
                     FROM execution_logs GROUP BY prompt_id
                 ) la ON la.prompt_id = p.id
-                WHERE {where_sql}
+                WHERE TRUE{extra_where}
                 ORDER BY la.max_captured DESC NULLS LAST, p.created_at
                 LIMIT %s OFFSET %s""",
-            page_params,
+            cte_params + filter_params + [page_size, offset],
         ).fetchall()
         prompt_ids = [p["id"] for p in prompts]
 
@@ -184,16 +188,18 @@ async def dashboard_page(
         health_rows = conn.execute("""
             SELECT
                 el.engine_name,
-                COUNT(*) AS total_24h,
-                COUNT(*) FILTER (WHERE el.raw_response_text LIKE 'Error:%%') AS errors_24h,
-                COUNT(*) FILTER (WHERE el.raw_response_text NOT LIKE 'Error:%%') AS success_24h,
+                COUNT(*) FILTER (WHERE el.captured_at >= NOW() - INTERVAL '24 hours') AS total_24h,
+                COUNT(*) FILTER (WHERE el.captured_at >= NOW() - INTERVAL '24 hours'
+                                   AND el.raw_response_text LIKE 'Error:%%') AS errors_24h,
+                COUNT(*) FILTER (WHERE el.captured_at >= NOW() - INTERVAL '24 hours'
+                                   AND el.raw_response_text NOT LIKE 'Error:%%') AS success_24h,
                 MAX(el.captured_at) FILTER (WHERE el.raw_response_text NOT LIKE 'Error:%%') AS last_success,
                 MAX(el.captured_at) FILTER (WHERE el.raw_response_text LIKE 'Error:%%') AS last_error,
                 COUNT(*) FILTER (WHERE el.captured_at >= NOW() - INTERVAL '4 hours') AS total_4h,
                 COUNT(*) FILTER (WHERE el.captured_at >= NOW() - INTERVAL '4 hours'
-                                   AND el.raw_response_text LIKE 'Error:%%') AS errors_4h
+                                   AND el.raw_response_text LIKE 'Error:%%') AS errors_4h,
+                COUNT(*) AS total_all
             FROM execution_logs el
-            WHERE el.captured_at >= NOW() - INTERVAL '24 hours'
             GROUP BY el.engine_name
         """).fetchall()
 
@@ -208,7 +214,6 @@ async def dashboard_page(
                 SELECT engine_name, raw_response_text, captured_at,
                        ROW_NUMBER() OVER (PARTITION BY engine_name ORDER BY captured_at DESC) AS rn
                 FROM execution_logs
-                WHERE captured_at >= NOW() - INTERVAL '24 hours'
             ) sub
             WHERE rn <= 10
             GROUP BY engine_name
@@ -231,7 +236,9 @@ async def dashboard_page(
                 else:
                     break
 
-            if total_4h == 0 and r["total_24h"] == 0:
+            if r["total_24h"] == 0:
+                health = "idle"
+            elif total_4h == 0 and r["total_24h"] == 0:
                 health = "inactive"
             elif recent_success_streak >= 5:
                 health = "healthy"
@@ -270,18 +277,30 @@ async def dashboard_page(
             LIMIT 5
         """).fetchall()
 
+        per_engine_last_error = conn.execute("""
+            SELECT DISTINCT ON (engine_name)
+                   engine_name,
+                   SUBSTRING(raw_response_text FROM 8 FOR 100) AS error_msg,
+                   captured_at::text AS captured_at
+            FROM execution_logs
+            WHERE raw_response_text LIKE 'Error:%%'
+              AND captured_at >= NOW() - INTERVAL '4 hours'
+            ORDER BY engine_name, captured_at DESC
+        """).fetchall()
+
         return (prompts, total_prompts, logs, mentions, agg, grabon_agg,
                 total_mentions_agg, google_cookies is not None,
                 chatgpt_cookies is not None, gemini_cookies is not None,
                 claude_cookies is not None,
                 categories, cost_data, unparsed, engine_health,
-                [dict(r) for r in recent_failures])
+                [dict(r) for r in recent_failures],
+                {r["engine_name"]: r["error_msg"] for r in per_engine_last_error})
 
     (prompts, total_prompts, logs, mentions, agg, grabon_agg,
      total_mentions_agg, has_google_cookies, has_chatgpt_cookies,
      has_gemini_cookies, has_claude_cookies,
      cat_rows, cost_data, unparsed_count, engine_health,
-     recent_failures) = await _fetch_data(_fetch)
+     recent_failures, per_engine_errors) = await _fetch_data(_fetch)
 
     dates = sorted(set(row["date"] for row in logs))
     chart_data = _build_chart_data(dates, mentions)
@@ -349,6 +368,21 @@ async def dashboard_page(
         for eng in VISIBLE_ENGINES:
             rankings[pid][eng] = _get_latest_rank_fast(_mention_idx, _log_idx, pid, eng)
 
+    from app.agent.account_pool import get_pool_status
+    pool_status = get_pool_status()
+    for eng, h in engine_health.items():
+        if per_engine_errors.get(eng):
+            h["last_error_msg"] = per_engine_errors[eng]
+        pool_eng = eng
+        if eng in ("google_aio", "google_ai_mode"):
+            pool_eng = "google"
+        ps = pool_status.get(pool_eng)
+        if ps:
+            max_cd = max((s["cooldown_remaining"] for s in ps["slots"]), default=0)
+            h["cooldown_remaining"] = max_cd
+            h["pool_available"] = ps["available_slots"]
+            h["pool_total"] = ps["total_slots"]
+
     categories = [r["merchant_category"] for r in cat_rows]
     total_pages = (total_prompts + page_size - 1) // page_size
 
@@ -387,6 +421,7 @@ async def dashboard_page(
         "page_size": page_size,
         "engine_health": engine_health,
         "recent_failures": recent_failures,
+        "active_search": search,
     })
 
 
@@ -460,12 +495,9 @@ def _get_latest_rank(all_mentions, prompt_id, engine, logs=None):
     if engine_mentions:
         return {"status": "unranked", "log_id": log_id, "top_brands": top_brands}
     if log_id:
-        if raw_text.startswith("[No AI Overview]"):
-            return {"status": "no_aio", "log_id": log_id, "top_brands": []}
-        if "limit_exhausted" in raw_text:
-            return {"status": "limit_exhausted", "log_id": log_id, "top_brands": []}
-        if raw_text.startswith("Error:"):
-            return {"status": "error", "log_id": log_id, "top_brands": []}
+        status, err_type, err_short = _classify_error(raw_text)
+        if status in ("no_aio", "limit_exhausted", "error"):
+            return {"status": status, "log_id": log_id, "top_brands": [], "error_type": err_type, "error_msg": err_short}
         return {"status": "no_mention", "log_id": log_id, "top_brands": []}
     return {"status": "pending", "top_brands": []}
 
@@ -490,12 +522,9 @@ def _get_latest_rank_fast(mention_idx, log_idx, prompt_id, engine):
     if engine_mentions:
         return {"status": "unranked", "log_id": log_id, "top_brands": top_brands}
     if log_id:
-        if raw_text.startswith("[No AI Overview]"):
-            return {"status": "no_aio", "log_id": log_id, "top_brands": []}
-        if "limit_exhausted" in raw_text:
-            return {"status": "limit_exhausted", "log_id": log_id, "top_brands": []}
-        if raw_text.startswith("Error:"):
-            return {"status": "error", "log_id": log_id, "top_brands": []}
+        status, err_type, err_short = _classify_error(raw_text)
+        if status in ("no_aio", "limit_exhausted", "error"):
+            return {"status": status, "log_id": log_id, "top_brands": [], "error_type": err_type, "error_msg": err_short}
         return {"status": "no_mention", "log_id": log_id, "top_brands": []}
     return {"status": "pending", "top_brands": []}
 
@@ -564,12 +593,69 @@ async def serp_page(request: Request):
     settings = get_settings()
     target_domain = settings.target_domain
 
+    def _fetch(conn):
+        counts = conn.execute("""
+            SELECT COUNT(*) as total,
+                   COUNT(*) FILTER (WHERE last_serp_at IS NOT NULL) as crawled
+            FROM prompts WHERE intent_type <> 'GEO'
+        """).fetchone()
+
+        total_serps = conn.execute("SELECT COUNT(*) as cnt FROM serp_results").fetchone()["cnt"]
+
+        kpis = conn.execute("""
+            WITH latest AS (
+                SELECT DISTINCT ON (sr.prompt_id) sr.id as serp_id, sr.prompt_id
+                FROM serp_results sr ORDER BY sr.prompt_id, sr.captured_at DESC
+            ),
+            target_ranks AS (
+                SELECT l.prompt_id, MIN(soe.rank_position) as rank
+                FROM latest l
+                JOIN serp_organic_entries soe ON soe.serp_id = l.serp_id
+                WHERE soe.domain = %s OR soe.domain LIKE %s
+                GROUP BY l.prompt_id
+            )
+            SELECT COUNT(*) FILTER (WHERE rank <= 10) as top10,
+                   ROUND(AVG(rank)::numeric, 1) as avg_rank
+            FROM target_ranks
+        """, (target_domain, f"%.{target_domain}")).fetchone()
+
+        seo_cycle = conn.execute("""
+            WITH per_kw AS (
+                SELECT p.id, COUNT(sr.id) AS scrape_count
+                FROM prompts p LEFT JOIN serp_results sr ON sr.prompt_id = p.id
+                WHERE p.intent_type <> 'GEO' GROUP BY p.id
+            ),
+            cycle_stats AS (
+                SELECT COALESCE(MIN(scrape_count), 0) AS completed, COUNT(*) AS total_kw FROM per_kw
+            )
+            SELECT cs.completed, cs.total_kw,
+                   (SELECT COUNT(*) FROM per_kw WHERE scrape_count >= cs.completed + 1) AS in_next
+            FROM cycle_stats cs
+        """).fetchone()
+
+        comp = int(seo_cycle["completed"])
+        tot_kw = int(seo_cycle["total_kw"])
+        inn = int(seo_cycle["in_next"]) if seo_cycle["in_next"] else 0
+        cycle_pct = round(inn / max(tot_kw, 1) * 100, 1)
+        if cycle_pct >= 100 and inn < tot_kw:
+            cycle_pct = 99.9
+        if cycle_pct == 0 and inn > 0:
+            cycle_pct = 0.1
+
+        return {
+            "total_serps": total_serps,
+            "total_keywords": counts["total"],
+            "keywords_with_serp": counts["crawled"],
+            "target_top10": kpis["top10"] if kpis else 0,
+            "avg_rank": float(kpis["avg_rank"]) if kpis and kpis["avg_rank"] else None,
+            "seo_cycle_completed": comp,
+            "seo_cycle_pct": cycle_pct,
+        }
+
+    data = await run_db(_fetch)
+
     return templates.TemplateResponse(request, "serp.html", {
-        "total_serps": 0,
-        "total_keywords": 0,
-        "keywords_with_serp": 0,
-        "target_top10": 0,
-        "avg_rank": None,
+        **data,
         "overlap_count": 0,
         "target_domain": target_domain,
     })

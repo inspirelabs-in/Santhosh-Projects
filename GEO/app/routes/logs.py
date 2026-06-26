@@ -5,7 +5,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from app.config import get_settings
 from app.database import run_db
-from app.agent.scraper import VISIBLE_ENGINES
+from app.engines import VISIBLE_ENGINES
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
