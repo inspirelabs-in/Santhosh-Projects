@@ -18,7 +18,13 @@ export function PipelineStepper({ stages }: { stages: StageViewEntry[] }) {
           const isFailed = s.verdict === "fail";
           // Borderline score parked for a human pass/reject call.
           const isReview = s.verdict === "needs_review";
-          const isCurrent = s.is_current || s.processing_status === "processing";
+          // Started but awaiting a decision (call placed / meeting booked).
+          const isOnGoing = s.verdict === "on_going";
+          // FE-6: don't fold processing into isCurrent (it made the dedicated
+          // processing branch unreachable); keep them distinct and order processing
+          // before the plain-current spinner.
+          const isCurrent = s.is_current;
+          const isProcessing = s.processing_status === "processing";
           const isPending = s.processing_status === "unprocessed" && s.verdict === "pending";
 
           let icon: React.ReactNode;
@@ -37,14 +43,18 @@ export function PipelineStepper({ stages }: { stages: StageViewEntry[] }) {
             icon = <CheckCircle2 className="h-4 w-4 text-emerald-500" />;
             dotColor = "bg-emerald-500 border-emerald-500";
             lineColor = "bg-emerald-300 dark:bg-emerald-700";
+          } else if (isOnGoing) {
+            icon = <Loader2 className="h-4 w-4 animate-spin text-blue-500" />;
+            dotColor = "bg-blue-500 border-blue-500";
+            lineColor = "bg-blue-300 dark:bg-blue-700";
+          } else if (isProcessing) {
+            icon = <Loader2 className="h-4 w-4 animate-spin text-amber-500" />;
+            dotColor = "bg-amber-500 border-amber-500";
+            lineColor = "bg-amber-300 dark:bg-amber-700";
           } else if (isCurrent) {
             icon = <Loader2 className="h-4 w-4 animate-spin text-primary" />;
             dotColor = "bg-primary border-primary";
             lineColor = "bg-primary/30";
-          } else if (s.processing_status === "processing") {
-            icon = <Loader2 className="h-4 w-4 animate-spin text-amber-500" />;
-            dotColor = "bg-amber-500 border-amber-500";
-            lineColor = "bg-amber-300 dark:bg-amber-700";
           } else {
             icon = <Circle className="h-4 w-4 text-muted-foreground/40" />;
             dotColor = "bg-muted-foreground/20 border-muted-foreground/30";
@@ -67,7 +77,7 @@ export function PipelineStepper({ stages }: { stages: StageViewEntry[] }) {
                   <span
                     className={cn(
                       "whitespace-nowrap text-[10px] font-medium leading-tight",
-                      isCurrent && "text-foreground font-semibold",
+                      (isCurrent || isOnGoing) && "text-foreground font-semibold",
                       isDone && "text-muted-foreground",
                       isPending && "text-muted-foreground/50",
                       isReview && "text-amber-600 dark:text-amber-400 font-semibold",
@@ -84,10 +94,12 @@ export function PipelineStepper({ stages }: { stages: StageViewEntry[] }) {
                           ? "text-destructive"
                           : isReview
                           ? "text-amber-600 dark:text-amber-400"
+                          : isOnGoing
+                          ? "text-blue-600 dark:text-blue-400"
                           : "text-emerald-600 dark:text-emerald-400",
                       )}
                     >
-                      {isReview ? "needs review" : s.verdict}
+                      {isReview ? "needs review" : isOnGoing ? "in progress" : s.verdict}
                     </span>
                   )}
                 </div>

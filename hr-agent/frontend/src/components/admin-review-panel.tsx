@@ -62,10 +62,13 @@ export function AdminReviewPanel({ applicationId, currentStage, stageStatus, sta
   // If a decision was already recorded for the matching round, suppress the
   // panel even if the stage somehow regressed -- prevents double-decision.
   const stageRound = stageToRoundKey(currentStage);
+  // ceo's human-facing name is the Management Round (stage_key stays "ceo").
+  const roundDisplay = (r: string) =>
+    r === "ceo" ? "Management" : r[0].toUpperCase() + r.slice(1);
   if (stageRound && adminReview?.[stageRound]?.decision) {
     return (
       <div className="rounded-xl border border-border bg-muted/40 p-4 text-sm">
-        <div className="font-semibold">{stageRound[0].toUpperCase() + stageRound.slice(1)} round decided</div>
+        <div className="font-semibold">{roundDisplay(stageRound)} round decided</div>
         <div className="mt-1 text-muted-foreground">
           {adminReview[stageRound].decision}
           {adminReview[stageRound].reviewer ? ` by ${adminReview[stageRound].reviewer}` : ""}
@@ -219,7 +222,7 @@ export function AdminReviewPanel({ applicationId, currentStage, stageStatus, sta
               notes: notes || null,
             })
           }
-          approveLabel="Approve → schedule CEO"
+          approveLabel="Approve → schedule Management round"
         />
       </Panel>
     );
@@ -227,7 +230,7 @@ export function AdminReviewPanel({ applicationId, currentStage, stageStatus, sta
 
   if (currentStage === "ceo_pending_approval") {
     return (
-      <Panel title="CEO round complete — needs approval">
+      <Panel title="Management round complete — needs approval">
         <MeetingReportCard report={meetingReports?.ceo} />
         <NotesField notes={notes} setNotes={setNotes} />
         <ActionRow

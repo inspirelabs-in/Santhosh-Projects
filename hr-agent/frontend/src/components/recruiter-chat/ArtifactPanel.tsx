@@ -43,7 +43,6 @@ interface Stage {
   is_enabled?: boolean;
 }
 interface CompanyContext {
-  intensity?: string;
   summary?: string;
   what_matters_here?: string[];
   hiring_bar?: string;
@@ -280,6 +279,17 @@ export function ArtifactPanel({
   };
 
   const weightTotal = dims.reduce((s, d) => s + (Number(d.weight) || 0), 0);
+
+  // Only show the take-home assignment section when the pipeline actually
+  // includes an enabled assignment stage. If the draft has no pipeline at all,
+  // fall back to showing the section (preserves prior behavior).
+  const hasAssignmentStage =
+    !draft.pipeline ||
+    stages.some(
+      (s) =>
+        (s.stage_type === "assignment" || s.stage_key === "assignment") &&
+        s.is_enabled !== false,
+    );
 
   /* -- Drag-to-resize -- */
   const onMouseDown = useCallback(
@@ -626,19 +636,6 @@ export function ArtifactPanel({
         <Section title="Company Context" defaultOpen={false}>
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <Label className="text-xs">Intensity</Label>
-              <select
-                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                value={ctx.intensity || "standard"}
-                onChange={(e) => patchCtx({ intensity: e.target.value })}
-              >
-                <option value="light">Light (junior/contract)</option>
-                <option value="standard">Standard (mid-level)</option>
-                <option value="high">High (senior/lead)</option>
-                <option value="critical">Critical (staff/exec)</option>
-              </select>
-            </div>
-            <div className="space-y-1.5">
               <Label className="text-xs">Summary</Label>
               <AutoTextarea
                 value={ctx.summary || ""}
@@ -671,6 +668,9 @@ export function ArtifactPanel({
         </Section>
 
         {/* ====== ASSIGNMENT ====== */}
+        {/* Gated on the pipeline including an enabled assignment stage; if the
+            draft has no pipeline, falls back to showing it. */}
+        {hasAssignmentStage && (
         <Section title="Take-home Assignment" defaultOpen={false}>
           <div className="space-y-3">
             <label className="flex items-center gap-2 text-sm">
@@ -783,6 +783,7 @@ export function ArtifactPanel({
             )}
           </div>
         </Section>
+        )}
 
         {/* ====== NOTES ====== */}
         <Section title="Notes" defaultOpen={false}>
