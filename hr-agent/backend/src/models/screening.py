@@ -64,6 +64,6 @@ class ScoreResult(BaseModel):
     knock_out_reason: str | None = None
     composite_score: int  # 0-100
     per_question_scores: list[ScreeningResponseItem]
-    needs_hr_review: bool = False  # grey-zone (cut_line ± 10)
-    cut_line: int
+    needs_hr_review: bool = False  # verdict == NEEDS_REVIEW
+    cut_line: int = 70  # unified threshold (eval_constants)
     recommendation: str  # "shortlist" | "reject" | "hr_review"

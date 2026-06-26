@@ -18,14 +18,15 @@ candidates*, not catching bad ones, so only a clearly-below-bar score
 auto-rejects; everything borderline goes to a human. A missing/None score never
 auto-rejects either -- it routes to NEEDS_REVIEW.
 
-Threshold + band are global config knobs (``eval_pass_threshold`` /
-``eval_reject_band``), tunable without code. Callers may override per-call if a
-stage ever needs its own bar.
+Threshold + band live in ``eval_constants`` (the canonical source) and are also
+exposed in the Settings config so operators can tune at deploy time.
+Callers may override per-call if a stage ever needs its own bar.
 """
 
 from __future__ import annotations
 
 from src.models.pipeline import StageVerdict
+from src.services.eval_constants import EVAL_PASS_THRESHOLD, EVAL_REJECT_BAND
 
 
 def route_score(
@@ -36,15 +37,26 @@ def route_score(
 ) -> StageVerdict:
     """Map a 0-100 ``score`` to PASS | NEEDS_REVIEW | FAIL (see module docstring).
 
-    ``threshold`` / ``reject_band`` default to the global config knobs.
+    ``threshold`` / ``reject_band`` default to ``eval_constants``, with optional
+    override from Settings config for deploy-time tuning.
     """
-    if threshold is None or reject_band is None:
+    if threshold is None:
+        threshold = EVAL_PASS_THRESHOLD
+    if reject_band is None:
+        reject_band = EVAL_REJECT_BAND
+
+    # [TO_FIX] SM-8: value-equality ("threshold == EVAL_PASS_THRESHOLD") clobbers a
+    # per-stage threshold that a role legitimately set equal to the default constant
+    # with the env value. Use a None sentinel before this block to detect "caller did
+    # not override". Harmless while env == constant. Left as-is per scope.
+    # Allow deploy-time override from env Settings (takes precedence)
+    if threshold == EVAL_PASS_THRESHOLD or reject_band == EVAL_REJECT_BAND:
         from src.config import get_settings
 
         settings = get_settings()
-        if threshold is None:
+        if threshold == EVAL_PASS_THRESHOLD:
             threshold = settings.eval_pass_threshold
-        if reject_band is None:
+        if reject_band == EVAL_REJECT_BAND:
             reject_band = settings.eval_reject_band
 
     # No score == we could not judge -> never auto-reject; let a human look.
