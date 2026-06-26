@@ -208,7 +208,7 @@ class Settings(BaseSettings):
     # Voice agent behavior
     voice_agent_company_name: str = "GrabOn"
     voice_agent_max_call_seconds: int = 1200
-    voice_agent_max_questions: int = 3
+    voice_agent_max_questions: int = 5
     voice_agent_pass_threshold: int = 65
     voice_agent_max_callback_attempts: int = 3
     # Shared evaluation routing (services/evaluation.route_score). A stage's

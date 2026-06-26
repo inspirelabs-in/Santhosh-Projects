@@ -133,7 +133,7 @@ async def dispatch_voice_call(
 
     # Build prompt and first message
     system_prompt, first_message = build_voice_prompt(
-        kind=call_kind, context=ctx, attempt_no=attempt_no
+        kind=call_kind, context=ctx, attempt_no=attempt_no,
     )
 
     spec = VoiceCallSpec(
@@ -231,6 +231,11 @@ async def _generate_or_reuse_questions(
     class _VoiceQuestionSet(BaseModel):
         questions: list[VoiceQuestion] = Field(default_factory=list)
 
+    # [TO_FIX] SM-5: this voice-question-gen fallback omits
+    # ``**scoring_prompt_vars(role.evaluation_spec, role.company_context)`` that the
+    # primary generator (v1_voice_screening.py) supplies, so VOICE_SCREEN_GEN_V1's
+    # {company_context_json}/{evaluation_spec_json} leak as literal text and the
+    # questions lose role grounding. Voice fallback path left as-is per scope.
     prompt = compile_prompt(
         "voice_screen_gen",
         fallback=VOICE_SCREEN_GEN_V1,
@@ -241,6 +246,7 @@ async def _generate_or_reuse_questions(
         max_notice_days=role.max_notice_days if role.max_notice_days is not None else "n/a",
         role_location=role.location or "n/a",
         remote_policy=role.remote_policy or "n/a",
+        max_questions=settings.voice_agent_max_questions,
         candidate_profile_json=json.dumps(
             profile.model_dump(mode="json", exclude_none=True), ensure_ascii=False
         )[:6000],
