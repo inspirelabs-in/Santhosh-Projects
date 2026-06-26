@@ -1,0 +1,293 @@
+{% extends "base.html" %}
+{% block title %}API Costs{% endblock %}
+
+{% block head_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-5 max-w-[1440px] mx-auto">
+    <div class="flex items-center justify-between pb-4 border-b border-slate-800/60">
+        <div>
+            <h2 class="text-2xl font-bold text-slate-100 tracking-tight flex items-center gap-2">
+                API Cost Tracker
+                <svg class="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            </h2>
+            <p class="text-xs text-slate-500 mt-0.5">Real-time OpenAI API spending -- every token tracked
+                {% if total.first_call %}<span class="text-slate-600">| Tracking since {{ total.first_call[:10] }}</span>{% endif %}
+            </p>
+        </div>
+        <div class="text-right">
+            <div class="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Lifetime Spend</div>
+            <div class="text-2xl font-bold text-slate-100">${{ "%.4f"|format(total.total_cost|float) }}</div>
+            <div class="text-[10px] text-slate-600">{{ "{:,}".format(total.total_calls) }} API calls</div>
+        </div>
+    </div>
+
+    <!-- Period Cards -->
+    <div class="grid grid-cols-4 gap-3">
+        <div class="glass-card rounded-xl px-4 py-3">
+            <div class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Today</div>
+            <div class="text-2xl font-bold text-emerald-400">${{ "%.4f"|format(today.cost|float) }}</div>
+            <p class="text-[10px] text-slate-600 mt-0.5">{{ "{:,}".format(today.calls) }} calls</p>
+        </div>
+        <div class="glass-card rounded-xl px-4 py-3">
+            <div class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">This Week</div>
+            <div class="text-2xl font-bold text-cyan-400">${{ "%.4f"|format(this_week.cost|float) }}</div>
+            <p class="text-[10px] text-slate-600 mt-0.5">{{ "{:,}".format(this_week.calls) }} calls</p>
+        </div>
+        <div class="glass-card rounded-xl px-4 py-3">
+            <div class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">This Month</div>
+            <div class="text-2xl font-bold text-violet-400">${{ "%.4f"|format(this_month.cost|float) }}</div>
+            <p class="text-[10px] text-slate-600 mt-0.5">{{ "{:,}".format(this_month.calls) }} calls</p>
+        </div>
+        <div class="glass-card rounded-xl px-4 py-3">
+            <div class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Projected Monthly</div>
+            {% set days_elapsed = [1, ((this_month.calls|float) / [1, today.calls|float]|max)]|max %}
+            {% set daily_avg = this_month.cost|float / [1, by_day|length]|max %}
+            <div class="text-2xl font-bold text-amber-400">${{ "%.2f"|format(daily_avg * 30) }}</div>
+            <p class="text-[10px] text-slate-600 mt-0.5">${{ "%.4f"|format(daily_avg) }}/day avg</p>
+        </div>
+    </div>
+
+    <!-- Charts Row -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <!-- Daily Cost Chart -->
+        <div class="glass-panel border border-slate-800/60 rounded-xl overflow-hidden">
+            <div class="px-5 py-3 border-b border-slate-900/60 bg-slate-950/40">
+                <h3 class="text-sm font-semibold text-slate-200">Daily Spending (Last 30 Days)</h3>
+            </div>
+            <div class="p-4" style="height: 280px;">
+                <canvas id="dailyCostChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Today's Hourly Breakdown -->
+        <div class="glass-panel border border-slate-800/60 rounded-xl overflow-hidden">
+            <div class="px-5 py-3 border-b border-slate-900/60 bg-slate-950/40">
+                <h3 class="text-sm font-semibold text-slate-200">Today's Spending by Hour</h3>
+            </div>
+            <div class="p-4" style="height: 280px;">
+                <canvas id="hourlyCostChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Purpose Breakdown + Per-Call Stats -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <!-- By Purpose -->
+        <div class="glass-panel border border-slate-800/60 rounded-xl overflow-hidden">
+            <div class="px-5 py-3 border-b border-slate-900/60 bg-slate-950/40">
+                <h3 class="text-sm font-semibold text-slate-200">Spending by Purpose</h3>
+                <p class="text-[10px] text-slate-600 mt-0.5">Where your API budget goes</p>
+            </div>
+            <div class="overflow-y-auto" style="max-height: 320px;">
+                <table class="w-full text-xs">
+                    <thead class="sticky top-0 bg-slate-950/90 backdrop-blur-sm z-10">
+                        <tr class="border-b border-slate-900/50 text-[10px] text-slate-500 uppercase tracking-wider">
+                            <th class="text-left px-4 py-2">Purpose</th>
+                            <th class="text-left px-3 py-2">Model</th>
+                            <th class="text-right px-3 py-2">Calls</th>
+                            <th class="text-right px-3 py-2">Tokens</th>
+                            <th class="text-right px-4 py-2">Cost</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-900/30">
+                        {% for p in by_purpose %}
+                        <tr class="hover:bg-slate-900/20 transition-colors">
+                            <td class="px-4 py-2.5">
+                                <span class="px-2 py-0.5 rounded text-[10px] font-bold
+                                    {% if p.purpose == 'parser' %}bg-cyan-500/10 text-cyan-400 border border-cyan-500/20
+                                    {% elif p.purpose == 'diagnosis' %}bg-violet-500/10 text-violet-400 border border-violet-500/20
+                                    {% elif p.purpose == 'comparison' %}bg-amber-500/10 text-amber-400 border border-amber-500/20
+                                    {% else %}bg-slate-800 text-slate-400{% endif %}">{{ p.purpose }}</span>
+                            </td>
+                            <td class="px-3 py-2.5 text-slate-400 font-mono text-[10px]">{{ p.model }}</td>
+                            <td class="text-right px-3 py-2.5 text-slate-300">{{ "{:,}".format(p.calls) }}</td>
+                            <td class="text-right px-3 py-2.5 text-slate-500 text-[10px]">{{ "{:,}".format(p.input_tokens + p.output_tokens) }}</td>
+                            <td class="text-right px-4 py-2.5 text-slate-200 font-semibold">${{ "%.4f"|format(p.cost|float) }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Average Per Call -->
+        <div class="glass-panel border border-slate-800/60 rounded-xl overflow-hidden">
+            <div class="px-5 py-3 border-b border-slate-900/60 bg-slate-950/40">
+                <h3 class="text-sm font-semibold text-slate-200">Cost Per Call</h3>
+                <p class="text-[10px] text-slate-600 mt-0.5">Average tokens and cost per API call by purpose</p>
+            </div>
+            <div class="p-4 space-y-4">
+                {% for a in avg_per_call %}
+                <div class="space-y-2">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-semibold
+                            {% if a.purpose == 'parser' %}text-cyan-400
+                            {% elif a.purpose == 'diagnosis' %}text-violet-400
+                            {% elif a.purpose == 'comparison' %}text-amber-400
+                            {% else %}text-slate-400{% endif %}">{{ a.purpose | title }}</span>
+                        <span class="text-xs text-slate-300 font-mono">${{ "%.6f"|format(a.avg_cost|float) }}/call</span>
+                    </div>
+                    <div class="grid grid-cols-3 gap-2">
+                        <div class="bg-slate-900/40 rounded-lg px-3 py-2">
+                            <div class="text-[9px] text-slate-500 uppercase">Avg Input</div>
+                            <div class="text-xs text-slate-300 font-semibold">{{ "{:,}".format(a.avg_input|int) }} tok</div>
+                        </div>
+                        <div class="bg-slate-900/40 rounded-lg px-3 py-2">
+                            <div class="text-[9px] text-slate-500 uppercase">Avg Output</div>
+                            <div class="text-xs text-slate-300 font-semibold">{{ "{:,}".format(a.avg_output|int) }} tok</div>
+                        </div>
+                        <div class="bg-slate-900/40 rounded-lg px-3 py-2">
+                            <div class="text-[9px] text-slate-500 uppercase">Total Calls</div>
+                            <div class="text-xs text-slate-300 font-semibold">{{ "{:,}".format(a.total_calls) }}</div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Daily Breakdown Table -->
+    <div class="glass-panel border border-slate-800/60 rounded-xl overflow-hidden">
+        <div class="px-5 py-3 border-b border-slate-900/60 bg-slate-950/40">
+            <h3 class="text-sm font-semibold text-slate-200">Daily History</h3>
+            <p class="text-[10px] text-slate-600 mt-0.5">Cost and token usage per day</p>
+        </div>
+        <div class="overflow-x-auto" style="max-height: 400px;">
+            <table class="w-full text-xs">
+                <thead class="sticky top-0 bg-slate-950/90 backdrop-blur-sm z-10">
+                    <tr class="border-b border-slate-900/50 text-[10px] text-slate-500 uppercase tracking-wider">
+                        <th class="text-left px-4 py-2">Date</th>
+                        <th class="text-right px-3 py-2">Calls</th>
+                        <th class="text-right px-3 py-2">Input Tokens</th>
+                        <th class="text-right px-3 py-2">Output Tokens</th>
+                        <th class="text-right px-4 py-2">Cost</th>
+                        <th class="text-left px-3 py-2">Spend Bar</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-900/30">
+                    {% set max_cost = by_day|map(attribute='cost')|map('float')|max if by_day else 1 %}
+                    {% for d in by_day %}
+                    <tr class="hover:bg-slate-900/20 transition-colors {% if d.date == by_day[0].date %}bg-emerald-500/5{% endif %}">
+                        <td class="px-4 py-2.5 text-slate-300 font-medium">{{ d.date }}</td>
+                        <td class="text-right px-3 py-2.5 text-slate-400">{{ "{:,}".format(d.calls) }}</td>
+                        <td class="text-right px-3 py-2.5 text-slate-500">{{ "{:,}".format(d.input_tokens) }}</td>
+                        <td class="text-right px-3 py-2.5 text-slate-500">{{ "{:,}".format(d.output_tokens) }}</td>
+                        <td class="text-right px-4 py-2.5 text-slate-200 font-semibold">${{ "%.4f"|format(d.cost|float) }}</td>
+                        <td class="px-3 py-2.5 w-40">
+                            <div class="w-full h-3 bg-slate-800/60 rounded-full overflow-hidden">
+                                <div class="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 rounded-full" style="width: {{ ((d.cost|float / max_cost|float) * 100)|round(1) }}%"></div>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Token Totals -->
+    <div class="grid grid-cols-2 gap-3">
+        <div class="glass-card rounded-xl px-4 py-3">
+            <div class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Total Input Tokens</div>
+            <div class="text-xl font-bold text-slate-200">{{ "{:,}".format(total.total_input) }}</div>
+            <p class="text-[10px] text-slate-600 mt-0.5">Prompts sent to OpenAI</p>
+        </div>
+        <div class="glass-card rounded-xl px-4 py-3">
+            <div class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Total Output Tokens</div>
+            <div class="text-xl font-bold text-slate-200">{{ "{:,}".format(total.total_output) }}</div>
+            <p class="text-[10px] text-slate-600 mt-0.5">Responses received from OpenAI</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    const theme = typeof getChartTheme === 'function' ? getChartTheme() : {
+        text: '#94a3b8', grid: 'rgba(51,65,85,0.3)', tooltipBg: '#0f172a',
+        tooltipBorder: '#334155', tooltipTitle: '#e2e8f0', tooltipBody: '#94a3b8'
+    };
+
+    // Daily cost chart
+    const dailyData = {{ by_day | tojson }};
+    const dates = dailyData.map(d => d.date).reverse();
+    const costs = dailyData.map(d => parseFloat(d.cost)).reverse();
+
+    new Chart(document.getElementById('dailyCostChart'), {
+        type: 'bar',
+        data: {
+            labels: dates,
+            datasets: [{
+                label: 'Daily Cost ($)',
+                data: costs,
+                backgroundColor: 'rgba(16, 185, 129, 0.4)',
+                borderColor: 'rgba(16, 185, 129, 0.8)',
+                borderWidth: 1,
+                borderRadius: 3,
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: theme.tooltipBg, borderColor: theme.tooltipBorder, borderWidth: 1,
+                    titleColor: theme.tooltipTitle, bodyColor: theme.tooltipBody,
+                    callbacks: { label: ctx => '$' + ctx.parsed.y.toFixed(4) }
+                }
+            },
+            scales: {
+                x: { ticks: { color: theme.text, font: { size: 9 }, maxRotation: 45 }, grid: { display: false } },
+                y: { ticks: { color: theme.text, font: { size: 10 }, callback: v => '$' + v.toFixed(2) }, grid: { color: theme.grid } }
+            }
+        }
+    });
+
+    // Hourly chart
+    const hourlyData = {{ hourly_today | tojson }};
+    const hours = [...Array(24).keys()];
+    const purposeColors = { parser: '#06b6d4', diagnosis: '#8b5cf6', comparison: '#f59e0b' };
+    const purposes = [...new Set(hourlyData.map(h => h.purpose))];
+
+    const datasets = purposes.map(p => ({
+        label: p,
+        data: hours.map(h => {
+            const match = hourlyData.find(d => d.hour === h && d.purpose === p);
+            return match ? parseFloat(match.cost) : 0;
+        }),
+        backgroundColor: (purposeColors[p] || '#64748b') + '66',
+        borderColor: purposeColors[p] || '#64748b',
+        borderWidth: 1,
+        borderRadius: 2,
+    }));
+
+    new Chart(document.getElementById('hourlyCostChart'), {
+        type: 'bar',
+        data: { labels: hours.map(h => h + ':00'), datasets },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+                legend: { labels: { color: theme.text, font: { size: 10 } } },
+                tooltip: {
+                    backgroundColor: theme.tooltipBg, borderColor: theme.tooltipBorder, borderWidth: 1,
+                    titleColor: theme.tooltipTitle, bodyColor: theme.tooltipBody,
+                    callbacks: { label: ctx => ctx.dataset.label + ': $' + ctx.parsed.y.toFixed(6) }
+                }
+            },
+            scales: {
+                x: { stacked: true, ticks: { color: theme.text, font: { size: 8 } }, grid: { display: false } },
+                y: { stacked: true, ticks: { color: theme.text, font: { size: 10 }, callback: v => '$' + v.toFixed(4) }, grid: { color: theme.grid } }
+            }
+        }
+    });
+
+    // Auto-refresh every 60s
+    setTimeout(() => location.reload(), 60000);
+})();
+</script>
+{% endblock %}

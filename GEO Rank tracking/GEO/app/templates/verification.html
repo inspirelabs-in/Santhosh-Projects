@@ -1,0 +1,294 @@
+{% extends "base.html" %}
+{% block title %}Verification{% endblock %}
+
+{% block head_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-5 max-w-[1440px] mx-auto">
+    <div class="flex items-center justify-between pb-4 border-b border-slate-800/60">
+        <div>
+            <h2 class="text-2xl font-bold text-slate-100 tracking-tight">Verification Loop
+                <span class="info-btn ml-1">
+                    <svg class="w-3.5 h-3.5 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <span class="info-tip"><strong class="text-slate-200">Verification Loop</strong><br>Tracks whether applied fixes actually improved rankings. Compares before/after metrics to prove or disprove the fix's effectiveness.</span>
+                </span>
+            </h2>
+            <p class="text-xs text-slate-500 mt-0.5">PROVE fixes worked - before/after metric comparison <span class="text-slate-600">| {{ fixes|length }} fixes tracked</span></p>
+        </div>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div class="glass-card rounded-xl p-4">
+            <div class="text-[9px] text-slate-500 uppercase tracking-wider font-semibold">Monitoring <span class="info-btn ml-0.5"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Monitoring</strong><br>Fixes currently being tracked — collecting post-fix data to compare against the baseline. Takes 3-7 days.</span></span></div>
+            <div class="text-2xl font-bold text-cyan-400 mt-1">{{ monitoring_count }}</div>
+            <div class="text-[9px] text-slate-600 mt-1">collecting post-fix data</div>
+        </div>
+        <div class="glass-card rounded-xl p-4">
+            <div class="text-[9px] text-slate-500 uppercase tracking-wider font-semibold">Improved <span class="info-btn ml-0.5"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Improved</strong><br>Fixes confirmed to have positive impact — rank, mention count, or sentiment improved after the change.</span></span></div>
+            <div class="text-2xl font-bold text-emerald-400 mt-1">{{ improved_count }}</div>
+            <div class="text-[9px] text-slate-600 mt-1">verified positive impact</div>
+        </div>
+        <div class="glass-card rounded-xl p-4">
+            <div class="text-[9px] text-slate-500 uppercase tracking-wider font-semibold">No Change <span class="info-btn ml-0.5"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">No Change</strong><br>Fixes that had no measurable impact on rankings or mentions.</span></span></div>
+            <div class="text-2xl font-bold text-slate-400 mt-1">{{ nochange_count }}</div>
+        </div>
+        <div class="glass-card rounded-xl p-4">
+            <div class="text-[9px] text-slate-500 uppercase tracking-wider font-semibold">Degraded <span class="info-btn ml-0.5"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Degraded</strong><br>Fixes that led to worse performance — rank dropped or mentions decreased after the change. Investigate and potentially revert.</span></span></div>
+            <div class="text-2xl font-bold text-rose-400 mt-1">{{ degraded_count }}</div>
+        </div>
+    </div>
+
+    <!-- Fixes Table -->
+    <div class="glass-panel border border-slate-800/60 rounded-xl overflow-hidden">
+        <div class="border-b border-slate-900/60 bg-slate-950/40 px-5 py-3">
+            <h3 class="text-sm font-semibold text-slate-200">Applied Fixes
+                <span class="info-btn ml-1">
+                    <svg class="w-3.5 h-3.5 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <span class="info-tip"><strong class="text-slate-200">Applied Fixes</strong><br>All recorded fixes with their verification status. Click a row to see metric changes. Use Verify to re-check, Timeline to see historical data.</span>
+                </span>
+            </h3>
+            <p class="text-[10px] text-slate-600 mt-0.5">Track what changed and whether it moved the needle</p>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-xs">
+                <thead>
+                    <tr class="border-b border-slate-900/50 text-[10px] text-slate-500 uppercase tracking-wider">
+                        <th class="text-left px-5 py-2.5">Keyword</th>
+                        <th class="text-left px-3 py-2.5">Fix Description</th>
+                        <th class="text-center px-3 py-2.5">Applied</th>
+                        <th class="text-center px-3 py-2.5">Status</th>
+                        <th class="text-center px-3 py-2.5">Verdict</th>
+                        <th class="text-center px-3 py-2.5">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-900/30">
+                    {% for fix in fixes %}
+                    <tr class="hover:bg-slate-900/20 transition-colors" id="fix-{{ fix.id }}">
+                        <td class="px-5 py-3">
+                            <p class="font-medium text-slate-200 text-[12px]">{{ fix.keyword }}</p>
+                            <span class="text-[9px] text-slate-500">{{ fix.engine_name }}</span>
+                        </td>
+                        <td class="px-3 py-3 text-xs text-slate-400 max-w-[300px]">
+                            {{ fix.description[:100] }}{% if fix.description|length > 100 %}...{% endif %}
+                        </td>
+                        <td class="text-center px-3 py-3 text-[10px] text-slate-500">{{ fix.applied_at[:10] if fix.applied_at else '--' }}</td>
+                        <td class="text-center px-3 py-3">
+                            {% if fix.verification_status == 'monitoring' %}
+                                <span class="px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 text-[10px] font-medium">Monitoring</span>
+                            {% elif fix.verification_status == 'improved' %}
+                                <span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-bold">Improved</span>
+                            {% elif fix.verification_status == 'degraded' %}
+                                <span class="px-2 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20 text-[10px] font-bold">Degraded</span>
+                            {% elif fix.verification_status == 'no_change' %}
+                                <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-400 text-[10px] font-medium">No Change</span>
+                            {% elif fix.verification_status == 'insufficient_data' %}
+                                <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-500 text-[10px] font-medium">Collecting...</span>
+                            {% else %}
+                                <span class="text-slate-500 text-[10px]">{{ fix.verification_status }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-center px-3 py-3">
+                            {% set vr = fix.verification_result %}
+                            {% if vr and vr.metric_changes %}
+                                <div class="flex items-center justify-center gap-1">
+                                    {% for mc in vr.metric_changes %}
+                                        {% if mc.direction == 'improved' %}
+                                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400" title="{{ mc.metric }}: improved"></span>
+                                        {% elif mc.direction == 'degraded' %}
+                                            <span class="w-1.5 h-1.5 rounded-full bg-rose-400" title="{{ mc.metric }}: degraded"></span>
+                                        {% else %}
+                                            <span class="w-1.5 h-1.5 rounded-full bg-slate-600" title="{{ mc.metric }}: unchanged"></span>
+                                        {% endif %}
+                                    {% endfor %}
+                                </div>
+                            {% else %}
+                                <span class="text-slate-600">--</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-center px-3 py-3">
+                            <div class="flex items-center justify-center gap-1.5">
+                                <button onclick="verifyFix('{{ fix.id }}')" class="px-2 py-1 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] font-semibold hover:bg-amber-500/20 cursor-pointer transition-colors" title="Re-verify now">
+                                    Verify
+                                </button>
+                                <button onclick="showTimeline('{{ fix.id }}')" class="px-2 py-1 rounded bg-slate-800 text-slate-400 text-[10px] hover:text-slate-200 cursor-pointer transition-colors" title="View timeline">
+                                    Timeline
+                                </button>
+                                <button onclick="deleteFix('{{ fix.id }}')" class="px-1.5 py-1 rounded bg-slate-800 text-slate-600 text-[10px] hover:text-rose-400 cursor-pointer transition-colors" title="Delete">
+                                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    <!-- Metric detail row (hidden by default) -->
+                    {% if fix.verification_result and fix.verification_result.metric_changes %}
+                    <tr class="bg-slate-950/30 hidden" id="metrics-{{ fix.id }}">
+                        <td colspan="6" class="px-5 py-3">
+                            <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+                                {% for mc in fix.verification_result.metric_changes %}
+                                <div class="bg-slate-900/40 rounded-lg p-3 border border-slate-900/30">
+                                    <div class="text-[9px] text-slate-500 uppercase font-semibold">{{ mc.metric|replace('_', ' ') }}</div>
+                                    <div class="flex items-baseline gap-2 mt-1">
+                                        <span class="text-xs text-slate-400">{{ mc.before if mc.before is not none else '--' }}</span>
+                                        <svg class="w-3 h-3 {% if mc.direction == 'improved' %}text-emerald-400{% elif mc.direction == 'degraded' %}text-rose-400{% else %}text-slate-600{% endif %}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
+                                        <span class="text-xs font-bold {% if mc.direction == 'improved' %}text-emerald-400{% elif mc.direction == 'degraded' %}text-rose-400{% else %}text-slate-300{% endif %}">{{ mc.after if mc.after is not none else '--' }}</span>
+                                    </div>
+                                    {% if mc.note %}
+                                    <p class="text-[8px] text-slate-600 mt-1">{{ mc.note }}</p>
+                                    {% endif %}
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endif %}
+                    {% endfor %}
+                    {% if not fixes %}
+                    <tr>
+                        <td colspan="6" class="px-5 py-8 text-center text-slate-500">
+                            No fixes recorded yet. Use the Diagnosis page to identify issues and mark them as fixed.
+                        </td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Timeline Modal -->
+    <div id="timelineModal" class="fixed inset-0 bg-black/70 z-50 flex items-center justify-center hidden" onclick="if(event.target===this)this.classList.add('hidden')">
+        <div class="bg-slate-950 border border-slate-800/60 rounded-xl shadow-2xl w-full max-w-3xl max-h-[80vh] overflow-y-auto p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-sm font-bold text-slate-200" id="timelineTitle">Fix Timeline</h3>
+                <button onclick="document.getElementById('timelineModal').classList.add('hidden')" class="text-slate-600 hover:text-slate-400 cursor-pointer text-lg">&times;</button>
+            </div>
+            <div style="height: 300px;">
+                <canvas id="timelineChart"></canvas>
+            </div>
+            <div id="timelineInfo" class="mt-4 text-xs text-slate-500"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Toggle metric details
+document.querySelectorAll('[id^="fix-"]').forEach(row => {
+    row.addEventListener('click', function(e) {
+        if (e.target.closest('button')) return;
+        const id = this.id.replace('fix-', '');
+        const metricsRow = document.getElementById('metrics-' + id);
+        if (metricsRow) metricsRow.classList.toggle('hidden');
+    });
+});
+
+async function verifyFix(id) {
+    const btn = event.target;
+    btn.textContent = 'Verifying...';
+    btn.disabled = true;
+    try {
+        const resp = await fetch('/api/fixes/' + id + '/verify', { method: 'POST' });
+        const data = await resp.json();
+        if (data.error) {
+            alert('Verification failed: ' + data.error);
+        } else {
+            location.reload();
+        }
+    } catch(e) {
+        alert('Request failed');
+    }
+    btn.textContent = 'Verify';
+    btn.disabled = false;
+}
+
+async function deleteFix(id) {
+    if (!confirm('Delete this fix record?')) return;
+    await fetch('/api/fixes/' + id, { method: 'DELETE' });
+    const el = document.getElementById('fix-' + id);
+    if (el) el.remove();
+    const metrics = document.getElementById('metrics-' + id);
+    if (metrics) metrics.remove();
+}
+
+let timelineChartInstance = null;
+
+async function showTimeline(id) {
+    document.getElementById('timelineModal').classList.remove('hidden');
+    document.getElementById('timelineInfo').textContent = 'Loading...';
+
+    const resp = await fetch('/api/fixes/' + id + '/timeline');
+    const data = await resp.json();
+
+    if (data.error) {
+        document.getElementById('timelineInfo').textContent = data.error;
+        return;
+    }
+
+    document.getElementById('timelineTitle').textContent = 'Timeline: ' + data.keyword;
+    document.getElementById('timelineInfo').textContent = 'Fix applied: ' + data.applied_at;
+
+    if (timelineChartInstance) timelineChartInstance.destroy();
+
+    const theme = getChartTheme();
+    const ctx = document.getElementById('timelineChart').getContext('2d');
+
+    const aiDates = data.ai_timeline.map(d => d.date);
+    const aiRanks = data.ai_timeline.map(d => d.rank_position);
+    const serpDates = data.serp_timeline.map(d => d.date);
+    const serpRanks = data.serp_timeline.map(d => d.rank_position);
+
+    const allDates = [...new Set([...aiDates, ...serpDates])].sort();
+
+    timelineChartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: allDates,
+            datasets: [
+                {
+                    label: 'AI Rank',
+                    data: allDates.map(d => { const i = aiDates.indexOf(d); return i >= 0 ? aiRanks[i] : null; }),
+                    borderColor: '#f59e0b',
+                    backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                    tension: 0.3, borderWidth: 2, pointRadius: 3,
+                    spanGaps: true,
+                },
+                {
+                    label: 'SERP Rank',
+                    data: allDates.map(d => { const i = serpDates.indexOf(d); return i >= 0 ? serpRanks[i] : null; }),
+                    borderColor: '#06b6d4',
+                    backgroundColor: 'rgba(6, 182, 212, 0.1)',
+                    tension: 0.3, borderWidth: 2, pointRadius: 3,
+                    spanGaps: true,
+                }
+            ]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+                legend: { labels: { color: theme.text, font: { size: 11 } } },
+                tooltip: {
+                    backgroundColor: theme.tooltipBg, borderColor: theme.tooltipBorder, borderWidth: 1,
+                    titleColor: theme.tooltipTitle, bodyColor: theme.tooltipBody,
+                },
+                annotation: data.applied_at ? {
+                    annotations: {
+                        fixLine: {
+                            type: 'line', xMin: data.applied_at.split(' ')[0], xMax: data.applied_at.split(' ')[0],
+                            borderColor: '#ef4444', borderWidth: 2, borderDash: [4, 4],
+                            label: { display: true, content: 'Fix Applied', color: '#ef4444', font: { size: 10 } }
+                        }
+                    }
+                } : {},
+            },
+            scales: {
+                x: { ticks: { color: theme.text, font: { size: 10 } }, grid: { color: theme.grid } },
+                y: { reverse: true, min: 1, ticks: { color: theme.text, font: { size: 10 }, stepSize: 1 }, grid: { color: theme.grid } },
+            }
+        }
+    });
+}
+</script>
+{% endblock %}

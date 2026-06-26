@@ -1,0 +1,643 @@
+{% extends "base.html" %}
+{% block title %}Keywords{% endblock %}
+
+{% block head %}
+<style>
+    .upload-zone {
+        border: 2px dashed rgba(51, 65, 85, 0.5);
+        transition: all 0.2s;
+    }
+    .upload-zone.drag-over {
+        border-color: #f59e0b;
+        background: rgba(245, 158, 11, 0.05);
+    }
+    .kw-row:hover { background: rgba(15, 23, 42, 0.3); }
+    .tier-badge { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 6px; }
+    .tier-1 { background: rgba(245,158,11,0.15); color: #f59e0b; }
+    .tier-2 { background: rgba(59,130,246,0.15); color: #60a5fa; }
+    .tier-3 { background: rgba(100,116,139,0.15); color: #94a3b8; }
+    .intent-geo { background: rgba(168,85,247,0.15); color: #a855f7; font-size: 9px; font-weight: 700; padding: 1px 6px; border-radius: 4px; }
+    .intent-seo { background: rgba(34,197,94,0.15); color: #22c55e; font-size: 9px; font-weight: 700; padding: 1px 6px; border-radius: 4px; }
+    .edit-input {
+        background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(51, 65, 85, 0.5);
+        color: #e2e8f0; padding: 4px 8px; border-radius: 6px; font-size: 12px;
+        outline: none; width: 100%;
+    }
+    .edit-input:focus { border-color: #f59e0b; }
+    select.edit-input { cursor: pointer; }
+
+    html.light .upload-zone { border-color: rgba(203,213,225,0.6); }
+    html.light .upload-zone.drag-over { border-color: #d97706; background: rgba(245,158,11,0.04); }
+    html.light .kw-row:hover { background: rgba(241,245,249,0.5); }
+    html.light .tier-2 { color: #2563eb; }
+    html.light .tier-3 { color: #64748b; }
+    html.light .edit-input { background: #ffffff; border-color: rgba(203,213,225,0.6); color: #334155; }
+
+    .toast {
+        position: fixed; bottom: 24px; right: 24px; z-index: 9999;
+        padding: 12px 20px; border-radius: 10px; font-size: 13px;
+        animation: slideUp 0.3s ease;
+    }
+    @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-5 max-w-[1440px] mx-auto">
+    <div class="flex items-center justify-between pb-4 border-b border-slate-800/60">
+        <div>
+            <h2 class="text-2xl font-bold text-slate-100 tracking-tight">Keywords
+                <span class="info-btn ml-1">
+                    <svg class="w-3.5 h-3.5 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <span class="info-tip"><strong class="text-slate-200">Keywords</strong><br>Search queries tracked across AI engines. Keywords are the prompts sent to AI engines to monitor brand visibility.</span>
+                </span>
+            </h2>
+            <p class="text-xs text-slate-500 mt-0.5">Manage search queries tracked across AI engines</p>
+        </div>
+        <div class="flex items-center gap-3">
+            <span class="text-xs text-slate-600">{{ total }} keywords</span>
+            <button onclick="document.getElementById('uploadModal').classList.remove('hidden')"
+                    class="px-4 py-2 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 text-xs font-semibold hover:bg-amber-500/20 transition-all cursor-pointer">
+                Upload File
+            </button>
+            <button onclick="document.getElementById('addModal').classList.remove('hidden')"
+                    class="px-4 py-2 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-semibold hover:bg-emerald-500/20 transition-all cursor-pointer">
+                + Add Keyword
+            </button>
+            <a href="/api/keyword-export?format=csv"
+               class="px-4 py-2 rounded-lg bg-slate-900/50 text-slate-400 border border-slate-800 text-xs font-semibold hover:text-slate-200 transition-all">
+                Export CSV
+            </a>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="flex items-center gap-3 flex-wrap">
+        <div class="flex items-center gap-2">
+            <span class="text-xs text-slate-500">Tier: <span class="info-btn ml-0.5"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Tier</strong><br>Priority tier for keywords. Tier 1 = core/high-value queries scraped most frequently. Tier 2 = secondary. Tier 3 = long-tail, scraped less often.</span></span></span>
+            <a href="/keywords" class="px-3 py-1.5 rounded-lg text-xs font-medium transition-all {% if not active_tier %}bg-amber-500/15 text-amber-400 border border-amber-500/30{% else %}bg-slate-950 text-slate-400 border border-slate-900 hover:text-slate-200{% endif %}">All</a>
+            {% for t in [1, 2, 3] %}
+            <a href="/keywords?tier={{ t }}" class="px-3 py-1.5 rounded-lg text-xs font-medium transition-all {% if active_tier == t %}bg-amber-500/15 text-amber-400 border border-amber-500/30{% else %}bg-slate-950 text-slate-400 border border-slate-900 hover:text-slate-200{% endif %}">Tier {{ t }}</a>
+            {% endfor %}
+        </div>
+        <div class="flex items-center gap-2">
+            <span class="text-xs text-slate-500">Category:</span>
+            <a href="/keywords{% if active_tier %}?tier={{ active_tier }}{% endif %}{% if active_intent %}{{'&' if active_tier else '?'}}intent={{ active_intent }}{% endif %}" class="px-3 py-1.5 rounded-lg text-xs font-medium transition-all {% if not active_category %}bg-amber-500/15 text-amber-400 border border-amber-500/30{% else %}bg-slate-950 text-slate-400 border border-slate-900 hover:text-slate-200{% endif %}">All</a>
+            {% for cat in categories %}
+            <a href="/keywords?{% if active_tier %}tier={{ active_tier }}&{% endif %}{% if active_intent %}intent={{ active_intent }}&{% endif %}category={{ cat }}" class="px-3 py-1.5 rounded-lg text-xs font-medium transition-all {% if active_category == cat %}bg-amber-500/15 text-amber-400 border border-amber-500/30{% else %}bg-slate-950 text-slate-400 border border-slate-900 hover:text-slate-200{% endif %}">{{ cat }}</a>
+            {% endfor %}
+        </div>
+        <div class="flex items-center gap-2">
+            <span class="text-xs text-slate-500">Type: <span class="info-btn ml-0.5"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Type</strong><br>SEO keywords are tracked in Google organic results. GEO keywords are tracked across AI engines (ChatGPT, Gemini, Claude, Perplexity, Google AI).</span></span></span>
+            <a href="/keywords{% if active_tier %}?tier={{ active_tier }}{% endif %}{% if active_category %}{{'&' if active_tier else '?'}}category={{ active_category }}{% endif %}" class="px-3 py-1.5 rounded-lg text-xs font-medium transition-all {% if not active_intent %}bg-amber-500/15 text-amber-400 border border-amber-500/30{% else %}bg-slate-950 text-slate-400 border border-slate-900 hover:text-slate-200{% endif %}">All</a>
+            <a href="/keywords?{% if active_tier %}tier={{ active_tier }}&{% endif %}{% if active_category %}category={{ active_category }}&{% endif %}intent=SEO" class="px-3 py-1.5 rounded-lg text-xs font-medium transition-all {% if active_intent == 'SEO' %}bg-emerald-500/15 text-emerald-400 border border-emerald-500/30{% else %}bg-slate-950 text-slate-400 border border-slate-900 hover:text-slate-200{% endif %}">SEO ({{ seo_count }})</a>
+            <a href="/keywords?{% if active_tier %}tier={{ active_tier }}&{% endif %}{% if active_category %}category={{ active_category }}&{% endif %}intent=GEO" class="px-3 py-1.5 rounded-lg text-xs font-medium transition-all {% if active_intent == 'GEO' %}bg-purple-500/15 text-purple-400 border border-purple-500/30{% else %}bg-slate-950 text-slate-400 border border-slate-900 hover:text-slate-200{% endif %}">GEO ({{ geo_count }})</a>
+        </div>
+        <div class="ml-auto">
+            <input type="text" id="searchInput" placeholder="Search keywords..." value="{{ search or '' }}"
+                   class="edit-input w-64" onkeydown="if(event.key==='Enter') applySearch()">
+        </div>
+    </div>
+
+    <!-- Stats bar -->
+    <div class="grid grid-cols-6 gap-4">
+        {% for label, val, color in [('Total', total, 'amber'), ('Tier 1', tier_counts.get(1, 0), 'amber'), ('Tier 2', tier_counts.get(2, 0), 'blue'), ('Tier 3', tier_counts.get(3, 0), 'slate'), ('SEO Keywords', seo_count, 'emerald'), ('GEO Queries', geo_count, 'purple')] %}
+        <div class="glass-card rounded-xl px-4 py-3">
+            <p class="text-[10px] text-slate-500 uppercase tracking-wider">{{ label }}</p>
+            <p class="text-lg font-bold text-{{ color }}-400 mt-0.5">{{ val }}</p>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Keywords Table -->
+    {% if not keywords %}
+    <div class="glass-panel border border-slate-800/60p-12 rounded-xl text-center">
+        <p class="text-slate-500 text-sm">No keywords found. Add some or upload a file.</p>
+    </div>
+    {% else %}
+    <div class="glass-card rounded-xl overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="w-full text-xs">
+                <thead>
+                    <tr class="border-b border-slate-900/60 text-slate-500 uppercase tracking-wider text-[10px]">
+                        <th class="text-left px-4 py-3 w-8">
+                            <input type="checkbox" id="selectAll" onchange="toggleSelectAll()" class="cursor-pointer">
+                        </th>
+                        <th class="text-left px-4 py-3">Keyword</th>
+                        <th class="text-left px-4 py-3 w-20">Tier</th>
+                        <th class="text-left px-4 py-3 w-32">Category</th>
+                        <th class="text-left px-4 py-3 w-28">Intent</th>
+                        <th class="text-left px-4 py-3 w-32">Group</th>
+                        <th class="text-left px-4 py-3 w-28">Last Run</th>
+                        <th class="text-right px-4 py-3 w-24">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="keywordsBody">
+                    {% for kw in keywords %}
+                    <tr class="kw-row border-b border-slate-900/30" data-id="{{ kw.id }}">
+                        <td class="px-4 py-2.5">
+                            <input type="checkbox" class="row-check cursor-pointer" value="{{ kw.id }}">
+                        </td>
+                        <td class="px-4 py-2.5">
+                            <span class="kw-text text-slate-200">{{ kw.text }}</span>
+                            {% if not kw.is_canonical %}<span class="text-[9px] text-slate-600 ml-2">variant</span>{% endif %}
+                        </td>
+                        <td class="px-4 py-2.5">
+                            <span class="tier-badge tier-{{ kw.tier }}">T{{ kw.tier }}</span>
+                        </td>
+                        <td class="px-4 py-2.5 text-slate-400">{{ kw.merchant_category }}</td>
+                        <td class="px-4 py-2.5 text-slate-500">
+                            {% if kw.intent_type == 'GEO' %}<span class="intent-geo">GEO</span>{% else %}<span class="intent-seo">SEO</span> {{ kw.intent_type }}{% endif %}
+                        </td>
+                        <td class="px-4 py-2.5 text-slate-600 truncate max-w-[120px]" title="{{ kw.keyword_group or '' }}">{{ kw.keyword_group or '-' }}</td>
+                        <td class="px-4 py-2.5 text-slate-600">
+                            {% if kw.last_run_at %}
+                            {{ kw.last_run_at.strftime('%b %d, %H:%M') if kw.last_run_at else '-' }}
+                            {% else %}
+                            <span class="text-amber-500/60">Never</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-4 py-2.5 text-right">
+                            <button onclick="editRow('{{ kw.id }}')" class="text-slate-500 hover:text-amber-400 transition-colors cursor-pointer" title="Edit">
+                                <svg class="w-3.5 h-3.5 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                            </button>
+                            <button onclick="deleteKeyword('{{ kw.id }}')" class="text-slate-500 hover:text-red-400 transition-colors ml-2 cursor-pointer" title="Delete">
+                                <svg class="w-3.5 h-3.5 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Pagination -->
+        {% if total_pages > 1 %}
+        <div class="px-4 py-3 border-t border-slate-900/40 flex items-center justify-between">
+            <span class="text-[10px] text-slate-600">Page {{ page }} of {{ total_pages }}</span>
+            <div class="flex items-center gap-1">
+                {% if page > 1 %}
+                <a href="/keywords?page={{ page - 1 }}{% if active_tier %}&tier={{ active_tier }}{% endif %}{% if active_category %}&category={{ active_category }}{% endif %}{% if search %}&search={{ search }}{% endif %}"
+                   class="px-3 py-1 rounded text-xs text-slate-400 hover:text-slate-200 bg-slate-900/50 border border-slate-800">Prev</a>
+                {% endif %}
+                {% for p in range(1, total_pages + 1) %}
+                {% if p == page %}
+                <span class="px-3 py-1 rounded text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20">{{ p }}</span>
+                {% elif p <= 3 or p >= total_pages - 1 or (p >= page - 1 and p <= page + 1) %}
+                <a href="/keywords?page={{ p }}{% if active_tier %}&tier={{ active_tier }}{% endif %}{% if active_category %}&category={{ active_category }}{% endif %}{% if search %}&search={{ search }}{% endif %}"
+                   class="px-3 py-1 rounded text-xs text-slate-400 hover:text-slate-200 bg-slate-900/50 border border-slate-800">{{ p }}</a>
+                {% elif p == 4 or p == total_pages - 2 %}
+                <span class="px-2 text-slate-600">...</span>
+                {% endif %}
+                {% endfor %}
+                {% if page < total_pages %}
+                <a href="/keywords?page={{ page + 1 }}{% if active_tier %}&tier={{ active_tier }}{% endif %}{% if active_category %}&category={{ active_category }}{% endif %}{% if search %}&search={{ search }}{% endif %}"
+                   class="px-3 py-1 rounded text-xs text-slate-400 hover:text-slate-200 bg-slate-900/50 border border-slate-800">Next</a>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Bulk actions bar -->
+    <div id="bulkBar" class="hidden fixed bottom-6 left-1/2 -translate-x-1/2 z-50 glass-panel border border-slate-800 rounded-xl px-5 py-3 flex items-center gap-4 shadow-2xl">
+        <span class="text-xs text-slate-400"><span id="selectedCount">0</span> selected</span>
+        <select id="bulkTier" class="edit-input w-24">
+            <option value="">Set Tier</option>
+            <option value="1">Tier 1</option>
+            <option value="2">Tier 2</option>
+            <option value="3">Tier 3</option>
+        </select>
+        <button onclick="bulkSetTier()" class="px-3 py-1.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 text-xs font-semibold hover:bg-amber-500/20 cursor-pointer">Apply</button>
+        <button onclick="bulkDelete()" class="px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 text-xs font-semibold hover:bg-red-500/20 cursor-pointer">Delete</button>
+        <button onclick="clearSelection()" class="text-xs text-slate-500 hover:text-slate-300 cursor-pointer">Cancel</button>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Add Keyword Modal -->
+<div id="addModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+    <div class="glass-panel border border-slate-800 rounded-xl p-6 w-[480px] shadow-2xl">
+        <h3 class="text-lg font-bold text-slate-100 mb-4">Add Keyword</h3>
+        <form id="addForm" onsubmit="addKeyword(event)">
+            <div class="space-y-3">
+                <div>
+                    <label class="text-[10px] text-slate-500 uppercase tracking-wider">Keyword Text</label>
+                    <input type="text" name="text" required class="edit-input mt-1" placeholder="e.g. amazon coupon code">
+                </div>
+                <div class="grid grid-cols-3 gap-3">
+                    <div>
+                        <label class="text-[10px] text-slate-500 uppercase tracking-wider">Tier</label>
+                        <select name="tier" class="edit-input mt-1">
+                            <option value="1">Tier 1</option>
+                            <option value="2" selected>Tier 2</option>
+                            <option value="3">Tier 3</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-[10px] text-slate-500 uppercase tracking-wider">Category</label>
+                        <select name="category" class="edit-input mt-1">
+                            {% for cat in all_categories %}
+                            <option value="{{ cat }}">{{ cat }}</option>
+                            {% endfor %}
+                            <option value="Other">Other</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-[10px] text-slate-500 uppercase tracking-wider">Intent</label>
+                        <select name="intent" class="edit-input mt-1">
+                            <option value="Transactional">Transactional</option>
+                            <option value="Commercial">Commercial</option>
+                            <option value="Informational">Informational</option>
+                            <option value="Direct Brand">Direct Brand</option>
+                        </select>
+                    </div>
+                </div>
+                <div>
+                    <label class="text-[10px] text-slate-500 uppercase tracking-wider">Group (optional)</label>
+                    <input type="text" name="group" class="edit-input mt-1" placeholder="e.g. amazon">
+                </div>
+            </div>
+            <div class="flex justify-end gap-3 mt-5">
+                <button type="button" onclick="document.getElementById('addModal').classList.add('hidden')"
+                        class="px-4 py-2 rounded-lg text-xs text-slate-400 hover:text-slate-200 cursor-pointer">Cancel</button>
+                <button type="submit" class="px-4 py-2 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-semibold hover:bg-emerald-500/20 cursor-pointer">Add</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Edit Keyword Modal -->
+<div id="editModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+    <div class="glass-panel border border-slate-800 rounded-xl p-6 w-[480px] shadow-2xl">
+        <h3 class="text-lg font-bold text-slate-100 mb-4">Edit Keyword</h3>
+        <form id="editForm" onsubmit="saveEdit(event)">
+            <input type="hidden" name="id" id="editId">
+            <div class="space-y-3">
+                <div>
+                    <label class="text-[10px] text-slate-500 uppercase tracking-wider">Keyword Text</label>
+                    <input type="text" name="text" id="editText" required class="edit-input mt-1">
+                </div>
+                <div class="grid grid-cols-3 gap-3">
+                    <div>
+                        <label class="text-[10px] text-slate-500 uppercase tracking-wider">Tier</label>
+                        <select name="tier" id="editTier" class="edit-input mt-1">
+                            <option value="1">Tier 1</option>
+                            <option value="2">Tier 2</option>
+                            <option value="3">Tier 3</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-[10px] text-slate-500 uppercase tracking-wider">Category</label>
+                        <select name="category" id="editCategory" class="edit-input mt-1">
+                            {% for cat in all_categories %}
+                            <option value="{{ cat }}">{{ cat }}</option>
+                            {% endfor %}
+                            <option value="Other">Other</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-[10px] text-slate-500 uppercase tracking-wider">Intent</label>
+                        <select name="intent" id="editIntent" class="edit-input mt-1">
+                            <option value="Transactional">Transactional</option>
+                            <option value="Commercial">Commercial</option>
+                            <option value="Informational">Informational</option>
+                            <option value="Direct Brand">Direct Brand</option>
+                        </select>
+                    </div>
+                </div>
+                <div>
+                    <label class="text-[10px] text-slate-500 uppercase tracking-wider">Group</label>
+                    <input type="text" name="group" id="editGroup" class="edit-input mt-1">
+                </div>
+                <div class="flex items-center gap-2">
+                    <input type="checkbox" name="is_canonical" id="editCanonical">
+                    <label for="editCanonical" class="text-xs text-slate-400">Canonical (primary keyword)</label>
+                </div>
+            </div>
+            <div class="flex justify-end gap-3 mt-5">
+                <button type="button" onclick="document.getElementById('editModal').classList.add('hidden')"
+                        class="px-4 py-2 rounded-lg text-xs text-slate-400 hover:text-slate-200 cursor-pointer">Cancel</button>
+                <button type="submit" class="px-4 py-2 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 text-xs font-semibold hover:bg-amber-500/20 cursor-pointer">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Upload Modal -->
+<div id="uploadModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+    <div class="glass-panel border border-slate-800 rounded-xl p-6 w-[560px] shadow-2xl">
+        <h3 class="text-lg font-bold text-slate-100 mb-2">Upload Keywords</h3>
+        <p class="text-xs text-slate-500 mb-4">Upload Excel (.xlsx), CSV, or JSON files. Each row/entry needs at minimum a keyword text.</p>
+
+        <div id="uploadZone" class="upload-zone rounded-xl p-8 text-center cursor-pointer"
+             ondragover="event.preventDefault(); this.classList.add('drag-over')"
+             ondragleave="this.classList.remove('drag-over')"
+             ondrop="handleDrop(event)"
+             onclick="document.getElementById('fileInput').click()">
+            <svg class="w-8 h-8 text-slate-600 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+            <p class="text-sm text-slate-400">Drop file here or click to browse</p>
+            <p class="text-[10px] text-slate-600 mt-1">Supports .xlsx, .csv, .json</p>
+        </div>
+        <input type="file" id="fileInput" class="hidden" accept=".xlsx,.csv,.json" onchange="handleFileSelect(event)">
+
+        <!-- Upload options -->
+        <div class="grid grid-cols-2 gap-3 mt-4">
+            <div>
+                <label class="text-[10px] text-slate-500 uppercase tracking-wider">Default Tier</label>
+                <select id="uploadTier" class="edit-input mt-1">
+                    <option value="2" selected>Tier 2</option>
+                    <option value="1">Tier 1</option>
+                    <option value="3">Tier 3</option>
+                </select>
+            </div>
+            <div>
+                <label class="text-[10px] text-slate-500 uppercase tracking-wider">Default Category</label>
+                <select id="uploadCategory" class="edit-input mt-1">
+                    {% for cat in all_categories %}
+                    <option value="{{ cat }}">{{ cat }}</option>
+                    {% endfor %}
+                    <option value="General" selected>General</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Preview area -->
+        <div id="uploadPreview" class="hidden mt-4">
+            <div class="flex items-center justify-between mb-2">
+                <span class="text-xs text-slate-400">Preview (<span id="previewCount">0</span> keywords)</span>
+                <span id="uploadFileName" class="text-[10px] text-slate-600"></span>
+            </div>
+            <div class="max-h-40 overflow-y-auto glass-card rounded-lg p-3">
+                <div id="previewList" class="space-y-1 text-xs text-slate-300"></div>
+            </div>
+        </div>
+
+        <div id="uploadResult" class="hidden mt-4 p-3 rounded-lg text-xs"></div>
+
+        <div class="flex justify-end gap-3 mt-5">
+            <button type="button" onclick="closeUploadModal()"
+                    class="px-4 py-2 rounded-lg text-xs text-slate-400 hover:text-slate-200 cursor-pointer">Cancel</button>
+            <button id="uploadBtn" onclick="uploadKeywords()" disabled
+                    class="px-4 py-2 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 text-xs font-semibold hover:bg-amber-500/20 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
+                Upload
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+let selectedFile = null;
+let parsedKeywords = [];
+
+function toast(msg, type = 'success') {
+    const el = document.createElement('div');
+    el.className = `toast ${type === 'success' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-red-500/20 text-red-400 border border-red-500/30'}`;
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 3000);
+}
+
+function applySearch() {
+    const q = document.getElementById('searchInput').value.trim();
+    const params = new URLSearchParams(window.location.search);
+    if (q) params.set('search', q); else params.delete('search');
+    params.delete('page');
+    window.location.href = '/keywords?' + params.toString();
+}
+
+// Selection
+function toggleSelectAll() {
+    const checked = document.getElementById('selectAll').checked;
+    document.querySelectorAll('.row-check').forEach(cb => cb.checked = checked);
+    updateBulkBar();
+}
+
+document.addEventListener('change', e => {
+    if (e.target.classList.contains('row-check')) updateBulkBar();
+});
+
+function updateBulkBar() {
+    const checked = document.querySelectorAll('.row-check:checked');
+    const bar = document.getElementById('bulkBar');
+    if (checked.length > 0) {
+        bar.classList.remove('hidden');
+        document.getElementById('selectedCount').textContent = checked.length;
+    } else {
+        bar.classList.add('hidden');
+    }
+}
+
+function clearSelection() {
+    document.querySelectorAll('.row-check').forEach(cb => cb.checked = false);
+    document.getElementById('selectAll').checked = false;
+    updateBulkBar();
+}
+
+function getSelectedIds() {
+    return Array.from(document.querySelectorAll('.row-check:checked')).map(cb => cb.value);
+}
+
+// CRUD
+async function addKeyword(e) {
+    e.preventDefault();
+    const form = e.target;
+    const data = {
+        text: form.text.value,
+        tier: parseInt(form.tier.value),
+        category: form.category.value,
+        intent: form.intent.value,
+        group: form.group.value || null
+    };
+    const resp = await fetch('/api/keywords', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)});
+    if (resp.ok) {
+        toast('Keyword added');
+        document.getElementById('addModal').classList.add('hidden');
+        location.reload();
+    } else {
+        const err = await resp.json();
+        toast(err.detail || 'Failed to add', 'error');
+    }
+}
+
+async function editRow(id) {
+    const resp = await fetch(`/api/keywords/${id}`);
+    if (!resp.ok) { toast('Failed to load keyword', 'error'); return; }
+    const kw = await resp.json();
+    document.getElementById('editId').value = kw.id;
+    document.getElementById('editText').value = kw.text;
+    document.getElementById('editTier').value = kw.tier;
+    document.getElementById('editCategory').value = kw.merchant_category;
+    document.getElementById('editIntent').value = kw.intent_type;
+    document.getElementById('editGroup').value = kw.keyword_group || '';
+    document.getElementById('editCanonical').checked = kw.is_canonical;
+    document.getElementById('editModal').classList.remove('hidden');
+}
+
+async function saveEdit(e) {
+    e.preventDefault();
+    const form = e.target;
+    const id = document.getElementById('editId').value;
+    const data = {
+        text: form.text.value,
+        tier: parseInt(form.tier.value),
+        category: form.category.value,
+        intent: form.intent.value,
+        group: form.group.value || null,
+        is_canonical: document.getElementById('editCanonical').checked
+    };
+    const resp = await fetch(`/api/keywords/${id}`, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)});
+    if (resp.ok) {
+        toast('Keyword updated');
+        document.getElementById('editModal').classList.add('hidden');
+        location.reload();
+    } else {
+        const err = await resp.json();
+        toast(err.detail || 'Failed to update', 'error');
+    }
+}
+
+async function deleteKeyword(id) {
+    if (!confirm('Delete this keyword? Associated logs will also be removed.')) return;
+    const resp = await fetch(`/api/keywords/${id}`, {method: 'DELETE'});
+    if (resp.ok) {
+        toast('Keyword deleted');
+        document.querySelector(`tr[data-id="${id}"]`)?.remove();
+    } else toast('Failed to delete', 'error');
+}
+
+async function bulkSetTier() {
+    const tier = document.getElementById('bulkTier').value;
+    if (!tier) { toast('Select a tier first', 'error'); return; }
+    const ids = getSelectedIds();
+    const resp = await fetch('/api/keyword-bulk', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ids, tier: parseInt(tier)})
+    });
+    if (resp.ok) { toast(`Updated ${ids.length} keywords`); location.reload(); }
+    else toast('Bulk update failed', 'error');
+}
+
+async function bulkDelete() {
+    const ids = getSelectedIds();
+    if (!confirm(`Delete ${ids.length} keywords? This cannot be undone.`)) return;
+    const resp = await fetch('/api/keyword-bulk', {
+        method: 'DELETE',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ids})
+    });
+    if (resp.ok) { toast(`Deleted ${ids.length} keywords`); location.reload(); }
+    else toast('Bulk delete failed', 'error');
+}
+
+// File Upload
+function handleDrop(e) {
+    e.preventDefault();
+    e.currentTarget.classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if (file) processFile(file);
+}
+
+function handleFileSelect(e) {
+    const file = e.target.files[0];
+    if (file) processFile(file);
+}
+
+function processFile(file) {
+    selectedFile = file;
+    document.getElementById('uploadFileName').textContent = file.name;
+    document.getElementById('uploadBtn').disabled = false;
+
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (ext === 'json') {
+        const reader = new FileReader();
+        reader.onload = e => {
+            try {
+                const data = JSON.parse(e.target.result);
+                parsedKeywords = Array.isArray(data) ? data.map(d => typeof d === 'string' ? d : d.text || d.keyword || '') : [];
+                showPreview(parsedKeywords);
+            } catch { toast('Invalid JSON', 'error'); }
+        };
+        reader.readAsText(file);
+    } else if (ext === 'csv') {
+        const reader = new FileReader();
+        reader.onload = e => {
+            const lines = e.target.result.split('\n').map(l => l.trim()).filter(Boolean);
+            parsedKeywords = lines.slice(1).map(l => l.split(',')[0]?.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
+            showPreview(parsedKeywords);
+        };
+        reader.readAsText(file);
+    } else {
+        document.getElementById('uploadPreview').classList.remove('hidden');
+        document.getElementById('previewCount').textContent = '?';
+        document.getElementById('previewList').innerHTML = '<p class="text-slate-500">Excel files will be parsed on server</p>';
+    }
+}
+
+function showPreview(keywords) {
+    document.getElementById('uploadPreview').classList.remove('hidden');
+    document.getElementById('previewCount').textContent = keywords.length;
+    const list = document.getElementById('previewList');
+    const show = keywords.slice(0, 20);
+    list.innerHTML = show.map(k => `<div class="text-slate-300">${k}</div>`).join('') +
+        (keywords.length > 20 ? `<div class="text-slate-600 mt-1">...and ${keywords.length - 20} more</div>` : '');
+}
+
+async function uploadKeywords() {
+    const btn = document.getElementById('uploadBtn');
+    btn.disabled = true;
+    btn.textContent = 'Uploading...';
+
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+    formData.append('default_tier', document.getElementById('uploadTier').value);
+    formData.append('default_category', document.getElementById('uploadCategory').value);
+
+    const resp = await fetch('/api/keyword-upload', {method: 'POST', body: formData});
+    const result = await resp.json();
+
+    const resultEl = document.getElementById('uploadResult');
+    resultEl.classList.remove('hidden');
+    if (resp.ok) {
+        resultEl.className = 'mt-4 p-3 rounded-lg text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
+        resultEl.textContent = `Imported ${result.imported} keywords (${result.skipped} duplicates skipped)`;
+        setTimeout(() => location.reload(), 1500);
+    } else {
+        resultEl.className = 'mt-4 p-3 rounded-lg text-xs bg-red-500/10 text-red-400 border border-red-500/20';
+        resultEl.textContent = result.detail || 'Upload failed';
+        btn.disabled = false;
+        btn.textContent = 'Upload';
+    }
+}
+
+function closeUploadModal() {
+    document.getElementById('uploadModal').classList.add('hidden');
+    document.getElementById('uploadPreview').classList.add('hidden');
+    document.getElementById('uploadResult').classList.add('hidden');
+    document.getElementById('uploadBtn').disabled = true;
+    document.getElementById('uploadBtn').textContent = 'Upload';
+    selectedFile = null;
+    parsedKeywords = [];
+}
+
+// Close modals on Escape
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+        document.getElementById('addModal').classList.add('hidden');
+        document.getElementById('editModal').classList.add('hidden');
+        closeUploadModal();
+    }
+});
+
+// Close modals on backdrop click
+['addModal', 'editModal', 'uploadModal'].forEach(id => {
+    document.getElementById(id)?.addEventListener('click', e => {
+        if (e.target.id === id) {
+            if (id === 'uploadModal') closeUploadModal();
+            else document.getElementById(id).classList.add('hidden');
+        }
+    });
+});
+</script>
+{% endblock %}

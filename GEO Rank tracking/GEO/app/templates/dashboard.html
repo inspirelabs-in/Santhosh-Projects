@@ -1,0 +1,2235 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+
+{% block head_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<style>
+details[open] > summary svg.w-3.h-3 { transform: rotate(90deg); }
+details summary { list-style: none; }
+details summary::-webkit-details-marker { display: none; }
+</style>
+{% endblock %}
+
+{% macro engine_icon(engine, size="16") %}
+<img loading="lazy" src="/static/logos/{{ engine }}.svg" alt="{{ engine }}" width="{{ size }}" height="{{ size }}" class="shrink-0" style="width:{{ size }}px;height:{{ size }}px;">
+{% endmacro %}
+
+{% block content %}
+<div class="space-y-5 max-w-[1440px] mx-auto">
+    <!-- Header -->
+    <div class="flex items-center justify-between pb-4 border-b border-slate-800/60">
+        <div>
+            <h2 class="text-2xl font-bold text-slate-100 tracking-tight">AI Search Visibility</h2>
+            <p class="text-xs text-slate-500 mt-0.5">GrabOn brand presence across generative AI search engines <span id="periodLabel" class="text-slate-600">| Last 7 days</span></p>
+        </div>
+        <div class="flex items-center gap-3">
+            <!-- Smart Alerts Bell -->
+            <div class="relative">
+                <button onclick="toggleAlertPanel()" class="relative p-2 rounded-lg hover:bg-slate-800/60 transition-colors cursor-pointer group" title="Smart Alerts">
+                    <svg class="w-5 h-5 text-slate-400 group-hover:text-amber-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+                    <span id="alertBadge" class="hidden absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full text-white text-[9px] font-bold flex items-center justify-center" style="background:linear-gradient(135deg,#ef4444,#f97316)">0</span>
+                </button>
+                <!-- Alert Panel — full-width overlay on right -->
+                <div id="alertPanel" class="hidden fixed top-0 right-0 h-full z-50" style="width:420px">
+                    <div class="absolute inset-0 bg-black/40" onclick="document.getElementById('alertPanel').classList.add('hidden')"></div>
+                    <div class="relative h-full flex flex-col bg-slate-950 border-l border-slate-800">
+                        <!-- Header -->
+                        <div class="shrink-0 px-5 py-4 border-b border-slate-800/80">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background:linear-gradient(135deg,rgba(245,158,11,0.15),rgba(239,68,68,0.15))">
+                                        <svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                                    </div>
+                                    <div>
+                                        <h2 class="text-sm font-bold text-slate-100">Smart Alerts</h2>
+                                        <span id="alertCountLabel" class="text-[10px] text-slate-500"></span>
+                                    </div>
+                                </div>
+                                <button onclick="document.getElementById('alertPanel').classList.add('hidden')" class="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-slate-800 text-slate-500 hover:text-slate-200 cursor-pointer transition-colors">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                                </button>
+                            </div>
+                            <!-- Filter pills -->
+                            <div id="alertFilters" class="flex gap-1.5 mt-3 hidden"></div>
+                        </div>
+                        <!-- Alert list -->
+                        <div id="alertList" class="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+                            <div class="text-xs text-slate-600 p-4 text-center">Loading...</div>
+                        </div>
+                        <!-- Footer -->
+                        <div id="alertFooter" class="hidden shrink-0 border-t border-slate-800/60 px-5 py-3">
+                            <div class="flex items-center justify-between">
+                                <span id="alertSummary" class="text-[10px] text-slate-500"></span>
+                                <button onclick="dismissAllAlerts()" class="text-[10px] text-slate-500 hover:text-amber-400 cursor-pointer transition-colors font-medium">Dismiss all</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="flex items-center gap-1.5 px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 rounded-md text-[9px] text-emerald-400 font-bold uppercase tracking-wider">
+                <span class="relative flex h-1.5 w-1.5">
+                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span class="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+                </span>
+                Live
+            </div>
+        </div>
+    </div>
+
+    <!-- Date Range + Export Controls -->
+    {% set page_context = "geo" %}
+    {% set show_comparison = true %}
+    {% set show_export = true %}
+    {% include "components/date_range_picker.html" %}
+
+    <!-- Command Center: KPIs + Agent Activity + Controls -->
+    <div class="glass-panel border border-slate-800/60 rounded-xl overflow-hidden">
+        <div class="grid grid-cols-1 lg:grid-cols-12">
+            <!-- Left: Visibility Score Hero -->
+            <div class="lg:col-span-3 border-b lg:border-b-0 lg:border-r border-slate-900/40 p-5 flex flex-col items-center justify-center bg-slate-950/30">
+                <div class="relative" style="width: 140px; height: 85px;">
+                    <canvas id="visGauge" width="140" height="85"></canvas>
+                    <div class="absolute inset-0 flex items-end justify-center pb-0.5">
+                        <span id="kpi-vis-score" class="text-3xl font-black text-slate-100 glow-amber">{{ ai_visibility }}</span>
+                        <span class="text-xs text-slate-600 ml-0.5 mb-0.5">/100</span>
+                    </div>
+                </div>
+                <div class="text-[9px] text-slate-500 uppercase tracking-widest font-semibold mt-1">
+                    AI Visibility Score
+                    <span class="info-btn ml-0.5">
+                        <svg class="w-3 h-3 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                        <span class="info-tip"><strong class="text-slate-200">AI Visibility Score (0-100)</strong><br>A composite score measuring how visible GrabOn is across AI search engines. Calculated as:<br>• 40% Share of Voice<br>• 30% Citation Rate<br>• 20% Positive Sentiment<br>• 10% Engine Coverage<br>Higher = more visible to users asking AI about coupons.</span>
+                    </span>
+                </div>
+                <div class="mt-3 grid grid-cols-4 gap-2 text-center w-full">
+                    <div>
+                        <div class="text-[8px] text-slate-600 uppercase info-btn" style="justify-content:center">SoV
+                            <span class="info-tip" style="width:200px"><strong class="text-slate-200">Share of Voice</strong><br>% of weighted brand mentions owned by GrabOn vs all competitors across AI engines.</span>
+                        </div>
+                        <div id="kpi-mini-sov" class="text-xs font-bold text-amber-400">{{ sov }}%</div>
+                    </div>
+                    <div>
+                        <div class="text-[8px] text-slate-600 uppercase info-btn" style="justify-content:center">Cited
+                            <span class="info-tip" style="width:200px"><strong class="text-slate-200">Citation Rate</strong><br>% of GrabOn mentions that include a direct link (backlink) to grabon.in.</span>
+                        </div>
+                        <div id="kpi-mini-cited" class="text-xs font-bold text-cyan-400">{{ citation_rate }}%</div>
+                    </div>
+                    <div>
+                        <div class="text-[8px] text-slate-600 uppercase info-btn" style="justify-content:center">Pos
+                            <span class="info-tip" style="width:200px"><strong class="text-slate-200">Positive Rate</strong><br>% of GrabOn mentions where AI describes the brand positively (recommends it to users).</span>
+                        </div>
+                        <div id="kpi-mini-pos" class="text-xs font-bold text-emerald-400">{{ pos_rate }}%</div>
+                    </div>
+                    <div>
+                        <div class="text-[8px] text-slate-600 uppercase info-btn" style="justify-content:center">Total
+                            <span class="info-tip" style="width:200px"><strong class="text-slate-200">Total Mentions</strong><br>Total number of times GrabOn was mentioned across all AI engines and all keywords.</span>
+                        </div>
+                        <div id="kpi-mini-total" class="text-xs font-bold text-slate-300">{{ total_grabon }}</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Middle: KPI Cards 2x2 -->
+            <div class="lg:col-span-4 border-b lg:border-b-0 lg:border-r border-slate-900/40 grid grid-cols-2 divide-x divide-y divide-slate-900/30">
+                <div class="p-4">
+                    <div class="text-[9px] text-slate-500 uppercase tracking-wider font-semibold">Share of Voice
+                        <span class="info-btn ml-0.5">
+                            <svg class="w-3 h-3 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            <span class="info-tip"><strong class="text-slate-200">Share of Voice (SoV)</strong><br>Measures how much of the AI conversation space GrabOn owns compared to competitors. Brands mentioned earlier (rank #1) get more weight. A 5% SoV means GrabOn captures 5% of weighted mentions across all AI engines.</span>
+                        </span>
+                    </div>
+                    <div id="kpi-sov" class="text-xl font-bold text-amber-400 glow-amber mt-1">{{ sov }}%</div>
+                    <div class="mt-2 h-1 bg-slate-800 rounded-full overflow-hidden"><div id="kpi-sov-bar" class="h-full bg-amber-500 rounded-full" style="width: {{ sov }}%"></div></div>
+                    <div id="kpi-sov-sub" class="text-[9px] text-slate-600 mt-1">{{ total_grabon }} GrabOn mentions</div>
+                </div>
+                <div class="p-4">
+                    <div class="text-[9px] text-slate-500 uppercase tracking-wider font-semibold">Citations
+                        <span class="info-btn ml-0.5">
+                            <svg class="w-3 h-3 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            <span class="info-tip"><strong class="text-slate-200">Citations (Backlinks)</strong><br>Number of times AI engines linked back to grabon.in when mentioning the brand. Citations drive direct traffic from AI responses. Higher citation rate = AI trusts and references your site, not just mentions the name.</span>
+                        </span>
+                    </div>
+                    <div class="flex items-baseline gap-1 mt-1"><span id="kpi-citations" class="text-xl font-bold text-cyan-400">{{ citations }}</span><span id="kpi-citations-total" class="text-[10px] text-slate-600">/ {{ total_grabon }}</span></div>
+                    <div class="mt-2 h-1 bg-slate-800 rounded-full overflow-hidden"><div id="kpi-cite-bar" class="h-full bg-cyan-500 rounded-full" style="width: {{ citation_rate }}%"></div></div>
+                    <div id="kpi-cite-sub" class="text-[9px] text-slate-600 mt-1">{{ citation_rate }}% with backlink</div>
+                </div>
+                <div class="p-4">
+                    <div class="text-[9px] text-slate-500 uppercase tracking-wider font-semibold">Sentiment
+                        <span class="info-btn ml-0.5">
+                            <svg class="w-3 h-3 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            <span class="info-tip"><strong class="text-slate-200">Sentiment Analysis</strong><br>How AI engines describe GrabOn - Positive, Neutral, or Negative. Numbers show: <span class="text-emerald-400">Positive</span> / <span class="text-slate-400">Neutral</span> / <span class="text-rose-400">Negative</span>. High positive sentiment means AI recommends GrabOn favorably to users.</span>
+                        </span>
+                    </div>
+                    <div class="flex items-baseline gap-1 mt-1">
+                        <span id="kpi-pos" class="text-lg font-bold text-emerald-400">{{ pos }}</span><span class="text-slate-700">/</span>
+                        <span id="kpi-neu" class="text-sm text-slate-500">{{ neu }}</span><span class="text-slate-700">/</span>
+                        <span id="kpi-neg" class="text-sm text-rose-400">{{ neg }}</span>
+                    </div>
+                    <div id="kpi-sent-bar" class="mt-2 flex h-1 rounded-full overflow-hidden bg-slate-800">
+                        {% set sent_total = pos + neu + neg %}
+                        {% if sent_total > 0 %}
+                        <div class="h-full bg-emerald-500" style="width: {{ (pos / sent_total * 100)|round(1) }}%"></div>
+                        <div class="h-full bg-slate-500" style="width: {{ (neu / sent_total * 100)|round(1) }}%"></div>
+                        <div class="h-full bg-rose-500" style="width: {{ (neg / sent_total * 100)|round(1) }}%"></div>
+                        {% endif %}
+                    </div>
+                    <div id="kpi-pos-sub" class="text-[9px] text-slate-600 mt-1">{{ pos_rate }}% positive</div>
+                </div>
+                <div class="p-4">
+                    <div class="text-[9px] text-slate-500 uppercase tracking-wider font-semibold">Organic Reach
+                        <span class="info-btn ml-0.5">
+                            <svg class="w-3 h-3 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            <span class="info-tip"><strong class="text-slate-200">Organic Reach (Footprint)</strong><br>Percentage of GrabOn mentions that appear WITHOUT a backlink to grabon.in. These are brand awareness mentions - AI talks about GrabOn but doesn't link to the site. High organic reach = strong brand recognition in AI knowledge.</span>
+                        </span>
+                    </div>
+                    <div id="kpi-footprint" class="text-xl font-bold text-teal-400 mt-1">{{ footprint|int }}%</div>
+                    <div class="mt-2 h-1 bg-slate-800 rounded-full overflow-hidden"><div id="kpi-foot-bar" class="h-full bg-teal-500 rounded-full" style="width: {{ footprint|int }}%"></div></div>
+                    <div id="kpi-foot-sub" class="text-[9px] text-slate-600 mt-1">{{ total_grabon - citations }} no-backlink</div>
+                </div>
+            </div>
+
+            <!-- Right: Agent Activity + Quick Actions -->
+            <div class="lg:col-span-5 flex flex-col">
+                <!-- Agent Status Bar -->
+                <div class="px-4 py-2 border-b border-slate-900/40 bg-slate-950/40 flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <span id="agentPulse" class="relative flex h-2 w-2">
+                            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                            <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                        </span>
+                        <span class="text-xs font-semibold text-slate-300">Agent</span>
+                        <span id="agentStatus" class="text-[10px] text-emerald-400">Continuous mode</span>
+                        <span id="agentTimer" class="text-[10px] text-cyan-400 ml-1 font-mono hidden"></span>
+                        <span id="agentCounter" class="text-[10px] text-slate-600 ml-1"></span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button onclick="document.getElementById('agentLog').innerHTML=''" class="text-[10px] text-slate-600 hover:text-slate-400 cursor-pointer">Clear</button>
+                        <form action="/api/trigger" method="POST" class="inline">
+                            <button type="submit" {% if not prompts %}disabled{% endif %}
+                                class="flex items-center gap-1 bg-amber-500 hover:bg-amber-600 text-slate-950 px-2.5 py-1 rounded-md text-[10px] font-bold transition-all active:scale-95 disabled:opacity-50 cursor-pointer">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/></svg>
+                                Run Sweep
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Agent Log -->
+                <div id="agentLog" class="flex-1 max-h-[120px] overflow-y-auto px-4 py-2 space-y-0.5 text-[10px] font-mono">
+                    <div class="text-slate-700 text-center py-4">Waiting for agent activity...</div>
+                </div>
+
+                <!-- Engine Health Strip -->
+                <div class="border-t border-slate-900/40 px-4 py-2 bg-slate-950/30">
+                    <div class="flex items-center gap-3 mb-1.5">
+                        <span class="text-slate-600 uppercase tracking-wider text-[8px] font-semibold">Engine Health
+                            <span class="info-btn ml-0.5">
+                                <svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                                <span class="info-tip"><strong class="text-slate-200">Engine Health</strong><br>Real-time status of each AI engine scraper:<br>• <span class="text-emerald-400">Healthy</span> - working normally<br>• <span class="text-blue-400">Recovering</span> - was failing, now improving<br>• <span class="text-amber-400">Degraded</span> - 40%+ failure rate<br>• <span class="text-rose-400">Blocked</span> - 80%+ failures, needs attention</span>
+                            </span>
+                        </span>
+                        <span class="text-slate-600 uppercase tracking-wider text-[8px] font-semibold ml-auto">API ${{ "%.4f"|format(cost_data.total_cost) }}</span>
+                    </div>
+                    <div class="flex gap-1.5 flex-wrap">
+                        {% for eng in all_engines %}
+                        {% set h = engine_health.get(eng, {}) %}
+                        {% set health = h.get('health', 'inactive') %}
+                        <div class="flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-900/60 text-[9px]" data-health-engine="{{ eng }}" title="{{ eng }}: {{ h.get('success_24h', 0) }} ok / {{ h.get('errors_24h', 0) }} fail (24h)">
+                            <svg class="health-dot w-2 h-2 {% if health == 'healthy' %}text-emerald-400{% elif health == 'recovering' %}text-blue-400{% elif health == 'degraded' %}text-amber-400{% elif health == 'blocked' %}text-rose-400{% elif health == 'idle' %}text-slate-500{% else %}text-slate-600{% endif %}" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6"/></svg>
+                            <span class="text-slate-400">{{ engine_display.get(eng, eng)[:6] }}</span>
+                            <span class="health-errors {% if h.get('errors_24h', 0) > 0 %}text-rose-400 font-bold{% endif %}">{% if h.get('errors_24h', 0) > 0 %}{{ h.get('errors_24h') }}{% endif %}</span>
+                        </div>
+                        {% endfor %}
+                        {% if unparsed_count > 0 %}
+                        <form method="POST" action="/api/reparse?batch_size=100" class="inline ml-auto">
+                            <button type="submit" class="text-[9px] text-amber-400 hover:text-amber-300 underline cursor-pointer">{{ unparsed_count }} unparsed</button>
+                        </form>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pipeline Progress -->
+    <div id="progressPanel" class="glass-panel border border-slate-800/60 rounded-xl px-3 py-2">
+        <!-- Header -->
+        <div class="flex items-center justify-between mb-1.5">
+            <span class="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Pipeline Coverage
+                <span class="info-btn ml-0.5">
+                    <svg class="w-3 h-3 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <span class="info-tip" style="width:260px"><strong class="text-slate-200">Pipeline Coverage</strong><br>• <span class="text-purple-400">GEO</span> — AI engine queries (intent=GEO)<br>• <span class="text-cyan-400">SEO</span> — Google SERP keywords (intent=SEO)<br>• <strong>Cycle</strong> — complete pass through all keywords in that category. Ring = progress toward next.</span>
+                </span>
+            </span>
+            <span id="progressOverall" class="text-[11px] font-bold text-slate-300">Loading...</span>
+        </div>
+        <!-- Two rows: GEO and SEO, each with inline mini-ring + bar -->
+        <div class="space-y-1">
+            <!-- GEO row -->
+            <div class="flex items-center gap-2">
+                <div class="relative shrink-0" style="width:28px;height:28px">
+                    <svg width="28" height="28" viewBox="0 0 28 28" style="transform:rotate(-90deg)">
+                        <circle cx="14" cy="14" r="11" fill="none" stroke="#1e293b" stroke-width="2.5"/>
+                        <circle id="geoCycleRing" cx="14" cy="14" r="11" fill="none" stroke-width="2.5"
+                                stroke-linecap="round" style="stroke:#a78bfa;stroke-dasharray:69.12;stroke-dashoffset:69.12;transition:stroke-dashoffset 0.7s ease"/>
+                    </svg>
+                    <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">
+                        <span id="geoCycleCount" style="font-size:9px;font-weight:900;color:#a78bfa;line-height:1">-</span>
+                    </div>
+                </div>
+                <span class="text-[9px] text-purple-400 font-semibold w-7 shrink-0">GEO</span>
+                <div class="flex-1 h-2 bg-slate-800/80 rounded-full overflow-hidden">
+                    <div id="prog-geo-bar" class="h-full rounded-full transition-all duration-700" style="width:0%;background:linear-gradient(90deg,#7c3aed,#a78bfa)"></div>
+                </div>
+                <span class="text-[8px] text-slate-400 font-mono shrink-0 w-28 text-right" id="prog-geo-nums">-</span>
+            </div>
+            <!-- SEO row -->
+            <div class="flex items-center gap-2">
+                <div class="relative shrink-0" style="width:28px;height:28px">
+                    <svg width="28" height="28" viewBox="0 0 28 28" style="transform:rotate(-90deg)">
+                        <circle cx="14" cy="14" r="11" fill="none" stroke="#1e293b" stroke-width="2.5"/>
+                        <circle id="seoCycleRing" cx="14" cy="14" r="11" fill="none" stroke-width="2.5"
+                                stroke-linecap="round" style="stroke:#22d3ee;stroke-dasharray:69.12;stroke-dashoffset:69.12;transition:stroke-dashoffset 0.7s ease"/>
+                    </svg>
+                    <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">
+                        <span id="seoCycleCount" style="font-size:9px;font-weight:900;color:#22d3ee;line-height:1">-</span>
+                    </div>
+                </div>
+                <span class="text-[9px] text-cyan-400 font-semibold w-7 shrink-0">SEO</span>
+                <div class="flex-1 h-2 bg-slate-800/80 rounded-full overflow-hidden">
+                    <div id="prog-seo-bar" class="h-full rounded-full transition-all duration-700" style="width:0%;background:linear-gradient(90deg,#0891b2,#22d3ee)"></div>
+                </div>
+                <span class="text-[8px] text-slate-400 font-mono shrink-0 w-28 text-right" id="prog-seo-nums">-</span>
+            </div>
+        </div>
+        <!-- Engine breakdown (collapsed) -->
+        <div id="engineBreakdown" class="hidden pt-1 mt-1 border-t border-slate-800/30">
+            <div id="engineBars" class="grid grid-cols-3 sm:grid-cols-6 gap-x-3 gap-y-1"></div>
+        </div>
+        <button id="engineToggleBtn" onclick="document.getElementById('engineBreakdown').classList.toggle('hidden');this.textContent=document.getElementById('engineBreakdown').classList.contains('hidden')?'Show engines ▾':'Hide engines ▴'"
+                class="text-[8px] text-slate-600 hover:text-slate-400 cursor-pointer transition-colors mt-0.5">Show engines &#9662;</button>
+        <!-- Cycle-over-Cycle Changelog -->
+        <div id="cycleChangelog" class="hidden pt-1.5 mt-1 border-t border-slate-800/30">
+            <div class="text-[9px] text-slate-500 font-semibold uppercase tracking-wider mb-1">Cycle-over-Cycle Changelog</div>
+            <div id="changelogTable" class="overflow-x-auto max-h-52 overflow-y-auto"></div>
+        </div>
+        <button onclick="toggleChangelog()" id="changelogToggle" class="text-[8px] text-slate-600 hover:text-slate-400 cursor-pointer transition-colors">Show changelog &#9662;</button>
+    </div>
+
+    <!-- Scalability Controls (compact strip) -->
+    <div class="flex items-center gap-3 flex-wrap text-[10px]">
+        <!-- Account Pool -->
+        <div class="flex items-center gap-2 bg-slate-900/40 border border-slate-800/60 rounded-lg px-3 py-1.5">
+            <svg class="w-3 h-3 text-cyan-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+            <span class="text-slate-500 font-semibold uppercase tracking-wider">Pool</span>
+            <span class="info-btn ml-0.5"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Account Pool</strong><br>Number of browser accounts available for scraping. More accounts = can scrape more engines simultaneously without rate limiting. Shows active/total count.</span></span>
+            <span id="poolStatus" class="text-slate-400">...</span>
+        </div>
+        <!-- Dedup Cache -->
+        <div class="flex items-center gap-2 bg-slate-900/40 border border-slate-800/60 rounded-lg px-3 py-1.5">
+            <svg class="w-3 h-3 text-violet-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+            <span class="text-slate-500 font-semibold uppercase tracking-wider">Dedup</span>
+            <span class="info-btn ml-0.5"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Dedup Cache</strong><br>Deduplication cache prevents re-scraping the same keyword+engine combination within the cooldown window. Shows cached entries count. Clear to force fresh scrapes.</span></span>
+            <span id="dedupStatus" class="text-slate-400">...</span>
+            <button onclick="clearDedupCache()" class="text-rose-400/60 hover:text-rose-400 cursor-pointer ml-1" title="Clear cache">&times;</button>
+        </div>
+        <!-- Parallel Run -->
+        <div class="flex items-center gap-2 bg-slate-900/40 border border-slate-800/60 rounded-lg px-3 py-1.5 ml-auto">
+            <svg class="w-3 h-3 text-amber-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+            <span class="info-btn"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Parallel Run</strong><br>Run multiple keyword scrapes simultaneously. Set batch size (10-500) and click Run. Higher batches = faster but more resource intensive. Uses all available engine accounts in parallel.</span></span>
+            <input type="number" id="parallelBatch" value="50" min="10" max="500" class="w-12 bg-slate-950 border border-slate-800 text-slate-300 text-[10px] px-1.5 py-0.5 rounded text-center">
+            <button onclick="triggerParallelRun()" id="parallelBtn"
+                class="flex items-center gap-1 bg-amber-500 hover:bg-amber-600 text-slate-950 px-2 py-0.5 rounded text-[10px] font-bold transition-all active:scale-95 cursor-pointer">
+                <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/></svg>
+                Run Parallel
+            </button>
+        </div>
+    </div>
+
+    <!-- Tools -->
+    <div class="flex flex-wrap items-center gap-2 text-xs">
+        <form action="/api/seed" method="POST" class="inline">
+            <button type="submit" {% if prompts %}disabled{% endif %}
+                class="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800/80 cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed text-[10px]">
+                <svg class="w-3 h-3 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"/></svg>
+                Seed{% if prompts %} ({{ prompts|length }}){% endif %}
+            </button>
+        </form>
+        <button onclick="fillGaps()" id="fillGapsBtn"
+            class="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-cyan-950/30 hover:bg-cyan-950/50 text-cyan-400 border border-cyan-900/30 cursor-pointer transition-all text-[10px]">
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+            Fill Gaps
+        </button>
+        <form action="/api/clear-logs" method="POST" class="inline" onsubmit="return confirm('Wipe all logs, mentions, and coupons?')">
+            <button type="submit" {% if total_raw_logs == 0 %}disabled{% endif %}
+                class="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-red-950/20 hover:bg-red-950/30 text-red-400 border border-red-900/30 cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed text-[10px]">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                Wipe{% if total_raw_logs %} ({{ total_raw_logs }}){% endif %}
+            </button>
+        </form>
+    </div>
+
+    <!-- Cookie Warnings -->
+    {% if not has_google_cookies %}
+    <div class="bg-amber-500/5 border border-amber-500/20 rounded-lg px-3 py-2 flex items-center gap-3 text-xs">
+        {{ engine_icon('google_aio', '16') }}
+        <span class="text-amber-400/80 flex-1">Google engines limited - <a href="/google-login" class="underline hover:text-amber-300">login</a></span>
+    </div>
+    {% endif %}
+    {% if not has_chatgpt_cookies %}
+    <div class="bg-amber-500/5 border border-amber-500/20 rounded-lg px-3 py-2 flex items-center gap-3 text-xs">
+        {{ engine_icon('chatgpt', '16') }}
+        <span class="text-amber-400/80 flex-1">ChatGPT disabled - <a href="/chatgpt-login" class="underline hover:text-amber-300">login</a></span>
+    </div>
+    {% endif %}
+    <!-- Redo Interactive Banner (shown when auto-login blocked/failed) -->
+    <div id="redoBanner" class="hidden bg-rose-500/10 border border-rose-500/30 rounded-lg px-4 py-3 text-xs">
+        <div class="flex items-center gap-3">
+            <svg class="w-5 h-5 text-rose-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg>
+            <div class="flex-1">
+                <span class="text-rose-400 font-bold" id="redoBannerProvider"></span>
+                <span class="text-rose-400/80" id="redoBannerMsg"></span>
+            </div>
+            <a id="redoBannerLink" href="#" class="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[10px] rounded whitespace-nowrap">Redo as Interactive</a>
+            <button onclick="document.getElementById('redoBanner').classList.add('hidden')" class="text-slate-600 hover:text-slate-400 px-1 cursor-pointer">&times;</button>
+        </div>
+    </div>
+
+    <!-- OTP Banner (shown when auto-login needs verification) -->
+    <div id="otpBanner" class="hidden bg-amber-500/10 border border-amber-500/30 rounded-lg px-4 py-3 text-xs">
+        <div class="flex items-center gap-3">
+            <svg class="w-5 h-5 text-amber-400 shrink-0 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+            <div class="flex-1">
+                <span class="text-amber-400 font-bold" id="otpProvider">Engine</span>
+                <span class="text-amber-400/80" id="otpMessage"> needs OTP/verification code</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <input id="otpInput" type="text" placeholder="Enter code..." maxlength="10"
+                    class="w-32 px-2.5 py-1.5 bg-slate-950 border border-amber-500/40 rounded text-slate-200 text-xs outline-none focus:border-amber-400"
+                    onkeydown="if(event.key==='Enter')submitOtp()">
+                <button onclick="submitOtp()" class="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[10px] rounded cursor-pointer">Submit</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Engine Health Alerts -->
+    {% set blocked_engines = [] %}
+    {% set degraded_engines = [] %}
+    {% set recovering_engines = [] %}
+    {% for eng in all_engines %}
+        {% set h = engine_health.get(eng, {}) %}
+        {% if h.get('health') == 'blocked' %}{% if blocked_engines.append(eng) %}{% endif %}
+        {% elif h.get('health') == 'degraded' %}{% if degraded_engines.append(eng) %}{% endif %}
+        {% elif h.get('health') == 'recovering' %}{% if recovering_engines.append(eng) %}{% endif %}
+        {% endif %}
+    {% endfor %}
+    {% if blocked_engines %}
+    <div class="bg-rose-500/5 border border-rose-500/20 rounded-lg px-3 py-2 flex items-center gap-3 text-xs">
+        <svg class="w-4 h-4 text-rose-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg>
+        <span class="text-rose-400/90 flex-1">
+            <span class="font-bold">Blocked:</span>
+            {% for eng in blocked_engines %}{{ engine_display.get(eng, eng) }}{% if not loop.last %}, {% endif %}{% endfor %}
+            - 80%+ failure rate in last 4h. Check auth/cookies.
+        </span>
+    </div>
+    {% endif %}
+    {% if degraded_engines %}
+    <div class="bg-amber-500/5 border border-amber-500/20 rounded-lg px-3 py-2 flex items-center gap-3 text-xs">
+        <svg class="w-4 h-4 text-amber-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg>
+        <span class="text-amber-400/80 flex-1">
+            <span class="font-bold">Degraded:</span>
+            {% for eng in degraded_engines %}{{ engine_display.get(eng, eng) }}{% if not loop.last %}, {% endif %}{% endfor %}
+            - 40%+ failure rate in last 24h.
+        </span>
+    </div>
+    {% endif %}
+    {% if recovering_engines %}
+    <div class="bg-blue-500/5 border border-blue-500/20 rounded-lg px-3 py-2 flex items-center gap-3 text-xs">
+        <svg class="w-4 h-4 text-blue-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+        <span class="text-blue-400/80 flex-1">
+            <span class="font-bold">Recovering:</span>
+            {% for eng in recovering_engines %}{{ engine_display.get(eng, eng) }}{% if not loop.last %}, {% endif %}{% endfor %}
+            - recent successes detected, auto-healing in progress.
+        </span>
+    </div>
+    {% endif %}
+    {% if recent_failures %}
+    <details class="glass-panel border border-slate-800/60 rounded-xl overflow-hidden">
+        <summary class="px-4 py-2 text-xs text-rose-400/70 font-semibold cursor-pointer hover:text-rose-400 flex items-center gap-2">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            {{ recent_failures|length }} recent failure{{ 's' if recent_failures|length != 1 }} (last 24h)
+        </summary>
+        <div class="px-4 pb-2 space-y-1 max-h-[120px] overflow-y-auto">
+            {% for f in recent_failures %}
+            <div class="flex items-start gap-2 text-[10px] font-mono py-0.5">
+                <span class="text-slate-600 shrink-0">{{ f.captured_at[:16] }}</span>
+                <span class="text-slate-500 shrink-0 uppercase font-bold">{{ f.engine_name.replace('_', ' ')[:8] }}</span>
+                <span class="text-rose-400/60 truncate">{{ f.error_msg }}</span>
+            </div>
+            {% endfor %}
+        </div>
+    </details>
+    {% endif %}
+
+    <!-- Filters -->
+    <div class="flex flex-wrap items-center gap-3">
+        <div class="flex flex-wrap gap-1.5">
+            {% for engine in all_engines %}
+            {% set is_active = engine in active_engines %}
+            {% set other_engines = active_engines|reject("equalto", engine)|list if is_active else active_engines + [engine] %}
+            <a href="/?engines={{ other_engines|join(',') if other_engines else engine }}&category={{ active_category }}&intent={{ active_intent }}{% if active_search %}&search={{ active_search }}{% endif %}"
+               class="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all {% if is_active %}bg-amber-500/15 text-amber-400 border border-amber-500/30{% else %}bg-slate-950 text-slate-500 border border-slate-900 hover:text-slate-300{% endif %}">
+                {{ engine_icon(engine, "14") }}
+                {{ engine_display.get(engine, engine) }}
+            </a>
+            {% endfor %}
+        </div>
+        <div class="h-4 w-px bg-slate-800"></div>
+        <div class="flex flex-wrap gap-1">
+            {% for cat in ["All"] + categories %}
+            <a href="/?engines={{ active_engines|join(',') }}&category={{ cat }}&intent={{ active_intent }}{% if active_search %}&search={{ active_search }}{% endif %}"
+               class="px-2.5 py-1 rounded-md text-xs font-medium transition-all {% if active_category == cat %}bg-slate-800 text-amber-400{% else %}text-slate-500 hover:text-slate-300{% endif %}">
+                {{ cat }}
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+
+    {% if not prompts %}
+    <div class="glass-panel border border-slate-800/60 p-10 rounded-xl text-center space-y-4 max-w-lg mx-auto">
+        <div class="w-14 h-14 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-500 mx-auto">
+            <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"/></svg>
+        </div>
+        <h3 class="text-lg font-bold text-slate-100">No Search Queries</h3>
+        <p class="text-xs text-slate-500">Seed natural search prompts to start tracking AI visibility.</p>
+        <form action="/api/seed" method="POST">
+            <button class="bg-amber-500 hover:bg-amber-600 text-slate-950 px-5 py-2 rounded-lg text-xs font-bold cursor-pointer active:scale-95">Seed Prompts</button>
+        </form>
+    </div>
+
+    {% elif total_raw_logs == 0 %}
+    <div class="glass-panel border border-slate-800/60 p-10 rounded-xl text-center space-y-4 max-w-lg mx-auto">
+        <h3 class="text-lg font-bold text-slate-100">Ready to Scrape</h3>
+        <p class="text-xs text-slate-500">{{ total_prompts }} prompts loaded. Trigger sweep to populate dashboard.</p>
+        <form action="/api/trigger" method="POST">
+            <button class="bg-amber-500 hover:bg-amber-600 text-slate-950 px-5 py-2 rounded-lg text-xs font-bold cursor-pointer active:scale-95">Run First Sweep</button>
+        </form>
+    </div>
+
+    {% elif total_logs == 0 %}
+    <div class="glass-panel border border-slate-800/60 p-8 rounded-xl text-center max-w-md mx-auto">
+        <p class="text-sm text-slate-400">{{ total_raw_logs }} logs exist but none match current filters.</p>
+        <a href="/" class="inline-block mt-3 px-4 py-1.5 bg-slate-900 text-slate-300 border border-slate-800 text-xs rounded-lg">Clear Filters</a>
+    </div>
+
+    {% else %}
+
+    <!-- Engine Breakdown (full width, combined with country stats) -->
+    <div class="glass-panel border border-slate-800/60 rounded-xl overflow-hidden">
+        <div class="px-5 py-3 border-b border-slate-900/60 bg-slate-950/40 flex items-center justify-between">
+            <div>
+                <h3 class="text-sm font-semibold text-slate-200">Engine Breakdown
+                    <span class="info-btn ml-1">
+                        <svg class="w-3.5 h-3.5 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                        <span class="info-tip"><strong class="text-slate-200">Engine Breakdown</strong><br>Shows GrabOn's performance on each AI engine. Engines are the AI platforms users ask questions (ChatGPT, Gemini, Claude, Perplexity, Google AI). Each row shows health status, success/failure rates, and how often GrabOn appears.</span>
+                    </span>
+                </h3>
+                <p class="text-[10px] text-slate-600 mt-0.5">GrabOn visibility per AI engine - health based on last 4h activity</p>
+            </div>
+            <div class="flex items-center gap-4 text-[10px]">
+                {% for cc, st in country_stats.items() %}
+                <div class="flex items-center gap-2">
+                    <span class="text-slate-500">🇮🇳 {{ cc }}</span>
+                    <span class="text-amber-400 font-semibold">{{ st.visibility }}% SoV</span>
+                    <span class="text-slate-600">·</span>
+                    <span class="text-slate-400">{{ st.mentions }}</span>
+                    <span class="text-slate-600">/</span>
+                    <span class="text-slate-500">{{ st.total_mentions }} mentions</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        <table class="w-full text-xs">
+            <thead>
+                <tr class="border-b border-slate-900/50 text-[10px] text-slate-500 uppercase tracking-wider">
+                    <th class="text-left px-5 py-2.5">Engine</th>
+                    <th class="text-center px-3 py-2.5">Health <span class="info-btn ml-0.5"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Health</strong><br>Engine status based on last 4 hours. Healthy = working normally. Degraded = some failures. Blocked = consistently failing. Recovering = was blocked, now succeeding again.</span></span></th>
+                    <th class="text-center px-3 py-2.5">Streak <span class="info-btn ml-0.5"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Streak</strong><br>Consecutive successful scrapes. Higher streak = more reliable engine. Resets to 0 on any failure. 5+ = solid stability.</span></span></th>
+                    <th class="text-center px-3 py-2.5">24h OK/Fail <span class="info-btn ml-0.5"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">24h OK/Fail</strong><br>Successful vs failed scrape attempts in the last 24 hours. Green = successful, Red = failed. High fail count may indicate anti-bot detection or auth issues.</span></span></th>
+                    <th class="text-center px-3 py-2.5">Error Rate <span class="info-btn ml-0.5"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Error Rate</strong><br>Percentage of failed scrapes in last 24h. Under 20% = normal (green). 20-50% = degraded (amber). Over 50% = critical (red). May need cookie refresh or proxy rotation.</span></span></th>
+                    <th class="text-center px-3 py-2.5">Mentions <span class="info-btn ml-0.5"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Mentions</strong><br>Number of times GrabOn was mentioned by this engine across all keywords. Higher = better brand visibility on this platform.</span></span></th>
+                    <th class="text-center px-3 py-2.5">Cited <span class="info-btn ml-0.5"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Cited</strong><br>Number of responses where this engine included a direct link (citation) to grabon.in. Citations drive referral traffic from AI platforms.</span></span></th>
+                    <th class="text-center px-3 py-2.5">Total <span class="info-btn ml-0.5"><svg class="w-2.5 h-2.5 text-slate-700 hover:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="info-tip"><strong class="text-slate-200">Total</strong><br>Total brand mentions (all brands, not just GrabOn) found in this engine's responses. Compare with GrabOn mentions to gauge share of voice per engine.</span></span></th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-900/30">
+                {% for eng in all_engines %}
+                {% set st = engine_stats.get(eng, {}) %}
+                {% set h = engine_health.get(eng, {}) %}
+                {% set health = h.get('health', 'inactive') %}
+                <tr class="hover:bg-slate-900/20 transition-colors" data-engine-row="{{ eng }}">
+                    <td class="px-5 py-3">
+                        <div class="flex items-center gap-2.5">
+                            {{ engine_icon(eng, "18") }}
+                            <div>
+                                <span class="font-semibold text-slate-200">{{ st.get('display_name', eng) }}</span>
+                                <div class="text-[9px] text-slate-600 mt-0.5 engine-last-ok">{% if h.get('last_success') %}Last OK: {{ h.last_success }}{% endif %}{% if h.get('last_error_msg') and health in ('blocked', 'degraded') %} <span class="text-rose-400/60" title="{{ h.last_error_msg }}">· {{ h.last_error_msg[:50] }}{% if h.last_error_msg|length > 50 %}…{% endif %}</span>{% endif %}</div>
+                            </div>
+                        </div>
+                    </td>
+                    <td class="text-center px-3 py-3">
+                        {% if st.get('status') == 'auth_required' %}
+                            <span class="px-2 py-0.5 rounded bg-amber-500/10 text-amber-500 text-[10px] font-medium border border-amber-500/20">Auth Req</span>
+                        {% elif health == 'blocked' %}
+                            <span class="px-2 py-0.5 rounded bg-rose-500/10 text-rose-400 text-[10px] font-bold border border-rose-500/20" {% if h.get('last_error_msg') %}title="{{ h.last_error_msg }}"{% endif %}>Blocked{% if h.get('cooldown_remaining', 0) > 0 %} · {{ (h.cooldown_remaining // 3600) }}h{{ '%02d' | format((h.cooldown_remaining % 3600) // 60) }}m{% endif %}</span>
+                        {% elif health == 'degraded' %}
+                            <span class="px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 text-[10px] font-bold border border-amber-500/20">Degraded</span>
+                        {% elif health == 'recovering' %}
+                            <span class="px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 text-[10px] font-medium border border-blue-500/20">Recovering</span>
+                        {% elif health == 'healthy' %}
+                            <span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-medium border border-emerald-500/20">Healthy</span>
+                        {% elif health == 'idle' %}
+                            <span class="px-2 py-0.5 rounded bg-slate-700/30 text-slate-400 text-[10px] font-medium border border-slate-700/40">Idle</span>
+                        {% else %}
+                            <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-500 text-[10px] font-medium">No Data</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center px-3 py-3 engine-streak">
+                        {% set streak = h.get('streak', 0) %}
+                        {% if streak >= 5 %}
+                            <span class="text-emerald-400 font-bold">{{ streak }}✓</span>
+                        {% elif streak >= 3 %}
+                            <span class="text-emerald-400">{{ streak }}✓</span>
+                        {% elif streak > 0 %}
+                            <span class="text-slate-400">{{ streak }}✓</span>
+                        {% else %}
+                            <span class="text-slate-600">-</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center px-3 py-3 engine-ok-fail">
+                        <span class="text-emerald-400 font-semibold">{{ h.get('success_24h', 0) }}</span>
+                        <span class="text-slate-700">/</span>
+                        <span class="{% if h.get('errors_24h', 0) > 0 %}text-rose-400 font-bold{% else %}text-slate-600{% endif %}">{{ h.get('errors_24h', 0) }}</span>
+                    </td>
+                    <td class="text-center px-3 py-3 engine-error-rate">
+                        {% set rate = h.get('error_rate', 0) %}
+                        <span class="{% if rate >= 50 %}text-rose-400 font-bold{% elif rate >= 20 %}text-amber-400{% else %}text-emerald-400{% endif %}">{{ rate }}%</span>
+                    </td>
+                    <td class="text-center px-3 py-3 font-semibold text-slate-300 engine-mentions">{{ st.get('mentions', 0) }}</td>
+                    <td class="text-center px-3 py-3 font-semibold text-cyan-400 engine-cited">{{ st.get('cited_pages', 0) }}</td>
+                    <td class="text-center px-3 py-3 text-slate-500 engine-total">{{ st.get('total_mentions', 0) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Rankings Matrix -->
+    <div class="glass-panel border border-slate-800/60 rounded-xl overflow-hidden">
+        <div class="border-b border-slate-900/60 bg-slate-950/40 px-5 py-3 flex items-center justify-between">
+            <div>
+                <h3 class="text-sm font-semibold text-slate-200">GEO Rankings
+                    <span class="info-btn ml-1">
+                        <svg class="w-3.5 h-3.5 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                        <span class="info-tip"><strong class="text-slate-200">GEO Rankings</strong><br>Brand mention rank across AI engines. Hover on any cell to see full brand ladder. <span class="text-emerald-400">#1</span> = top position. <span class="text-red-400">Out</span> = competitors present but GrabOn not mentioned. For Google SEO rankings, see the <a href="/serp" class="text-amber-400 underline">SEO Rankings</a> page.</span>
+                    </span>
+                </h3>
+                <p class="text-[10px] text-slate-500">{{ total_prompts }} canonical keywords - page {{ page }}/{{ total_pages }}</p>
+            </div>
+            <div class="flex items-center gap-2">
+                <div class="relative">
+                    <svg class="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                    <input id="geoSearchInput" type="text" value="{{ active_search or '' }}" placeholder="Search keywords..." class="w-[220px] pl-7 pr-7 py-1.5 rounded-lg bg-slate-900/60 border border-slate-800 text-slate-200 text-[11px] placeholder-slate-600 focus:outline-none focus:border-slate-600 focus:ring-1 focus:ring-slate-600/50 transition-colors">
+                    {% if active_search %}
+                    <button onclick="geoSearchClear()" class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 cursor-pointer" title="Clear search">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                    {% endif %}
+                </div>
+                <span class="text-[9px] text-slate-600">Use toolbar above for export</span>
+            </div>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+                <thead>
+                    <tr class="border-b border-slate-900/60 bg-slate-950/40 text-slate-500 text-[10px] uppercase tracking-wider font-semibold">
+                        <th class="px-4 py-2.5 min-w-[240px] text-left border-r border-slate-800/30">Search Query</th>
+                        {% for engine in all_engines %}
+                        <th class="px-3 py-2 text-center whitespace-nowrap">
+                            <div class="flex items-center justify-center gap-1.5">
+                                {{ engine_icon(engine, "14") }}
+                                <span>{{ engine_display.get(engine, engine) }}</span>
+                            </div>
+                        </th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody id="rankingsBody" class="divide-y divide-slate-900/30 text-xs">
+                    {% for prompt in prompts %}
+                    <tr class="hover:bg-slate-900/20 transition-colors group" data-prompt-id="{{ prompt.id }}">
+                        <td class="px-4 py-2.5">
+                            <div class="flex items-start justify-between gap-2">
+                                <div>
+                                    <p class="font-medium text-slate-200 text-[12px] leading-snug">{{ prompt.text }}</p>
+                                    <div class="flex gap-1.5 mt-1">
+                                        <span class="px-1.5 py-0.5 rounded bg-slate-900/80 text-[9px] text-slate-500">{{ prompt.merchant_category }}</span>
+                                        <span class="px-1.5 py-0.5 rounded bg-slate-900/80 text-[9px] text-slate-500">{{ prompt.intent_type }}</span>
+                                    </div>
+                                </div>
+                                <button onclick="showHistory('{{ prompt.id }}')" class="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-slate-800/60 text-slate-600 hover:text-cyan-400 cursor-pointer" title="View position history">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                                </button>
+                            </div>
+                        </td>
+                        {% for engine in all_engines %}
+                        {% set r = rankings.get(prompt.id|string, {}).get(engine, {"status": "pending", "top_brands": []}) %}
+                        {% set brands = r.get('top_brands', []) %}
+                        <td class="px-3 py-2.5 text-center rank-cell {% if r.log_id %}cursor-pointer hover:bg-slate-800/40{% endif %}" data-engine="{{ engine }}" data-rk-state="{{ r.status }}|{{ r.get('rank','')|default('',true) }}|{{ r.get('error_type','')|default('',true) }}|{{ brands|map(attribute='brand')|list|join(',') }}" {% if r.log_id %}onclick="showResponse('{{ r.log_id }}')"{% endif %}>
+                            {% if r.status == "pending" %}
+                                <span class="text-slate-700/50 text-[8px] italic">--</span>
+                            {% elif r.status == "limit_exhausted" %}
+                                <div>
+                                    <span class="px-1.5 py-0.5 rounded bg-amber-950/20 text-amber-500/70 text-[10px] font-medium cursor-help" title="{{ r.get('error_type','rate_limit') }}: {{ r.get('error_msg','Rate limit hit') }}">Limit</span>
+                                    {% if r.get('error_msg') %}<div class="text-[7px] text-slate-500 mt-0.5 truncate" style="max-width:80px">{{ r.error_msg }}</div>{% endif %}
+                                </div>
+                            {% elif r.status == "no_aio" %}
+                                <span class="px-1.5 py-0.5 rounded bg-slate-800/30 text-slate-600 text-[10px] font-medium" title="Google did not show AI Overview for this query">No AIO</span>
+                            {% elif r.status == "error" %}
+                                <div>
+                                    <span class="px-1.5 py-0.5 rounded bg-rose-950/20 text-rose-500/60 text-[10px] font-medium cursor-help" title="{{ r.get('error_type','error') }}: {{ r.get('error_msg','Scrape failed') }}">Error</span>
+                                    {% if r.get('error_msg') %}<div class="text-[7px] text-slate-500 mt-0.5 truncate" style="max-width:80px">{{ r.error_msg }}</div>{% endif %}
+                                </div>
+                            {% elif r.status == "no_mention" %}
+                                <span class="px-1.5 py-0.5 rounded bg-slate-800/40 text-slate-500 text-[10px] font-medium">No mention</span>
+                            {% elif r.status == "unranked" %}
+                                <div>
+                                    <span class="px-1.5 py-0.5 rounded bg-red-950/20 text-red-500/80 text-[10px] font-medium">Out</span>
+                                    {% if brands %}
+                                    <div class="text-[8px] text-slate-600 mt-0.5">#1: {{ brands[0].brand[:12] }}</div>
+                                    {% endif %}
+                                </div>
+                            {% elif r.rank == 1 %}
+                                <span class="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold text-[10px]">
+                                    <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                                    #1
+                                </span>
+                            {% elif r.rank <= 3 %}
+                                <div>
+                                    <span class="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-bold text-[10px]">#{{ r.rank }}</span>
+                                    {% if brands and brands[0].brand.lower().find('grabon') == -1 %}
+                                    <div class="text-[8px] text-slate-600 mt-0.5">#1: {{ brands[0].brand[:12] }}</div>
+                                    {% endif %}
+                                </div>
+                            {% else %}
+                                <div>
+                                    <span class="px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 font-semibold text-[10px]">#{{ r.rank }}</span>
+                                    {% if brands and brands[0].brand.lower().find('grabon') == -1 %}
+                                    <div class="text-[8px] text-slate-600 mt-0.5">#1: {{ brands[0].brand[:12] }}</div>
+                                    {% endif %}
+                                </div>
+                            {% endif %}
+                            {% if brands|length > 0 %}
+                            <div class="brand-ladder" onclick="event.stopPropagation()">
+                                <div class="text-[9px] text-slate-400 font-semibold mb-1.5 border-b border-slate-800 pb-1">Brand Rankings</div>
+                                {% for b in brands[:8] %}
+                                <div class="flex items-center justify-between py-0.5 {% if 'grabon' in b.brand.lower() %}text-amber-400 font-bold{% else %}text-slate-400{% endif %}">
+                                    <span class="flex items-center gap-1">
+                                        <span class="w-4 text-right text-[9px] {% if b.rank == 1 %}text-emerald-400{% elif b.rank <= 3 %}text-amber-400{% else %}text-slate-500{% endif %}">#{{ b.rank }}</span>
+                                        <span class="text-[10px] truncate max-w-[120px]">{{ b.brand }}</span>
+                                    </span>
+                                    <span class="text-[8px] {% if b.sentiment == 'Positive' %}text-emerald-500{% elif b.sentiment == 'Negative' %}text-rose-500{% else %}text-slate-600{% endif %}">{{ b.sentiment[:3] if b.sentiment else '' }}</span>
+                                </div>
+                                {% endfor %}
+                                {% if brands|length > 8 %}
+                                <div class="text-[8px] text-slate-600 mt-1">+{{ brands|length - 8 }} more</div>
+                                {% endif %}
+                            </div>
+                            {% endif %}
+                        </td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if total_pages > 1 %}
+        <div class="border-t border-slate-900/60 px-5 py-2.5 flex items-center justify-between">
+            <div class="flex gap-2">
+                {% if page > 1 %}
+                <a href="/?page={{ page - 1 }}&engines={{ active_engines|join(',') }}&category={{ active_category }}&intent={{ active_intent }}{% if active_search %}&search={{ active_search }}{% endif %}"
+                   class="px-3 py-1.5 rounded-lg bg-slate-900 text-slate-400 text-xs hover:text-slate-200 border border-slate-800">Prev</a>
+                {% endif %}
+                {% if page < total_pages %}
+                <a href="/?page={{ page + 1 }}&engines={{ active_engines|join(',') }}&category={{ active_category }}&intent={{ active_intent }}{% if active_search %}&search={{ active_search }}{% endif %}"
+                   class="px-3 py-1.5 rounded-lg bg-slate-900 text-slate-400 text-xs hover:text-slate-200 border border-slate-800">Next</a>
+                {% endif %}
+            </div>
+            <span class="text-[10px] text-slate-500">Page {{ page }} / {{ total_pages }} ({{ total_prompts }} keywords)</span>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- SoV Chart -->
+    <div class="glass-panel border border-slate-800/60 p-5 rounded-xl">
+        <div class="border-b border-slate-900/60 pb-3 mb-4 flex items-center justify-between">
+            <div>
+                <h3 class="text-sm font-semibold text-slate-200">Share of Voice Over Time
+                    <span class="info-btn ml-1">
+                        <svg class="w-3.5 h-3.5 text-slate-600 hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                        <span class="info-tip"><strong class="text-slate-200">Share of Voice Chart</strong><br>Tracks how GrabOn's share of AI mentions changes over time compared to competitors. Based on weighted rank - being mentioned first (#1) counts more than being mentioned later (#5). Rising line = gaining AI visibility.</span>
+                    </span>
+                </h3>
+                <p class="text-[10px] text-slate-500">Weighted rank share - GrabOn vs competitors</p>
+            </div>
+            <div class="flex items-center gap-3 text-[10px]">
+                <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-amber-500"></span> GrabOn</span>
+                <span class="flex items-center gap-1 text-slate-500"><span class="w-2 h-2 rounded-full bg-indigo-500"></span> CouponDunia</span>
+                <span class="flex items-center gap-1 text-slate-500"><span class="w-2 h-2 rounded-full bg-emerald-500"></span> CashKaro</span>
+                <span class="flex items-center gap-1 text-slate-500"><span class="w-2 h-2 rounded-full bg-rose-500"></span> DesiDime</span>
+            </div>
+        </div>
+        <div style="height: 260px;">
+            <canvas id="sovChart"></canvas>
+        </div>
+    </div>
+
+    <!-- Add Prompt -->
+    <div class="glass-panel border border-slate-800/60 p-5 rounded-xl">
+        <div class="flex items-center justify-between mb-3">
+            <h3 class="text-xs font-semibold text-slate-300">Add Search Query</h3>
+            <span id="addStatus" class="text-[10px] text-slate-600 hidden"></span>
+        </div>
+        <form id="addQueryForm" class="grid grid-cols-1 md:grid-cols-12 gap-2 items-end">
+            <div class="md:col-span-5">
+                <label class="text-[10px] text-slate-500 uppercase tracking-wider mb-1 block">Search Query</label>
+                <input name="text" id="addQueryText" required placeholder="e.g. myntra coupon code, best deals app india..."
+                    class="w-full text-xs p-2.5 bg-slate-950 border border-slate-900 rounded-lg text-slate-300 placeholder-slate-600 outline-none focus:border-amber-500/60 transition-colors">
+            </div>
+            <div class="md:col-span-2">
+                <label class="text-[10px] text-slate-500 uppercase tracking-wider mb-1 block">Category</label>
+                <select name="category" id="addQueryCat" class="w-full text-xs p-2.5 bg-slate-950 border border-slate-900 rounded-lg text-slate-300 outline-none focus:border-amber-500/60 transition-colors">
+                    {% set all_cats = categories + ['Education', 'Electronics', 'Entertainment', 'Fashion', 'Finance', 'Food', 'Gaming', 'General', 'Health & Beauty', 'Home', 'Jewelry', 'Tech', 'Telecom', 'Travel'] %}
+                    {% for cat in all_cats|unique|sort %}
+                    <option>{{ cat }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="md:col-span-2">
+                <label class="text-[10px] text-slate-500 uppercase tracking-wider mb-1 block">Intent</label>
+                <select name="intent" id="addQueryIntent" class="w-full text-xs p-2.5 bg-slate-950 border border-slate-900 rounded-lg text-slate-300 outline-none focus:border-amber-500/60 transition-colors">
+                    <option>Transactional</option><option>Commercial</option><option>Direct Brand</option><option>Informational</option>
+                </select>
+            </div>
+            <div class="md:col-span-3 flex gap-2">
+                <button type="submit" class="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-lg cursor-pointer active:scale-95 transition-colors">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                    Add
+                </button>
+                <button type="button" onclick="addAndRun()" class="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs rounded-lg cursor-pointer active:scale-95 transition-colors" title="Add query and immediately run across all engines">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    Add & Run
+                </button>
+            </div>
+        </form>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if ai_visibility is defined %}
+<script>
+function drawGauge(score) {
+    var canvas = document.getElementById('visGauge');
+    if (!canvas) return;
+    var ctx = canvas.getContext('2d');
+    var cx = 70, cy = 75, r = 55, lineW = 12;
+
+    function getColor(v) {
+        if (v >= 70) return '#10b981';
+        if (v >= 40) return '#f59e0b';
+        return '#ef4444';
+    }
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    var isLight = document.documentElement.classList.contains('light');
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, Math.PI, 2 * Math.PI);
+    ctx.lineWidth = lineW;
+    ctx.strokeStyle = isLight ? 'rgba(203,213,225,0.4)' : 'rgba(30,41,59,0.5)';
+    ctx.lineCap = 'round';
+    ctx.stroke();
+
+    var endAngle = Math.PI + (score / 100) * Math.PI;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, Math.PI, endAngle);
+    ctx.lineWidth = lineW;
+    ctx.strokeStyle = getColor(score);
+    ctx.lineCap = 'round';
+    ctx.stroke();
+}
+var _gaugeScore = {{ ai_visibility }};
+drawGauge(_gaugeScore);
+window.addEventListener('themechange', function() { drawGauge(_gaugeScore); });
+</script>
+{% endif %}
+
+{% if chart_data is defined and chart_data %}
+<script>
+const chartData = {{ chart_data | tojson }};
+const ctx = document.getElementById('sovChart').getContext('2d');
+
+const allVals = chartData.flatMap(d => [d.GrabOn, d.CouponDunia, d.CashKaro, d.DesiDime]).filter(v => v > 0);
+const maxVal = allVals.length ? Math.max(...allVals) : 50;
+const yMax = Math.min(100, Math.ceil((maxVal + 10) / 10) * 10);
+const isSingleDay = chartData.length <= 1;
+
+const brandConfig = [
+    { key: 'GrabOn', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.12)', width: 2.5 },
+    { key: 'CouponDunia', color: '#6366f1', bg: 'rgba(99, 102, 241, 0.06)', width: 2 },
+    { key: 'CashKaro', color: '#10b981', bg: 'rgba(16, 185, 129, 0.06)', width: 2 },
+    { key: 'DesiDime', color: '#f43f5e', bg: 'rgba(244, 63, 94, 0.06)', width: 2 },
+];
+
+if (isSingleDay) {
+    // Single day: horizontal bar chart
+    const vals = brandConfig.map(b => chartData[0] ? chartData[0][b.key] || 0 : 0);
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: brandConfig.map(b => b.key),
+            datasets: [{
+                data: vals,
+                backgroundColor: brandConfig.map(b => b.color + 'cc'),
+                borderColor: brandConfig.map(b => b.color),
+                borderWidth: 1, borderRadius: 6, barPercentage: 0.6,
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+            plugins: {
+                legend: { display: false },
+                title: { display: true, text: 'Share of Voice - ' + (chartData[0] ? chartData[0].date : ''), font: { size: 11 }, color: getChartTheme().text },
+                tooltip: {
+                    backgroundColor: getChartTheme().tooltipBg,
+                    borderColor: getChartTheme().tooltipBorder, borderWidth: 1,
+                    callbacks: { label: c => ' ' + c.raw.toFixed(1) + '%' }
+                },
+            },
+            scales: {
+                x: { beginAtZero: true, max: yMax, ticks: { color: getChartTheme().text, callback: v => v + '%' },
+                    grid: { color: getChartTheme().grid, drawBorder: false } },
+                y: { grid: { display: false }, ticks: { color: getChartTheme().text, font: { size: 11, weight: 'bold' } } }
+            }
+        },
+        plugins: [{
+            afterDatasetsDraw(chart) {
+                const c = chart.ctx;
+                chart.data.datasets[0].data.forEach((val, i) => {
+                    const meta = chart.getDatasetMeta(0).data[i];
+                    c.fillStyle = getChartTheme().tooltipTitle; c.font = 'bold 11px Inter, system-ui'; c.textAlign = 'left';
+                    c.fillText(val.toFixed(1) + '%', meta.x + 6, meta.y + 4);
+                });
+            }
+        }]
+    });
+} else {
+    // Multi-day: line chart
+    const datasets = brandConfig.map(b => ({
+        label: b.key,
+        data: chartData.map(d => d[b.key]),
+        borderColor: b.color,
+        backgroundColor: b.bg,
+        fill: b.key === 'GrabOn',
+        tension: 0.3,
+        borderWidth: b.width,
+        pointRadius: chartData.length <= 3 ? 6 : 4,
+        pointHoverRadius: 7,
+        pointBackgroundColor: b.color,
+        pointBorderColor: getChartTheme().pointBorder,
+        pointBorderWidth: 2,
+    }));
+    new Chart(ctx, {
+        type: 'line',
+        data: { labels: chartData.map(d => d.date), datasets },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: getChartTheme().tooltipBg,
+                    borderColor: getChartTheme().tooltipBorder, borderWidth: 1,
+                    titleColor: getChartTheme().tooltipTitle, bodyColor: getChartTheme().tooltipBody,
+                    titleFont: { size: 11, weight: 'bold' }, bodyFont: { size: 11 },
+                    padding: 10, cornerRadius: 8, displayColors: true, boxPadding: 4,
+                    callbacks: { label: c => ' ' + c.dataset.label + ': ' + c.parsed.y.toFixed(1) + '%' }
+                },
+            },
+            scales: {
+                x: { ticks: { color: getChartTheme().text, font: { size: 10 }, maxRotation: 45 },
+                    grid: { color: getChartTheme().grid, drawBorder: false } },
+                y: { min: 0, max: yMax,
+                    ticks: { color: getChartTheme().text, font: { size: 10 }, callback: v => v + '%', stepSize: yMax <= 20 ? 5 : 10 },
+                    grid: { color: getChartTheme().grid, drawBorder: false } },
+            }
+        }
+    });
+}
+</script>
+{% endif %}
+
+<script>
+// Live Agent Activity Feed (SSE)
+(function() {
+    const log = document.getElementById('agentLog');
+    const pulse = document.getElementById('agentPulse');
+    const status = document.getElementById('agentStatus');
+    const timer = document.getElementById('agentTimer');
+    const counter = document.getElementById('agentCounter');
+    if (!log) return;
+
+    const ENGINE_NAMES = {
+        google_aio: 'AI Overview', google_ai_mode: 'AI Mode', perplexity: 'Perplexity',
+        gemini: 'Gemini', chatgpt: 'ChatGPT', claude: 'Claude'
+    };
+
+    let eventCount = 0;
+    let countdownInterval = null;
+    let resumeTarget = 0;
+
+    function fmtDuration(sec) {
+        if (sec <= 0) return '0s';
+        const m = Math.floor(sec / 60);
+        const s = sec % 60;
+        if (m > 0) return m + 'm ' + s + 's';
+        return s + 's';
+    }
+
+    function startCountdown(seconds, label) {
+        clearInterval(countdownInterval);
+        resumeTarget = Date.now() + seconds * 1000;
+        timer.classList.remove('hidden');
+        status.textContent = label;
+        status.className = 'text-[10px] text-cyan-400';
+        pulse.innerHTML = '<span class="animate-pulse relative inline-flex rounded-full h-2.5 w-2.5 bg-cyan-500"></span>';
+
+        function tick() {
+            const remaining = Math.max(0, Math.ceil((resumeTarget - Date.now()) / 1000));
+            timer.textContent = '⏱ ' + fmtDuration(remaining);
+            if (remaining <= 0) {
+                clearInterval(countdownInterval);
+                timer.classList.add('hidden');
+                setWorking('Resuming...');
+            }
+        }
+        tick();
+        countdownInterval = setInterval(tick, 1000);
+    }
+
+    function setWorking(label) {
+        clearInterval(countdownInterval);
+        timer.classList.add('hidden');
+        status.textContent = label;
+        status.className = 'text-[10px] text-amber-400';
+        pulse.innerHTML = '<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span><span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>';
+    }
+
+    function setContinuous() {
+        clearInterval(countdownInterval);
+        timer.classList.add('hidden');
+        status.textContent = 'Continuous mode';
+        status.className = 'text-[10px] text-emerald-400';
+        pulse.innerHTML = '<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>';
+    }
+
+    function addLine(html) {
+        const firstChild = log.firstElementChild;
+        if (firstChild && firstChild.textContent.includes('Waiting for')) firstChild.remove();
+        const div = document.createElement('div');
+        div.innerHTML = html;
+        div.className = 'flex items-start gap-2 py-0.5 animate-fade-in';
+        log.appendChild(div);
+        if (log.children.length > 100) log.removeChild(log.firstChild);
+        log.scrollTop = log.scrollHeight;
+        eventCount++;
+        counter.textContent = eventCount + ' events';
+    }
+
+    function ts() {
+        const d = new Date();
+        return d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+
+    function eng(name) { return ENGINE_NAMES[name] || name; }
+
+    function handleEvent(type, data) {
+        switch(type) {
+            case 'agent_mode':
+                setContinuous();
+                addLine(`<span class="text-slate-600">${ts()}</span> <span class="text-emerald-400">MODE</span> <span class="text-emerald-400/80">Agent switched to continuous operation</span>`);
+                break;
+            case 'batch_start': {
+                setWorking(`Processing ${data.total_prompts} keywords...`);
+                addLine(`<span class="text-slate-600">${ts()}</span> <span class="text-cyan-400">BATCH</span> <span class="text-slate-400">Started - ${data.total_prompts} keywords × ${data.engines} engines</span>`);
+                break;
+            }
+            case 'scrape_start':
+                setWorking('Scraping ' + eng(data.engine));
+                addLine(`<span class="text-slate-600">${ts()}</span> <span class="text-amber-400">SCRAPE</span> <span class="text-slate-500">${eng(data.engine)}</span> <span class="text-slate-400">${data.prompt}</span>`);
+                break;
+            case 'scrape_done':
+                addLine(`<span class="text-slate-600">${ts()}</span> <span class="text-emerald-400">DONE</span> <span class="text-slate-500">${eng(data.engine)}</span> <span class="text-slate-600">${data.chars} chars, ${data.urls} URLs</span>`);
+                break;
+            case 'scrape_fail':
+                addLine(`<span class="text-slate-600">${ts()}</span> <span class="text-red-400">FAIL</span> <span class="text-slate-500">${eng(data.engine)}</span> <span class="text-red-400/60">${data.error}</span>`);
+                break;
+            case 'parse_done':
+                addLine(`<span class="text-slate-600">${ts()}</span> <span class="text-violet-400">PARSE</span> <span class="text-slate-500">${eng(data.engine)}</span> <span class="text-slate-600">${data.brands} brands, ${data.coupons} coupons</span>`);
+                debouncedLiveRefresh();
+                break;
+            case 'engine_cooldown':
+                addLine(`<span class="text-slate-600">${ts()}</span> <span class="text-rose-400">COOLDOWN</span> <span class="text-slate-500">${eng(data.engine)}</span> <span class="text-rose-400/70">${data.fails} fails → paused ${fmtDuration(data.cooldown_seconds)}</span>`);
+                updateCooldownChip(data.engine, data.cooldown_seconds);
+                break;
+            case 'agent_waiting': {
+                const reason = data.reason;
+                let label = 'Anti-detection pause';
+                if (reason === 'all_engines_cooldown') label = 'All engines cooling down';
+                else if (reason === 'no_prompts') label = 'No prompts - waiting';
+                else if (reason === 'error_recovery') label = 'Error recovery';
+                else if (reason === 'batch_cooldown') label = 'Anti-detection pause';
+                startCountdown(data.resume_in, label);
+                addLine(`<span class="text-slate-600">${ts()}</span> <span class="text-cyan-400">WAIT</span> <span class="text-slate-500">${label}</span> <span class="text-cyan-400/60">resuming in ${fmtDuration(data.resume_in)}</span>`);
+                if (data.cooldowns) {
+                    Object.entries(data.cooldowns).forEach(([e, secs]) => {
+                        if (secs > 0) updateCooldownChip(e, secs);
+                    });
+                }
+                break;
+            }
+            case 'auto_login':
+                addLine(`<span class="text-slate-600">${ts()}</span> <span class="text-violet-400">AUTH</span> <span class="text-slate-500">${data.provider}</span> <span class="text-slate-400">${data.message || data.step}</span>`);
+                if (data.step === 'success') {
+                    refreshHealth();
+                    showOtpBanner(null);
+                    showRedoBanner(null);
+                } else if (data.step === 'blocked' || data.step === 'otp_timeout' || data.step === 'failed' || data.step === 'error') {
+                    showOtpBanner(null);
+                    showRedoBanner(data);
+                }
+                break;
+            case 'auto_login_otp':
+                addLine(`<span class="text-slate-600">${ts()}</span> <span class="text-amber-400">OTP NEEDED</span> <span class="text-slate-500">${data.provider}</span> <span class="text-amber-400/80">${data.message}</span>`);
+                showOtpBanner(data);
+                break;
+            case 'batch_done': {
+                addLine(`<span class="text-slate-600">${ts()}</span> <span class="text-cyan-400">BATCH</span> <span class="text-emerald-400">Complete - ${data.processed} keywords processed</span>`);
+                refreshHealth();
+                refreshProgress();
+                refreshKPIs();
+                refreshRankings();
+                break;
+            }
+        }
+    }
+
+    function updateCooldownChip(engine, seconds) {
+        const el = document.querySelector(`[data-health-engine="${engine}"]`);
+        if (!el) return;
+        let cdSpan = el.querySelector('.cooldown-timer');
+        if (!cdSpan) {
+            cdSpan = document.createElement('span');
+            cdSpan.className = 'cooldown-timer text-rose-400/80 font-mono';
+            el.appendChild(cdSpan);
+        }
+        let target = Date.now() + seconds * 1000;
+        const iv = setInterval(() => {
+            const rem = Math.max(0, Math.ceil((target - Date.now()) / 1000));
+            cdSpan.textContent = rem > 0 ? fmtDuration(rem) : '';
+            if (rem <= 0) {
+                clearInterval(iv);
+                cdSpan.remove();
+            }
+        }, 1000);
+    }
+
+    // Connect SSE
+    let es = null;
+    function connect() {
+        es = new EventSource('/api/activity-stream');
+        const events = ['batch_start', 'batch_done', 'scrape_start', 'scrape_done', 'scrape_fail',
+                        'parse_done', 'agent_waiting', 'engine_cooldown', 'agent_mode',
+                        'auto_login', 'auto_login_otp'];
+        events.forEach(type => {
+            es.addEventListener(type, function(e) {
+                try { handleEvent(type, JSON.parse(e.data)); } catch(err) {}
+            });
+        });
+        es.onerror = function() {
+            es.close();
+            setTimeout(connect, 5000);
+        };
+    }
+    connect();
+    window.addEventListener('beforeunload', function() { if (es) es.close(); });
+
+    // Load recent events on page load
+    fetch('/api/activity-recent').then(r => r.json()).then(events => {
+        if (events.length > 0) {
+            events.slice(-20).forEach(evt => handleEvent(evt.type, evt));
+        }
+    }).catch(() => {});
+})();
+
+// GEO Rankings search bar
+(function() {
+    const searchInput = document.getElementById('geoSearchInput');
+    if (!searchInput) return;
+    function doSearch() {
+        const val = searchInput.value.trim();
+        const url = new URL(window.location.href);
+        if (val) { url.searchParams.set('search', val); } else { url.searchParams.delete('search'); }
+        url.searchParams.set('page', '1');
+        window.location.href = url.toString();
+    }
+    searchInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); doSearch(); }
+    });
+    window.geoSearchClear = function() {
+        searchInput.value = '';
+        doSearch();
+    };
+    if (searchInput.value) searchInput.focus();
+})();
+
+// Add Search Query form handlers
+document.getElementById('addQueryForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    submitQuery(false);
+});
+
+function submitQuery(andRun) {
+    const text = document.getElementById('addQueryText').value.trim();
+    const cat = document.getElementById('addQueryCat').value;
+    const intent = document.getElementById('addQueryIntent').value;
+    const status = document.getElementById('addStatus');
+    if (!text) return;
+
+    status.textContent = 'Adding...';
+    status.className = 'text-[10px] text-amber-400';
+    status.classList.remove('hidden');
+
+    const form = new FormData();
+    form.append('text', text);
+    form.append('category', cat);
+    form.append('intent', intent);
+
+    fetch('/api/add-prompt', { method: 'POST', body: form, redirect: 'manual' })
+        .then(() => {
+            status.textContent = 'Added!';
+            status.className = 'text-[10px] text-emerald-400';
+            if (andRun) {
+                status.textContent = 'Added! Running across all engines...';
+                const runForm = new FormData();
+                runForm.append('text', text);
+                fetch('/api/test-keyword', { method: 'POST', body: runForm })
+                    .then(() => {
+                        status.textContent = 'Added & running! Check activity feed.';
+                    });
+            }
+            document.getElementById('addQueryText').value = '';
+            setTimeout(() => { status.className = 'text-[10px] text-slate-600 hidden'; }, 5000);
+        })
+        .catch(err => {
+            status.textContent = 'Error: ' + err.message;
+            status.className = 'text-[10px] text-rose-400';
+        });
+}
+
+function addAndRun() {
+    submitQuery(true);
+}
+
+function refreshHealth() {
+    fetch('/api/engine-health').then(r => r.json()).then(data => {
+        const engines = data.engines || {};
+
+        // Update header health dots
+        document.querySelectorAll('[data-health-engine]').forEach(el => {
+            const eng = el.dataset.healthEngine;
+            const h = engines[eng];
+            if (!h) return;
+            const dot = el.querySelector('.health-dot');
+            const errSpan = el.querySelector('.health-errors');
+            if (dot) {
+                dot.className = 'health-dot w-2 h-2 ' + (
+                    h.health === 'healthy' ? 'text-emerald-400' :
+                    h.health === 'recovering' ? 'text-blue-400' :
+                    h.health === 'degraded' ? 'text-amber-400' :
+                    h.health === 'blocked' ? 'text-rose-400' :
+                    h.health === 'idle' ? 'text-slate-500' : 'text-slate-600'
+                );
+            }
+            if (errSpan) {
+                errSpan.textContent = h.errors_24h > 0 ? h.errors_24h : '';
+                errSpan.className = 'health-errors ' + (h.errors_24h > 0 ? 'text-rose-400 font-bold' : '');
+            }
+        });
+
+        // Update engine breakdown table rows
+        document.querySelectorAll('[data-engine-row]').forEach(row => {
+            const eng = row.dataset.engineRow;
+            const h = engines[eng];
+            if (!h) return;
+
+            // Health badge
+            const healthCell = row.querySelector('td:nth-child(2)');
+            if (healthCell) {
+                const badges = {
+                    healthy: '<span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-medium border border-emerald-500/20">Healthy</span>',
+                    recovering: '<span class="px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 text-[10px] font-medium border border-blue-500/20">Recovering</span>',
+                    degraded: '<span class="px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 text-[10px] font-bold border border-amber-500/20">Degraded</span>',
+                    blocked: (() => {
+                        let label = 'Blocked';
+                        const cd = h.cooldown_remaining || 0;
+                        if (cd > 0) {
+                            const hrs = Math.floor(cd / 3600);
+                            const mins = Math.floor((cd % 3600) / 60);
+                            label += ' · ' + hrs + 'h' + String(mins).padStart(2, '0') + 'm';
+                        }
+                        const tip = h.last_error_msg ? ' title="' + h.last_error_msg.replace(/"/g, '&quot;') + '"' : '';
+                        return '<span class="px-2 py-0.5 rounded bg-rose-500/10 text-rose-400 text-[10px] font-bold border border-rose-500/20"' + tip + '>' + label + '</span>';
+                    })(),
+                    idle: '<span class="px-2 py-0.5 rounded bg-slate-700/30 text-slate-400 text-[10px] font-medium border border-slate-700/40">Idle</span>',
+                };
+                healthCell.innerHTML = badges[h.health] || '<span class="px-2 py-0.5 rounded bg-slate-800 text-slate-500 text-[10px] font-medium">No Data</span>';
+            }
+
+            // Streak
+            const streakCell = row.querySelector('.engine-streak');
+            if (streakCell) {
+                if (h.streak >= 5) streakCell.innerHTML = '<span class="text-emerald-400 font-bold">' + h.streak + '✓</span>';
+                else if (h.streak >= 3) streakCell.innerHTML = '<span class="text-emerald-400">' + h.streak + '✓</span>';
+                else if (h.streak > 0) streakCell.innerHTML = '<span class="text-slate-400">' + h.streak + '✓</span>';
+                else streakCell.innerHTML = '<span class="text-slate-600">-</span>';
+            }
+
+            // OK/Fail
+            const okFail = row.querySelector('.engine-ok-fail');
+            if (okFail) {
+                const errClass = h.errors_24h > 0 ? 'text-rose-400 font-bold' : 'text-slate-600';
+                okFail.innerHTML = '<span class="text-emerald-400 font-semibold">' + h.success_24h + '</span>' +
+                    '<span class="text-slate-700"> / </span>' +
+                    '<span class="' + errClass + '">' + h.errors_24h + '</span>';
+            }
+
+            // Error rate
+            const rateCell = row.querySelector('.engine-error-rate');
+            if (rateCell) {
+                const rc = h.error_rate >= 50 ? 'text-rose-400 font-bold' : h.error_rate >= 20 ? 'text-amber-400' : 'text-emerald-400';
+                rateCell.innerHTML = '<span class="' + rc + '">' + h.error_rate + '%</span>';
+            }
+
+            // Mentions, Cited, Total
+            const mentionsCell = row.querySelector('.engine-mentions');
+            if (mentionsCell) mentionsCell.textContent = h.mentions || 0;
+            const citedCell = row.querySelector('.engine-cited');
+            if (citedCell) citedCell.textContent = h.cited || 0;
+            const totalCell = row.querySelector('.engine-total');
+            if (totalCell) totalCell.textContent = h.total_mentions || 0;
+
+            // Last OK timestamp + error message for blocked/degraded
+            const lastOk = row.querySelector('.engine-last-ok');
+            if (lastOk) {
+                let text = h.last_success ? 'Last OK: ' + h.last_success.substring(0, 16) : '';
+                if (h.last_error_msg && (h.health === 'blocked' || h.health === 'degraded')) {
+                    text += (text ? ' ' : '') + '· ' + h.last_error_msg.substring(0, 50);
+                }
+                lastOk.innerHTML = text ? ('<span>' + (h.last_success ? 'Last OK: ' + h.last_success.substring(0, 16) : '') + '</span>' +
+                    (h.last_error_msg && (h.health === 'blocked' || h.health === 'degraded') ?
+                    ' <span class="text-rose-400/60">' + '· ' + h.last_error_msg.substring(0, 50) + '</span>' : '')) : '';
+            }
+        });
+    }).catch(() => {});
+}
+let _liveRefreshTimer = null;
+function debouncedLiveRefresh() {
+    if (_liveRefreshTimer) clearTimeout(_liveRefreshTimer);
+    _liveRefreshTimer = setTimeout(() => {
+        refreshKPIs();
+        refreshRankings();
+    }, 5000);
+}
+
+function refreshKPIs() {
+    fetch('/api/dashboard-kpis').then(r => r.json()).then(d => {
+        const el = id => document.getElementById(id);
+        el('kpi-vis-score').textContent = d.ai_visibility;
+        if (typeof drawGauge === 'function') { _gaugeScore = d.ai_visibility; drawGauge(d.ai_visibility); }
+        el('kpi-mini-sov').textContent = d.sov + '%';
+        el('kpi-mini-cited').textContent = d.citation_rate + '%';
+        el('kpi-mini-pos').textContent = d.pos_rate + '%';
+        el('kpi-mini-total').textContent = d.total_grabon;
+
+        el('kpi-sov').textContent = d.sov + '%';
+        el('kpi-sov-bar').style.width = d.sov + '%';
+        el('kpi-sov-sub').textContent = d.total_grabon + ' GrabOn mentions';
+
+        el('kpi-citations').textContent = d.citations;
+        el('kpi-citations-total').textContent = '/ ' + d.total_grabon;
+        el('kpi-cite-bar').style.width = d.citation_rate + '%';
+        el('kpi-cite-sub').textContent = d.citation_rate + '% with backlink';
+
+        el('kpi-pos').textContent = d.pos;
+        el('kpi-neu').textContent = d.neu;
+        el('kpi-neg').textContent = d.neg;
+        const st = d.pos + d.neu + d.neg;
+        if (st > 0) {
+            el('kpi-sent-bar').innerHTML =
+                `<div class="h-full bg-emerald-500" style="width:${(d.pos/st*100).toFixed(1)}%"></div>` +
+                `<div class="h-full bg-slate-500" style="width:${(d.neu/st*100).toFixed(1)}%"></div>` +
+                `<div class="h-full bg-rose-500" style="width:${(d.neg/st*100).toFixed(1)}%"></div>`;
+        }
+        el('kpi-pos-sub').textContent = d.pos_rate + '% positive';
+
+        el('kpi-footprint').textContent = d.footprint + '%';
+        el('kpi-foot-bar').style.width = d.footprint + '%';
+        el('kpi-foot-sub').textContent = (d.total_grabon - d.citations) + ' no-backlink';
+
+        // Update engine breakdown table
+        if (d.engine_stats) {
+            Object.entries(d.engine_stats).forEach(([eng, s]) => {
+                const row = document.querySelector(`[data-engine-row="${eng}"]`);
+                if (!row) return;
+                const mc = row.querySelector('.engine-mentions');
+                const cc = row.querySelector('.engine-cited');
+                const tc = row.querySelector('.engine-total');
+                if (mc) mc.textContent = s.mentions;
+                if (cc) cc.textContent = s.cited;
+                if (tc) tc.textContent = s.total_mentions;
+            });
+        }
+    }).catch(() => {});
+}
+
+function _renderCell(r) {
+    const brands = r.top_brands || [];
+    const leader = brands.length > 0 ? brands[0] : null;
+    const leaderName = leader ? leader.brand.substring(0, 12) : '';
+    const isLeaderGrabon = leader && leader.brand.toLowerCase().includes('grabon');
+
+    let ladderHtml = '';
+    if (brands.length > 0) {
+        const rows = brands.slice(0, 8).map(b => {
+            const isG = b.brand.toLowerCase().includes('grabon');
+            const rankCls = b.rank === 1 ? 'text-emerald-400' : b.rank <= 3 ? 'text-amber-400' : 'text-slate-500';
+            return `<div class="flex items-center justify-between py-0.5 ${isG ? 'text-amber-400 font-bold' : 'text-slate-400'}">
+                <span class="flex items-center gap-1">
+                    <span class="w-4 text-right text-[9px] ${rankCls}">#${b.rank}</span>
+                    <span class="text-[10px] truncate max-w-[120px]">${b.brand}</span>
+                </span>
+                <span class="text-[8px] ${b.sentiment==='Positive'?'text-emerald-500':b.sentiment==='Negative'?'text-rose-500':'text-slate-600'}">${(b.sentiment||'').substring(0,3)}</span>
+            </div>`;
+        }).join('');
+        ladderHtml = `<div class="brand-ladder" onclick="event.stopPropagation()">
+            <div class="text-[9px] text-slate-400 font-semibold mb-1.5 border-b border-slate-800 pb-1">Brand Rankings</div>${rows}
+            ${brands.length > 8 ? '<div class="text-[8px] text-slate-600 mt-1">+' + (brands.length - 8) + ' more</div>' : ''}
+        </div>`;
+    }
+
+    if (r.status === 'ranked') {
+        if (r.rank === 1) {
+            return `<span class="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold text-[10px]"><svg class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>#1</span>${ladderHtml}`;
+        }
+        if (r.rank <= 3) {
+            const leaderLine = !isLeaderGrabon && leaderName ? `<div class="text-[8px] text-slate-600 mt-0.5">#1: ${leaderName}</div>` : '';
+            return `<div><span class="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-bold text-[10px]">#${r.rank}</span>${leaderLine}</div>${ladderHtml}`;
+        }
+        const leaderLine = !isLeaderGrabon && leaderName ? `<div class="text-[8px] text-slate-600 mt-0.5">#1: ${leaderName}</div>` : '';
+        return `<div><span class="px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 font-semibold text-[10px]">#${r.rank}</span>${leaderLine}</div>${ladderHtml}`;
+    }
+    if (r.status === 'unranked') {
+        const leaderLine = leaderName ? `<div class="text-[8px] text-slate-600 mt-0.5">#1: ${leaderName}</div>` : '';
+        return `<div><span class="px-1.5 py-0.5 rounded bg-red-950/20 text-red-500/80 text-[10px] font-medium">Out</span>${leaderLine}</div>${ladderHtml}`;
+    }
+    if (r.status === 'limit_exhausted') {
+        const tip = r.error_msg ? ` title="${r.error_type}: ${r.error_msg}"` : ' title="Engine rate limit hit"';
+        const sub = r.error_msg ? `<div class="text-[7px] text-slate-500 mt-0.5 truncate" style="max-width:80px">${r.error_msg}</div>` : '';
+        return `<div><span class="px-1.5 py-0.5 rounded bg-amber-950/20 text-amber-500/70 text-[10px] font-medium cursor-help"${tip}>Limit</span>${sub}</div>${ladderHtml}`;
+    }
+    if (r.status === 'error') {
+        const tip = r.error_msg ? ` title="${r.error_type}: ${r.error_msg}"` : ' title="Scrape failed"';
+        const sub = r.error_msg ? `<div class="text-[7px] text-slate-500 mt-0.5 truncate" style="max-width:80px">${r.error_msg}</div>` : '';
+        return `<div><span class="px-1.5 py-0.5 rounded bg-rose-950/20 text-rose-500/60 text-[10px] font-medium cursor-help"${tip}>Error</span>${sub}</div>${ladderHtml}`;
+    }
+    if (r.status === 'no_aio') {
+        return `<span class="px-1.5 py-0.5 rounded bg-slate-800/30 text-slate-600 text-[10px] font-medium" title="Google did not show AI Overview for this query">No AIO</span>${ladderHtml}`;
+    }
+    if (r.status === 'no_mention') {
+        return `<span class="px-1.5 py-0.5 rounded bg-slate-800/40 text-slate-500 text-[10px] font-medium">No mention</span>${ladderHtml}`;
+    }
+    return '<span class="text-slate-700/50 text-[8px] italic">--</span>';
+}
+
+function refreshRankings() {
+    const tbody = document.getElementById('rankingsBody');
+    if (!tbody) return;
+    const rows = tbody.querySelectorAll('tr[data-prompt-id]');
+    if (rows.length === 0) return;
+
+    const promptIds = Array.from(rows).map(r => r.dataset.promptId);
+    const engParam = new URLSearchParams(window.location.search).get('engines') || '{{ active_engines|join(",") }}';
+
+    fetch(`/api/rankings-live?prompt_ids=${promptIds.join(',')}&engines=${engParam}`)
+        .then(r => r.json()).then(data => {
+            if (!data.rankings) return;
+            rows.forEach(row => {
+                const pid = row.dataset.promptId;
+                const pRankings = data.rankings[pid];
+                if (!pRankings) return;
+                row.querySelectorAll('td[data-engine]').forEach(cell => {
+                    const eng = cell.dataset.engine;
+                    const r = pRankings[eng] || { status: 'pending', top_brands: [] };
+                    const prev = cell.dataset.rkState;
+                    const key = r.status + '|' + (r.rank||'') + '|' + (r.error_type||'') + '|' + (r.top_brands||[]).map(b=>b.brand).join(',');
+                    if (prev === key) return;
+                    cell.dataset.rkState = key;
+                    cell.innerHTML = _renderCell(r);
+                    if (r.log_id) {
+                        cell.onclick = () => showResponse(r.log_id);
+                        cell.classList.add('cursor-pointer', 'hover:bg-slate-800/40');
+                    }
+                });
+            });
+        }).catch(() => {});
+}
+
+function _fmtCycle(c) {
+    if (!c) return '';
+    if (c.completed > 0 && c.current_pct > 0) return `Cycle ${c.completed} done · Cycle ${c.completed+1}: ${c.current_pct}%`;
+    if (c.completed > 0) return `Cycle ${c.completed} done`;
+    if (c.current_pct > 0) return `Cycle 1: ${c.current_pct}%`;
+    return '';
+}
+
+function refreshProgress() {
+    fetch('/api/pipeline-progress').then(r => r.json()).then(data => {
+        const o = data.overall;
+        document.getElementById('progressOverall').textContent =
+            `${o.processed}/${o.total} processed (${o.pct_complete || 0}%)`;
+
+        const geo = data.geo || { processed: 0, total: 0, pct_complete: 0 };
+        const gc = data.geo_cycles;
+        const geoBarPct = gc ? Math.min(gc.current_pct || geo.pct_complete || 0, 100) : Math.min(geo.pct_complete || 0, 100);
+        const geoCycleText = _fmtCycle(gc);
+        document.getElementById('prog-geo-nums').textContent = `${geo.processed}/${geo.total} · ${geoCycleText}`;
+        document.getElementById('prog-geo-bar').style.width = `${geoBarPct}%`;
+
+        const seo = data.seo || { processed: 0, total: 0, pct_complete: 0 };
+        const sc = data.seo_cycles;
+        const seoBarPct = sc ? Math.min(sc.current_pct || seo.pct_complete || 0, 100) : Math.min(seo.pct_complete || 0, 100);
+        const seoCycleText = _fmtCycle(sc);
+        document.getElementById('prog-seo-nums').textContent = `${seo.processed}/${seo.total} · ${seoCycleText}`;
+        document.getElementById('prog-seo-bar').style.width = `${seoBarPct}%`;
+
+        function _updateCycleRing(prefix, cycleData) {
+            if (!cycleData) return;
+            const countEl = document.getElementById(prefix + 'CycleCount');
+            const ringEl = document.getElementById(prefix + 'CycleRing');
+            const workingCycle = cycleData.current_pct > 0 ? cycleData.completed + 1 : cycleData.completed;
+            if (countEl) countEl.textContent = workingCycle;
+            if (ringEl) {
+                const circ = 69.12;
+                const pct = cycleData.current_pct > 0 ? cycleData.current_pct : (cycleData.completed > 0 ? 100 : 0);
+                ringEl.style.strokeDashoffset = circ - (circ * Math.min(pct, 100) / 100);
+            }
+        }
+        _updateCycleRing('geo', data.geo_cycles);
+        _updateCycleRing('seo', data.seo_cycles);
+
+        if (data.engine_coverage) {
+            const container = document.getElementById('engineBars');
+            if (container) {
+                const colors = {
+                    chatgpt: '#10b981', claude: '#f97316', gemini: '#3b82f6',
+                    perplexity: '#14b8a6', google_aio: '#ef4444', google_ai_mode: '#6366f1',
+                };
+                container.innerHTML = Object.entries(data.engine_coverage).map(([eng, d]) => {
+                    const color = colors[eng] || '#64748b';
+                    const label = eng.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                    const pct = Math.min(d.pct, 100);
+                    return `<div>
+                        <div class="flex items-center justify-between text-[8px] mb-0.5">
+                            <span class="text-slate-400 truncate">${label}</span>
+                            <span class="text-slate-600 font-mono ml-1">${Math.round(pct)}%</span>
+                        </div>
+                        <div class="h-1 bg-slate-800/80 rounded-full overflow-hidden">
+                            <div class="h-full rounded-full" style="width:${pct}%;background:${color};transition:width 0.5s"></div>
+                        </div>
+                    </div>`;
+                }).join('');
+            }
+        }
+    }).catch(() => {});
+}
+refreshProgress();
+
+// Auto-refresh intervals
+setInterval(refreshHealth, 30000);
+setInterval(refreshProgress, 30000);
+setInterval(refreshKPIs, 30000);
+setInterval(refreshRankings, 60000);
+
+function showResponse(logId) {
+    const modal = document.getElementById('responseModal');
+    const body = document.getElementById('responseBody');
+    const meta = document.getElementById('responseMeta');
+    body.textContent = 'Loading...';
+    meta.textContent = '';
+    modal.classList.remove('hidden');
+    fetch('/api/log-response/' + logId)
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) { body.textContent = data.error; return; }
+            meta.innerHTML = '<span class="text-amber-400 font-bold uppercase">' + (data.engine_name||'').replace('_',' ') +
+                '</span> - <span class="text-slate-400">' + (data.prompt_text||'') +
+                '</span> - <span class="text-slate-500 text-[10px]">' + (data.captured_at||'') + '</span>';
+            const txt = data.raw_response_text || '(empty response)';
+            body.textContent = txt.length > 5000 ? txt.substring(0, 5000) + '\n\n... truncated ...' : txt;
+        })
+        .catch(e => { body.textContent = 'Failed to load: ' + e; });
+}
+function closeResponseModal() {
+    document.getElementById('responseModal').classList.add('hidden');
+}
+
+// Position History Modal
+let historyChartInstance = null;
+
+function showHistory(promptId) {
+    const modal = document.getElementById('historyModal');
+    document.getElementById('historyLoading').classList.remove('hidden');
+    document.getElementById('historyEmpty').classList.add('hidden');
+    document.getElementById('historyChartWrap').classList.add('hidden');
+    document.getElementById('historyTable').classList.add('hidden');
+    document.getElementById('historyTitle').textContent = 'Position History';
+    document.getElementById('historySubtitle').textContent = 'Loading...';
+    modal.classList.remove('hidden');
+
+    fetch('/api/position-history?prompt_id=' + promptId + '&days=30')
+        .then(r => r.json())
+        .then(data => {
+            document.getElementById('historyLoading').classList.add('hidden');
+            const p = data.prompt;
+            if (p) {
+                document.getElementById('historyTitle').textContent = p.text;
+                document.getElementById('historySubtitle').textContent = p.merchant_category + ' · ' + p.intent_type + ' · Last 30 days';
+            }
+
+            if (!data.timeline || data.timeline.length === 0) {
+                document.getElementById('historyEmpty').classList.remove('hidden');
+                return;
+            }
+
+            document.getElementById('historyChartWrap').classList.remove('hidden');
+            document.getElementById('historyTable').classList.remove('hidden');
+
+            const ENGINE_COLORS = {
+                google_aio: '#f59e0b', google_ai_mode: '#d97706', perplexity: '#06b6d4',
+                gemini: '#8b5cf6', chatgpt: '#10b981', claude: '#f97316'
+            };
+            const ENGINE_NAMES = {{ engine_display | tojson }};
+            const engines = data.engines;
+            const timeline = data.timeline;
+            const labels = timeline.map(t => t.day);
+
+            const datasets = engines.map(eng => ({
+                label: ENGINE_NAMES[eng] || eng,
+                data: timeline.map(t => t[eng]),
+                borderColor: ENGINE_COLORS[eng] || '#64748b',
+                backgroundColor: 'transparent',
+                tension: 0.3,
+                borderWidth: 2,
+                pointRadius: timeline.length <= 7 ? 5 : 3,
+                pointBackgroundColor: ENGINE_COLORS[eng] || '#64748b',
+                pointBorderColor: getChartTheme().pointBorder,
+                pointBorderWidth: 1,
+                spanGaps: true,
+            }));
+
+            if (historyChartInstance) historyChartInstance.destroy();
+            const ctx = document.getElementById('historyChart').getContext('2d');
+            historyChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: { labels, datasets },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: { position: 'top', labels: { color: getChartTheme().text, font: { size: 10 }, usePointStyle: true, pointStyle: 'circle', padding: 15 } },
+                        tooltip: {
+                            backgroundColor: getChartTheme().tooltipBg, borderColor: getChartTheme().tooltipBorder, borderWidth: 1,
+                            callbacks: {
+                                label: c => {
+                                    const v = c.parsed.y;
+                                    return v === null ? ' ' + c.dataset.label + ': Not ranked' : ' ' + c.dataset.label + ': #' + v;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { ticks: { color: getChartTheme().text, font: { size: 10 }, maxRotation: 45 }, grid: { color: getChartTheme().grid } },
+                        y: {
+                            reverse: true, min: 1,
+                            ticks: { color: getChartTheme().text, font: { size: 10 }, stepSize: 1, callback: v => '#' + v },
+                            grid: { color: getChartTheme().grid },
+                            title: { display: true, text: 'Rank Position (lower = better)', color: getChartTheme().text, font: { size: 10 } }
+                        }
+                    }
+                }
+            });
+
+            // Build summary table
+            let tableHtml = '<table class="w-full text-[10px]"><thead><tr class="text-slate-500 border-b border-slate-800"><th class="text-left py-1.5 px-2">Date</th>';
+            engines.forEach(e => { tableHtml += '<th class="text-center py-1.5 px-2">' + (ENGINE_NAMES[e] || e) + '</th>'; });
+            tableHtml += '</tr></thead><tbody>';
+            timeline.slice().reverse().forEach(t => {
+                tableHtml += '<tr class="border-b border-slate-900/30 hover:bg-slate-900/20"><td class="py-1 px-2 text-slate-400">' + t.day + '</td>';
+                engines.forEach(e => {
+                    const v = t[e];
+                    if (v === null || v === undefined) {
+                        tableHtml += '<td class="text-center py-1 px-2 text-slate-700">-</td>';
+                    } else if (v === 1) {
+                        tableHtml += '<td class="text-center py-1 px-2 text-emerald-400 font-bold">⭐ #1</td>';
+                    } else if (v <= 3) {
+                        tableHtml += '<td class="text-center py-1 px-2 text-amber-400 font-semibold">#' + v + '</td>';
+                    } else {
+                        tableHtml += '<td class="text-center py-1 px-2 text-slate-500">#' + v + '</td>';
+                    }
+                });
+                tableHtml += '</tr>';
+            });
+            tableHtml += '</tbody></table>';
+            document.getElementById('historyTable').innerHTML = tableHtml;
+        })
+        .catch(err => {
+            document.getElementById('historyLoading').textContent = 'Error loading history: ' + err;
+        });
+}
+
+function closeHistoryModal() {
+    document.getElementById('historyModal').classList.add('hidden');
+    if (historyChartInstance) { historyChartInstance.destroy(); historyChartInstance = null; }
+}
+
+// OTP / Auto-login handling
+let _activeOtpSession = null;
+
+function showRedoBanner(data) {
+    const banner = document.getElementById('redoBanner');
+    if (!data) { banner.classList.add('hidden'); return; }
+    document.getElementById('redoBannerProvider').textContent = (data.provider || '').toUpperCase() + ':';
+    document.getElementById('redoBannerMsg').textContent = ' ' + (data.message || 'Auto-login needs manual help');
+    document.getElementById('redoBannerLink').href = '/' + (data.provider || 'google') + '-login';
+    banner.classList.remove('hidden');
+}
+
+function showOtpBanner(data) {
+    const banner = document.getElementById('otpBanner');
+    if (!data) {
+        banner.classList.add('hidden');
+        _activeOtpSession = null;
+        return;
+    }
+    _activeOtpSession = data.session_id;
+    document.getElementById('otpProvider').textContent = (data.provider || 'Engine').toUpperCase();
+    document.getElementById('otpMessage').textContent = ' needs OTP/verification code';
+    document.getElementById('otpInput').value = '';
+    banner.classList.remove('hidden');
+    document.getElementById('otpInput').focus();
+}
+
+function submitOtp() {
+    const code = document.getElementById('otpInput').value.trim();
+    if (!code || !_activeOtpSession) return;
+    fetch('/api/auth/auto-login/' + _activeOtpSession + '/otp', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({code: code}),
+    }).then(r => r.json()).then(data => {
+        if (data.status === 'otp_submitted') {
+            document.getElementById('otpMessage').textContent = ' - code submitted, verifying...';
+            document.getElementById('otpInput').value = '';
+            setTimeout(() => showOtpBanner(null), 15000);
+        }
+    }).catch(() => {});
+}
+</script>
+
+<!-- Position History Modal -->
+<div id="historyModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onclick="if(event.target===this)closeHistoryModal()">
+    <div class="bg-slate-950 border border-slate-800/60 rounded-xl w-[90vw] max-w-4xl max-h-[80vh] flex flex-col shadow-2xl">
+        <div class="flex items-center justify-between px-5 py-3 border-b border-slate-800/60">
+            <div>
+                <div id="historyTitle" class="text-sm font-semibold text-slate-200"></div>
+                <div id="historySubtitle" class="text-[10px] text-slate-500 mt-0.5"></div>
+            </div>
+            <button onclick="closeHistoryModal()" class="text-slate-500 hover:text-slate-200 text-lg font-bold px-2 cursor-pointer">&times;</button>
+        </div>
+        <div class="p-5 flex-1 overflow-auto">
+            <div id="historyLoading" class="text-center py-8 text-slate-500 text-sm">Loading position history...</div>
+            <div id="historyEmpty" class="hidden text-center py-8 text-slate-600 text-sm">No historical data yet. Run scrapes first to build position history.</div>
+            <div id="historyChartWrap" class="hidden" style="height: 300px;">
+                <canvas id="historyChart"></canvas>
+            </div>
+            <div id="historyTable" class="hidden mt-4"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Response Viewer Modal -->
+<div id="responseModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onclick="if(event.target===this)closeResponseModal()">
+    <div class="bg-slate-950 border border-slate-800/60 rounded-xl w-[90vw] max-w-4xl max-h-[80vh] flex flex-col shadow-2xl">
+        <div class="flex items-center justify-between px-5 py-3 border-b border-slate-800/60">
+            <div id="responseMeta" class="text-xs truncate flex-1 mr-4"></div>
+            <button onclick="closeResponseModal()" class="text-slate-500 hover:text-slate-200 text-lg font-bold px-2 cursor-pointer">&times;</button>
+        </div>
+        <pre id="responseBody" class="p-5 text-xs text-slate-300 overflow-auto flex-1 whitespace-pre-wrap leading-relaxed"></pre>
+    </div>
+</div>
+
+<script>
+async function loadPoolStatus() {
+    try {
+        const r = await fetch('/api/account-pool');
+        const data = await r.json();
+        const el = document.getElementById('poolStatus');
+        if (!el) return;
+        const engines = Object.keys(data).filter(k => typeof data[k] === 'object' && data[k].slots);
+        if (engines.length === 0) { el.textContent = 'none'; return; }
+        const parts = [];
+        for (const eng of engines) {
+            const info = data[eng];
+            const slots = info.slots || [];
+            const active = slots.filter(s => s.available).length;
+            parts.push(eng.charAt(0).toUpperCase() + ':' + active + '/' + slots.length);
+        }
+        el.innerHTML = parts.map(p => {
+            const [label, counts] = p.split(':');
+            const [a, t] = counts.split('/');
+            const color = a === t ? 'text-emerald-400' : parseInt(a) > 0 ? 'text-amber-400' : 'text-rose-400';
+            return '<span class="' + color + '">' + label + ' ' + counts + '</span>';
+        }).join('<span class="text-slate-700 mx-0.5">|</span>');
+    } catch(e) {
+        const el = document.getElementById('poolStatus');
+        if (el) el.textContent = 'err';
+    }
+}
+
+async function loadDedupStatus() {
+    try {
+        const r = await fetch('/api/dedup-cache');
+        const data = await r.json();
+        const el = document.getElementById('dedupStatus');
+        if (!el) return;
+        const active = data.active_entries || 0;
+        const total = data.total_entries || 0;
+        const ttl = data.ttl_hours || 6;
+        el.innerHTML = '<span class="text-violet-400 font-mono">' + active + '</span><span class="text-slate-600">/' + total + '</span> <span class="text-slate-600">TTL ' + ttl + 'h</span>';
+    } catch(e) {
+        const el = document.getElementById('dedupStatus');
+        if (el) el.textContent = 'err';
+    }
+}
+
+async function clearDedupCache() {
+    if (!confirm('Clear dedup cache? All brands will be re-scraped.')) return;
+    await fetch('/api/dedup-cache/clear', {method: 'POST'});
+    loadDedupStatus();
+}
+
+async function triggerParallelRun() {
+    const btn = document.getElementById('parallelBtn');
+    const batch = document.getElementById('parallelBatch').value || 50;
+    btn.disabled = true;
+    btn.textContent = 'Running...';
+    try {
+        const r = await fetch('/api/run-parallel', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({batch_size: parseInt(batch)})
+        });
+        const data = await r.json();
+        btn.textContent = data.status === 'started' ? 'Started!' : 'Done';
+    } catch(e) {
+        btn.textContent = 'Error';
+    }
+    setTimeout(function() { btn.disabled = false; btn.textContent = 'Run Parallel'; }, 3000);
+}
+
+async function fillGaps() {
+    const btn = document.getElementById('fillGapsBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<svg class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg> Checking...';
+    try {
+        const gaps = await fetch('/api/coverage-gaps').then(r => r.json());
+        if (gaps.total_gaps === 0) {
+            btn.innerHTML = 'No gaps!';
+            setTimeout(() => { btn.disabled = false; btn.innerHTML = '<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg> Fill Gaps'; }, 3000);
+            return;
+        }
+        const detail = Object.entries(gaps.by_engine).map(([e,c]) => `${e}: ${c}`).join(', ');
+        if (!confirm(`Found ${gaps.total_gaps} gaps:\n${detail}\n\nFill them now?`)) {
+            btn.disabled = false;
+            btn.innerHTML = '<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg> Fill Gaps';
+            return;
+        }
+        const r = await fetch('/api/fill-gaps', {method: 'POST'});
+        const data = await r.json();
+        btn.innerHTML = `Filling ${data.keywords_with_gaps} keywords...`;
+        setTimeout(() => { btn.disabled = false; btn.innerHTML = '<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg> Fill Gaps'; }, 10000);
+    } catch(e) {
+        btn.innerHTML = 'Error';
+        setTimeout(() => { btn.disabled = false; btn.innerHTML = '<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg> Fill Gaps'; }, 3000);
+    }
+}
+
+loadPoolStatus();
+loadDedupStatus();
+setInterval(loadPoolStatus, 30000);
+setInterval(loadDedupStatus, 30000);
+
+// ─── Smart Alerts ───────────────────────────────────────────────
+let _alertsData = [];
+let _alertFilter = 'all';
+
+function toggleAlertPanel() {
+    const panel = document.getElementById('alertPanel');
+    panel.classList.toggle('hidden');
+    if (!panel.classList.contains('hidden')) loadSmartAlerts();
+}
+
+function filterAlerts(type) {
+    _alertFilter = type;
+    document.querySelectorAll('.alert-filter-pill').forEach(b => {
+        b.classList.remove('bg-slate-800', 'text-slate-200');
+        b.classList.add('text-slate-500');
+    });
+    const active = document.querySelector(`.alert-filter-pill[data-filter="${type}"]`);
+    if (active) { active.classList.add('bg-slate-800', 'text-slate-200'); active.classList.remove('text-slate-500'); }
+    renderAlerts();
+}
+
+async function dismissAlert(idx) {
+    const a = _alertsData[idx];
+    if (!a || !a.id) return;
+    a.is_read = true;
+    await fetch(`/api/notifications/${a.id}/read`, {method:'POST'});
+    renderAlerts();
+    updateBadge();
+}
+
+async function dismissAllAlerts() {
+    await fetch('/api/notifications/read-all', {method:'POST'});
+    _alertsData.forEach(a => { a.is_read = true; });
+    renderAlerts();
+    updateBadge();
+}
+
+function updateBadge() {
+    const visible = _alertsData.filter(a => !a.is_read);
+    const crits = visible.filter(a => a.severity === 'critical').length;
+    const warns = visible.filter(a => a.severity === 'warning').length;
+    const bg = crits > 0 ? 'linear-gradient(135deg,#dc2626,#ef4444)' : warns > 0 ? 'linear-gradient(135deg,#ef4444,#f97316)' : 'linear-gradient(135deg,#06b6d4,#8b5cf6)';
+    ['alertBadge'].forEach(id => {
+        const badge = document.getElementById(id);
+        if (!badge) return;
+        if (visible.length > 0) {
+            badge.style.display = 'flex';
+            badge.classList.remove('hidden');
+            badge.textContent = visible.length;
+            badge.style.background = bg;
+        } else {
+            badge.style.display = 'none';
+            badge.classList.add('hidden');
+        }
+    });
+}
+
+function renderAlerts() {
+    const list = document.getElementById('alertList');
+    const footer = document.getElementById('alertFooter');
+    const summary = document.getElementById('alertSummary');
+    const countLabel = document.getElementById('alertCountLabel');
+
+    let visible = _alertsData.filter(a => !a.is_read);
+    if (_alertFilter !== 'all') visible = visible.filter(a => a.type === _alertFilter);
+
+    countLabel.textContent = visible.length + ' active';
+
+    if (!visible.length) {
+        const allRead = _alertsData.length > 0 && visible.length === 0;
+        list.innerHTML = `<div class="flex flex-col items-center py-12 gap-3">
+            <div class="w-12 h-12 rounded-full flex items-center justify-center" style="background:rgba(16,185,129,0.1)">
+                <svg class="w-6 h-6 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+            </div>
+            <div class="text-center">
+                <p class="text-xs text-emerald-400 font-semibold">${allRead ? 'All alerts dismissed' : 'All clear'}</p>
+                <p class="text-[10px] text-slate-600 mt-1">${allRead ? 'New alerts will appear when anomalies are detected' : 'No anomalies detected — everything looks healthy'}</p>
+            </div>
+        </div>`;
+        footer.classList.add('hidden');
+        return;
+    }
+
+    const ALERT_ICONS = {
+        citation_change: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6"/></svg>',
+        new_competitor: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>',
+        rank_drop: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"/></svg>',
+        seo_movement: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>',
+        sentiment_shift: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>',
+        hallucinated_coupon: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg>',
+        engine_dark: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636"/></svg>',
+        citation_lost: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M3 3l18 18"/></svg>',
+        serp_feature_lost: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/></svg>',
+        diagnosis: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>',
+        trend_decline: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6"/></svg>',
+    };
+    const TYPE_META = {
+        citation_change: { label: 'Citations', iconBg: 'rgba(245,158,11,0.12)', iconColor: '#f59e0b', summaryColor: '#f59e0b' },
+        new_competitor: { label: 'Competitors', iconBg: 'rgba(239,68,68,0.12)', iconColor: '#ef4444', summaryColor: '#ef4444' },
+        rank_drop: { label: 'Rank Drops', iconBg: 'rgba(239,68,68,0.12)', iconColor: '#ef4444', summaryColor: '#ef4444' },
+        seo_movement: { label: 'SEO', iconBg: 'rgba(6,182,212,0.12)', iconColor: '#06b6d4', summaryColor: '#06b6d4' },
+        sentiment_shift: { label: 'Sentiment', iconBg: 'rgba(168,85,247,0.12)', iconColor: '#a855f7', summaryColor: '#a855f7' },
+        hallucinated_coupon: { label: 'Coupons', iconBg: 'rgba(245,158,11,0.12)', iconColor: '#f59e0b', summaryColor: '#f59e0b' },
+        engine_dark: { label: 'Engine Down', iconBg: 'rgba(239,68,68,0.15)', iconColor: '#ef4444', summaryColor: '#ef4444' },
+        citation_lost: { label: 'Citations Lost', iconBg: 'rgba(245,158,11,0.12)', iconColor: '#f59e0b', summaryColor: '#f59e0b' },
+        serp_feature_lost: { label: 'SERP Features', iconBg: 'rgba(234,179,8,0.12)', iconColor: '#eab308', summaryColor: '#eab308' },
+        diagnosis: { label: 'Diagnosis', iconBg: 'rgba(168,85,247,0.12)', iconColor: '#a855f7', summaryColor: '#a855f7' },
+        trend_decline: { label: 'Trends', iconBg: 'rgba(239,68,68,0.12)', iconColor: '#ef4444', summaryColor: '#ef4444' },
+    };
+    const SEV_STYLES = {
+        critical: { borderColor: '#dc2626', bgHover: 'rgba(220,38,38,0.05)' },
+        warning: { borderColor: '#f59e0b', bgHover: 'rgba(245,158,11,0.05)' },
+        info: { borderColor: '#06b6d4', bgHover: 'rgba(6,182,212,0.05)' },
+        positive: { borderColor: '#10b981', bgHover: 'rgba(16,185,129,0.05)' },
+    };
+
+    const grouped = {};
+    visible.forEach((a, i) => {
+        a._origIdx = _alertsData.indexOf(a);
+        if (!grouped[a.type]) grouped[a.type] = [];
+        grouped[a.type].push(a);
+    });
+
+    let html = '';
+    for (const [type, alerts] of Object.entries(grouped)) {
+        const meta = TYPE_META[type] || { icon: '🔔', label: type, color: 'slate', gradient: 'from-slate-500/5 to-transparent' };
+
+        const icon = ALERT_ICONS[type] || ALERT_ICONS.seo_movement;
+        if (alerts.length > 3) {
+            const sev = SEV_STYLES[alerts[0].severity] || SEV_STYLES.info;
+            const first = alerts[0];
+            const rest = alerts.slice(1);
+            html += `<div class="rounded-xl border border-slate-800/50 transition-all hover:border-slate-700/60 group" style="border-left:3px solid ${sev.borderColor}">
+                <div class="flex items-start gap-3 px-4 py-3">
+                    <div class="flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center mt-0.5" style="background:${meta.iconBg};color:${meta.iconColor}">
+                        ${icon}
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <p class="text-xs text-slate-100 font-semibold leading-snug">${first.title}</p>
+                        <p class="text-[11px] text-slate-500 mt-1 leading-relaxed">${first.detail}</p>
+                        <details class="mt-2">
+                            <summary class="text-[11px] cursor-pointer font-medium select-none list-none flex items-center gap-1" style="color:${meta.summaryColor}">
+                                <svg class="w-3 h-3 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                                ${rest.length} more ${meta.label.toLowerCase()}
+                            </summary>
+                            <div class="mt-2 space-y-1.5 pl-1 border-l-2 border-slate-800/80 ml-1">`;
+            rest.forEach(a => {
+                const shortTitle = a.title.replace(/New competitor in top \d+: /, '').replace(/^SEO (dropped|improved): /, '');
+                html += `<div class="flex items-center justify-between pl-3 py-1 rounded-r hover:bg-slate-900/40 group/item transition-colors">
+                    <div class="min-w-0 flex-1">
+                        <span class="text-[11px] text-slate-400">${shortTitle}</span>
+                        <span class="text-[9px] text-slate-600 ml-2">${a.detail.length > 40 ? a.detail.slice(0,40)+'…' : a.detail}</span>
+                    </div>
+                    <button onclick="event.stopPropagation(); dismissAlert(${a._origIdx})" class="opacity-0 group-hover/item:opacity-100 text-slate-700 hover:text-slate-400 p-1 transition-opacity flex-shrink-0 rounded" title="Dismiss">
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                </div>`;
+            });
+            html += `</div></details></div>
+                    <button onclick="event.stopPropagation(); dismissAlert(${first._origIdx})" class="opacity-0 group-hover:opacity-100 text-slate-700 hover:text-slate-300 p-1 transition-opacity flex-shrink-0 rounded hover:bg-slate-800" title="Dismiss">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                </div>
+            </div>`;
+        } else {
+            alerts.forEach(a => {
+                const sev = SEV_STYLES[a.severity] || SEV_STYLES.info;
+                html += `<div class="rounded-xl border border-slate-800/50 transition-all hover:border-slate-700/60 group" style="border-left:3px solid ${sev.borderColor}">
+                    <div class="flex items-start gap-3 px-4 py-3">
+                        <div class="flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center mt-0.5" style="background:${meta.iconBg};color:${meta.iconColor}">
+                            ${icon}
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <p class="text-xs text-slate-100 font-semibold leading-snug">${a.title}</p>
+                            <p class="text-[11px] text-slate-500 mt-1 leading-relaxed">${a.detail}</p>
+                        </div>
+                        <button onclick="event.stopPropagation(); dismissAlert(${a._origIdx})" class="opacity-0 group-hover:opacity-100 text-slate-700 hover:text-slate-300 p-1 transition-opacity flex-shrink-0 rounded hover:bg-slate-800" title="Dismiss">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                        </button>
+                    </div>
+                </div>`;
+            });
+        }
+    }
+    list.innerHTML = html;
+
+    const crits = visible.filter(a => a.severity === 'critical').length;
+    const warns = visible.filter(a => a.severity === 'warning').length;
+    const infos = visible.filter(a => a.severity === 'info').length;
+    let parts = [];
+    if (crits) parts.push(`${crits} critical`);
+    if (warns) parts.push(`${warns} warning${warns>1?'s':''}`);
+    if (infos) parts.push(`${infos} info`);
+    summary.textContent = parts.join(' · ');
+    footer.classList.remove('hidden');
+}
+
+async function loadSmartAlerts() {
+    try {
+        const alerts = await fetch('/api/insights/smart-alerts').then(r => r.json());
+        _alertsData = alerts;
+        updateBadge();
+
+        const types = [...new Set(alerts.map(a => a.type))];
+        const filtersEl = document.getElementById('alertFilters');
+        if (types.length > 1) {
+            const TYPE_LABELS = {
+                citation_change: 'Citations', new_competitor: 'Competitors',
+                rank_drop: 'Rank Drops', seo_movement: 'SEO',
+                sentiment_shift: 'Sentiment', hallucinated_coupon: 'Coupons',
+                engine_dark: 'Engine Down', citation_lost: 'Citations Lost',
+                serp_feature_lost: 'SERP Features', diagnosis: 'Diagnosis',
+                trend_decline: 'Trends',
+            };
+            filtersEl.classList.remove('hidden');
+            filtersEl.innerHTML = `<button onclick="filterAlerts('all')" data-filter="all" class="alert-filter-pill px-2 py-0.5 rounded-md text-[9px] font-semibold transition-all bg-slate-800 text-slate-200 cursor-pointer">All <span class="text-slate-500 ml-0.5">${alerts.length}</span></button>` +
+                types.map(t => {
+                    const cnt = alerts.filter(a => a.type === t).length;
+                    return `<button onclick="filterAlerts('${t}')" data-filter="${t}" class="alert-filter-pill px-2 py-0.5 rounded-md text-[9px] font-semibold transition-all text-slate-500 hover:text-slate-300 cursor-pointer">${TYPE_LABELS[t]||t} <span class="text-slate-600 ml-0.5">${cnt}</span></button>`;
+                }).join('');
+        } else {
+            filtersEl.classList.add('hidden');
+        }
+
+        renderAlerts();
+    } catch(e) { console.error('smart-alerts:', e); }
+}
+
+loadSmartAlerts();
+setInterval(loadSmartAlerts, 120000);
+
+// ─── Cycle-over-Cycle Changelog ─────────────────────────────────
+let _changelogLoaded = false;
+function toggleChangelog() {
+    const panel = document.getElementById('cycleChangelog');
+    const btn = document.getElementById('changelogToggle');
+    panel.classList.toggle('hidden');
+    btn.innerHTML = panel.classList.contains('hidden') ? 'Show changelog &#9662;' : 'Hide changelog &#9652;';
+    if (!_changelogLoaded) { _changelogLoaded = true; loadChangelog(); }
+}
+
+async function loadChangelog() {
+    try {
+        const rows = await fetch('/api/insights/cycle-changelog').then(r => r.json());
+        const el = document.getElementById('changelogTable');
+
+        if (!rows.length) { el.innerHTML = '<div class="text-[10px] text-slate-600">No cycle data yet.</div>'; return; }
+
+        function delta(val) {
+            if (val === null || val === undefined) return '<span class="text-slate-700">—</span>';
+            if (val > 0) return `<span class="text-emerald-400">+${val}</span>`;
+            if (val < 0) return `<span class="text-rose-400">${val}</span>`;
+            return '<span class="text-slate-600">0</span>';
+        }
+
+        let html = `<table class="w-full text-[9px]"><thead class="sticky top-0 bg-slate-950 z-10"><tr class="text-slate-500 border-b border-slate-800 uppercase tracking-wider">
+            <th class="text-left px-2 py-1.5">Date</th><th class="text-center px-1 py-1.5">Scrapes</th>
+            <th class="text-center px-1 py-1.5">Mentions</th><th class="text-center px-1 py-1.5">Δ</th>
+            <th class="text-center px-1 py-1.5">#1</th><th class="text-center px-1 py-1.5">Δ</th>
+            <th class="text-center px-1 py-1.5">Avg Rank</th><th class="text-center px-1 py-1.5">Δ</th>
+            <th class="text-center px-1 py-1.5">Citations</th><th class="text-center px-1 py-1.5">Δ</th>
+        </tr></thead><tbody>`;
+        rows.forEach(r => {
+            html += `<tr class="border-b border-slate-900/20 hover:bg-slate-900/20">
+                <td class="px-2 py-1 text-slate-300">${r.day}</td>
+                <td class="text-center px-1 py-1 text-slate-500">${r.total_scrapes}</td>
+                <td class="text-center px-1 py-1 text-amber-400 font-semibold">${r.target_mentions}</td>
+                <td class="text-center px-1 py-1">${delta(r.mentions_delta)}</td>
+                <td class="text-center px-1 py-1 text-emerald-400 font-bold">${r.rank1_count}</td>
+                <td class="text-center px-1 py-1">${delta(r.rank1_delta)}</td>
+                <td class="text-center px-1 py-1 text-cyan-400">${r.avg_rank || '-'}</td>
+                <td class="text-center px-1 py-1">${delta(r.rank_delta)}</td>
+                <td class="text-center px-1 py-1 text-violet-400">${r.citations}</td>
+                <td class="text-center px-1 py-1">${delta(r.citations_delta)}</td>
+            </tr>`;
+        });
+        html += '</tbody></table>';
+        el.innerHTML = html;
+    } catch(e) { console.error('changelog:', e); }
+}
+
+window.onDateRangeChange = function(range) {
+    var label = document.getElementById('periodLabel');
+    if (range.date_from && range.date_to) {
+        if (label) label.textContent = '| ' + range.date_from + ' to ' + range.date_to;
+    } else if (range.days) {
+        if (label) label.textContent = '| Last ' + range.days + ' days';
+    }
+    if (typeof refreshLive === 'function') refreshLive();
+    if (typeof loadChangelog === 'function') loadChangelog();
+};
+
+window.onComparisonResult = function(data) {
+    var el = document.getElementById('comparisonResults');
+    if (!el) {
+        var panel = document.getElementById('comparisonPanel');
+        if (!panel) return;
+        el = document.createElement('div');
+        el.id = 'comparisonResults';
+        el.className = 'mt-3';
+        panel.appendChild(el);
+    }
+    if (!data || !data.period_a) { el.innerHTML = '<p class="text-xs text-slate-500">No data</p>'; return; }
+    var a = data.period_a, b = data.period_b, d = data.deltas || {};
+    function delta(key) {
+        var v = d[key]; var p = d[key + '_pct'];
+        if (v === undefined || v === null) return '<span class="text-slate-600">--</span>';
+        var color = v > 0 ? 'text-emerald-400' : v < 0 ? 'text-rose-400' : 'text-slate-500';
+        var arrow = v > 0 ? '↑' : v < 0 ? '↓' : '→';
+        return '<span class="' + color + '">' + arrow + ' ' + Math.abs(v) + (p !== undefined ? ' (' + (p > 0 ? '+' : '') + p + '%)' : '') + '</span>';
+    }
+    var metrics = ['mentions', 'rank_1', 'avg_rank', 'positive', 'citations', 'keywords', 'top_10', 'competing_domains'];
+    var labels = {'mentions':'Mentions','rank_1':'#1 Rank','avg_rank':'Avg Rank','positive':'Positive','citations':'Citations','keywords':'Keywords','top_10':'Top 10','competing_domains':'Competing Domains'};
+    var html = '<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 mt-2">';
+    metrics.forEach(function(m) {
+        if (a[m] === undefined && b[m] === undefined) return;
+        html += '<div class="glass-card rounded-lg p-2 text-center">';
+        html += '<div class="text-[9px] text-slate-500 uppercase font-semibold">' + (labels[m] || m) + '</div>';
+        html += '<div class="flex items-center justify-center gap-2 mt-1">';
+        html += '<span class="text-xs text-slate-300 font-bold">' + (a[m] !== null ? a[m] : '--') + '</span>';
+        html += '<span class="text-[9px] text-slate-600">vs</span>';
+        html += '<span class="text-xs text-slate-400">' + (b[m] !== null ? b[m] : '--') + '</span>';
+        html += '</div>';
+        html += '<div class="text-[10px] mt-0.5">' + delta(m) + '</div>';
+        html += '</div>';
+    });
+    html += '</div>';
+    html = '<div class="flex items-center gap-2 mt-2"><span class="text-[10px] text-cyan-400 font-bold">' + (data.period_a_label || 'Period A') + '</span><span class="text-slate-600 text-[10px]">vs</span><span class="text-[10px] text-slate-400">' + (data.period_b_label || 'Period B') + '</span></div>' + html;
+    el.innerHTML = html;
+};
+</script>
+{% endblock %}

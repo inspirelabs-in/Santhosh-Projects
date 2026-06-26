@@ -1,0 +1,79 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: grabon-geo-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: grabon_geo
+      TZ: Asia/Kolkata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d grabon_geo"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+    restart: unless-stopped
+
+  web:
+    image: ghcr.io/inspirelabs-in/grabon-geo:latest
+    container_name: grabon-geo-web
+    init: true
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      DATABASE_URL: postgresql://postgres:${DB_PASSWORD:-postgres}@db:5432/grabon_geo
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      CLOUDPROXY_URL: ${CLOUDPROXY_URL}
+      TEAMS_WEBHOOK_URL: ${TEAMS_WEBHOOK_URL}
+      MALLOC_ARENA_MAX: "2"
+      TZ: Asia/Kolkata
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=5)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 4G
+        reservations:
+          cpus: "1.0"
+          memory: 1G
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: always
+
+  # Auto-updates: polls GHCR every 5 min, pulls new image + restarts web
+  watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower
+    environment:
+      WATCHTOWER_CLEANUP: "true"
+      WATCHTOWER_POLL_INTERVAL: "300"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: grabon-geo-web
+    restart: unless-stopped
+
+  # Cloudflare Tunnel: set CLOUDFLARE_TUNNEL_TOKEN in .env
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflare-tunnel
+    command: tunnel run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - web
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

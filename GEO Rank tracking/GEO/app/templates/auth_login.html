@@ -1,0 +1,1252 @@
+{% extends "base.html" %}
+{% block title %}Engine Authentication{% endblock %}
+
+{% block content %}
+<div class="space-y-5 max-w-[1440px] mx-auto">
+    <div class="flex items-center justify-between pb-4 border-b border-slate-800/60">
+        <div>
+            <h2 class="text-2xl font-bold text-slate-100 tracking-tight">Engine Authentication</h2>
+            <p class="text-xs text-slate-500 mt-0.5">Credentials, cookie health, and login status for all AI engines</p>
+        </div>
+        <div class="flex items-center gap-2">
+            <button onclick="refreshAllHealth()" class="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-400 text-xs rounded-lg border border-slate-800 cursor-pointer">
+                Refresh All
+            </button>
+            <button onclick="healAllEngines()" id="healAllBtn" class="hidden px-3 py-1.5 bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 text-xs font-bold rounded-lg border border-amber-500/30 cursor-pointer">
+                Auto-Heal Unhealthy
+            </button>
+        </div>
+    </div>
+
+    <!-- System Health Summary Bar -->
+    <div id="systemHealthBar" class="glass-panel border border-slate-800/60 rounded-xl px-5 py-3">
+        <div class="flex items-center gap-6 flex-wrap">
+            <div class="flex items-center gap-2">
+                <div id="overallDot" class="w-2.5 h-2.5 rounded-full bg-slate-600"></div>
+                <span id="overallLabel" class="text-xs font-bold text-slate-400">Loading...</span>
+            </div>
+            <div class="flex items-center gap-4 text-xs text-slate-500" id="healthSummaryStats"></div>
+        </div>
+        <!-- Action Required Banner -->
+        <div id="actionRequiredBanner" class="hidden mt-3 pt-3 border-t border-slate-800/60">
+            <div class="flex items-center gap-2 mb-2">
+                <svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg>
+                <span class="text-xs font-bold text-amber-400">Action Required</span>
+            </div>
+            <div id="actionRequiredList" class="flex flex-wrap gap-2"></div>
+        </div>
+    </div>
+
+    <!-- Credentials & Status Overview Table -->
+    <div class="glass-panel border border-slate-800/60 rounded-xl p-5 space-y-4">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-sm font-bold text-slate-100">Credentials & Status Overview</p>
+                <p class="text-xs text-slate-500 mt-0.5">All stored accounts, login status, and cookie health at a glance</p>
+            </div>
+            <div class="flex items-center gap-3">
+                <div id="credCountBadge" class="text-xs px-2.5 py-1 rounded-full bg-slate-900 text-slate-500">0 accounts</div>
+                <div id="needsAttentionBadge" class="hidden text-xs px-2.5 py-1 rounded-full bg-rose-500/10 text-rose-400 font-bold">0 need attention</div>
+            </div>
+        </div>
+
+        <div class="overflow-x-auto">
+            <table class="w-full text-xs">
+                <thead>
+                    <tr class="border-b border-slate-800/60">
+                        <th class="text-left py-2.5 px-3 text-slate-500 font-semibold uppercase tracking-wider">Engine</th>
+                        <th class="text-left py-2.5 px-3 text-slate-500 font-semibold uppercase tracking-wider">Credentials</th>
+                        <th class="text-left py-2.5 px-3 text-slate-500 font-semibold uppercase tracking-wider">Email</th>
+                        <th class="text-left py-2.5 px-3 text-slate-500 font-semibold uppercase tracking-wider">Cookie Status</th>
+                        <th class="text-left py-2.5 px-3 text-slate-500 font-semibold uppercase tracking-wider">Cookies</th>
+                        <th class="text-left py-2.5 px-3 text-slate-500 font-semibold uppercase tracking-wider">Last Updated</th>
+                        <th class="text-left py-2.5 px-3 text-slate-500 font-semibold uppercase tracking-wider">Expiry</th>
+                        <th class="text-left py-2.5 px-3 text-slate-500 font-semibold uppercase tracking-wider">Status</th>
+                        <th class="text-right py-2.5 px-3 text-slate-500 font-semibold uppercase tracking-wider">Action</th>
+                    </tr>
+                </thead>
+                <tbody id="credStatusTableBody">
+                    <tr><td colspan="9" class="py-6 text-center text-slate-600">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Engine Account Cards (detailed view) -->
+    <div>
+        <p class="text-sm font-bold text-slate-100 mb-3">Engine Details</p>
+        <div id="engineAccountGrid" class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div class="glass-panel border border-slate-800/60 rounded-xl p-4 animate-pulse">
+                <div class="h-24 bg-slate-900 rounded"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Google Account Management (Multi-Account) -->
+    <div class="glass-panel border border-slate-800/60 rounded-xl p-5 space-y-4">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-sm font-bold text-slate-100">Google Accounts</p>
+                <p class="text-xs text-slate-500 mt-0.5">Multiple Google accounts distribute load across engines. Each account gets its own cookie slot for rotation.</p>
+            </div>
+            <div class="flex items-center gap-2">
+                <div id="googleAccountBadge" class="text-xs px-2 py-1 rounded-full bg-slate-900 text-slate-500">Loading...</div>
+                <button onclick="triggerMultiLogin()" id="multiLoginBtn" class="hidden px-3 py-1.5 bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 text-xs font-bold rounded-lg border border-amber-500/30 cursor-pointer">
+                    Login All Engines
+                </button>
+            </div>
+        </div>
+
+        <!-- Stored Accounts List -->
+        <div id="storedAccountsList" class="space-y-2"></div>
+
+        <!-- Add New Account -->
+        <div class="border border-dashed border-slate-800 rounded-lg p-4 space-y-3">
+            <p class="text-xs font-bold text-slate-400">Add Google Account</p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                    <input id="autoEmail" type="email" placeholder="your@gmail.com"
+                        class="w-full text-xs p-2.5 bg-slate-950 border border-slate-800/60 rounded-lg text-slate-300 placeholder-slate-600 outline-none focus:border-amber-500/60">
+                </div>
+                <div>
+                    <input id="autoPassword" type="password" placeholder="Password"
+                        class="w-full text-xs p-2.5 bg-slate-950 border border-slate-800/60 rounded-lg text-slate-300 placeholder-slate-600 outline-none focus:border-amber-500/60">
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <button onclick="saveCredentials()" class="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs rounded-lg cursor-pointer active:scale-95 transition-all">
+                    Add Account
+                </button>
+                <span id="autoStatus" class="text-xs text-slate-500"></span>
+            </div>
+        </div>
+        <div id="multiLoginStatus" class="hidden text-xs text-amber-400"></div>
+    </div>
+
+    <!-- Login Panel (shown when engine selected) -->
+    <div id="loginPanel" class="hidden space-y-4">
+        <div class="flex items-center gap-3">
+            <span id="loginPanelTitle" class="text-sm font-bold text-slate-100"></span>
+            <div class="flex gap-2">
+                <button onclick="switchMethod('auto')" id="methodAutoTab" class="px-3 py-1.5 rounded-lg text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 cursor-pointer transition-all">Auto Login</button>
+                <button onclick="switchMethod('browser')" id="methodBrowserTab" class="px-3 py-1.5 rounded-lg text-[10px] font-bold bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200 cursor-pointer transition-all">Browser</button>
+                <button onclick="switchMethod('manual')" id="methodManualTab" class="px-3 py-1.5 rounded-lg text-[10px] font-bold bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200 cursor-pointer transition-all">Manual Import</button>
+            </div>
+            <button onclick="closeLoginPanel()" class="ml-auto px-2 py-1 text-slate-500 hover:text-slate-300 text-xs cursor-pointer">Close</button>
+        </div>
+
+        <!-- Auto Login Section -->
+        <div id="autoLoginSection" class="glass-panel border border-slate-800/60 rounded-xl p-5 space-y-4">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-xs font-bold text-slate-300" id="autoLoginEngineLabel">Auto Login</p>
+                    <p class="text-[10px] text-slate-500 mt-1" id="autoLoginHint">Uses Google OAuth to login automatically</p>
+                </div>
+                <div id="engineCookieStatus" class="text-[10px] px-2 py-1 rounded-full bg-slate-900 text-slate-500"></div>
+            </div>
+
+            <div class="flex items-center gap-3">
+                <button onclick="triggerAutoLogin()" id="autoLoginBtn" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-lg cursor-pointer active:scale-95 transition-all">
+                    Run Auto Login
+                </button>
+                <span id="autoLoginStatus" class="text-[10px] text-slate-500"></span>
+            </div>
+
+            <div id="autoOtpSection" class="hidden bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
+                <div class="flex items-center gap-3">
+                    <svg class="w-5 h-5 text-amber-400 shrink-0 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                    <div class="flex-1">
+                        <p class="text-xs text-amber-400 font-bold">OTP / Verification Code Required</p>
+                        <p class="text-[10px] text-amber-400/70">Enter the code from your authenticator app, SMS, or email</p>
+                    </div>
+                    <input id="autoOtpInput" type="text" placeholder="Enter code..." maxlength="10"
+                        class="w-32 px-2.5 py-1.5 bg-slate-950 border border-amber-500/40 rounded text-slate-200 text-xs outline-none focus:border-amber-400"
+                        onkeydown="if(event.key==='Enter')submitAutoOtp()">
+                    <button onclick="submitAutoOtp()" class="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[10px] rounded cursor-pointer">Submit</button>
+                </div>
+            </div>
+
+            <div id="autoRedoBanner" class="hidden bg-rose-500/10 border border-rose-500/30 rounded-lg p-4">
+                <div class="flex items-center gap-3">
+                    <svg class="w-5 h-5 text-rose-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg>
+                    <div class="flex-1">
+                        <p class="text-xs text-rose-400 font-bold" id="redoTitle">Auto-login needs help</p>
+                        <p class="text-[10px] text-rose-400/70" id="redoDetail">CAPTCHA or verification detected.</p>
+                    </div>
+                    <button onclick="redoAsInteractive()" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-lg cursor-pointer active:scale-95 whitespace-nowrap">
+                        Redo as Interactive
+                    </button>
+                </div>
+            </div>
+
+            <div id="autoLoginLog" class="hidden bg-slate-950/60 border border-slate-800 rounded-lg p-3 max-h-40 overflow-y-auto space-y-1 text-[10px] font-mono"></div>
+        </div>
+
+        <!-- Browser login -->
+        <div id="loginAction" class="hidden glass-panel border border-slate-800/60 rounded-xl p-4">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm font-bold text-slate-100" id="browserLoginLabel">Login</p>
+                    <p class="text-[10px] text-slate-500">Opens headless browser - interact via screenshot below</p>
+                </div>
+                <button onclick="startLogin()" id="startBtn" class="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-bold rounded-lg cursor-pointer active:scale-95 transition-all">
+                    Start Login
+                </button>
+            </div>
+        </div>
+
+        <!-- Manual import section -->
+        <div id="manualImportSection" class="hidden glass-panel border border-slate-800/60 rounded-xl p-5 space-y-4">
+            <div>
+                <p class="text-sm font-bold text-slate-100" id="manualImportLabel">Import Cookies</p>
+                <p class="text-[10px] text-slate-500 mt-1">Export cookies from your real browser and paste below</p>
+            </div>
+
+            <div class="bg-slate-950/60 border border-slate-800 rounded-lg p-3 space-y-2 text-xs text-slate-400">
+                <p class="text-amber-400 font-bold text-[11px]">How to export cookies:</p>
+                <div class="space-y-1.5">
+                    <p>1. Install <a href="https://cookie-editor.com" target="_blank" class="text-amber-400 underline underline-offset-2">Cookie-Editor</a> extension</p>
+                    <p>2. Go to engine site and login normally</p>
+                    <p>3. Click Cookie-Editor icon, Export as JSON, paste below</p>
+                </div>
+            </div>
+
+            <div>
+                <label class="text-[11px] font-semibold text-slate-300 block mb-1.5">Cookies JSON <span class="text-red-400">*</span></label>
+                <textarea id="cookiesInput" rows="5" placeholder='[{"name": "...", "value": "...", ...}, ...]'
+                    class="w-full text-xs px-3 py-2.5 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 placeholder-slate-600 outline-none focus:border-amber-500/60 font-mono resize-y"></textarea>
+            </div>
+
+            <div id="localstorageSection" class="hidden">
+                <label class="text-[11px] font-semibold text-slate-300 block mb-1.5">localStorage JSON <span class="text-slate-600">(optional)</span></label>
+                <div class="bg-slate-950/60 border border-slate-800 rounded-lg p-2 mb-2">
+                    <p class="text-[10px] text-slate-500 mb-1">Open DevTools console (F12) on logged-in page and run:</p>
+                    <div class="flex items-center gap-2">
+                        <code id="lsCommand" class="flex-1 text-[10px] text-amber-400 bg-slate-900 px-2 py-1 rounded font-mono select-all">JSON.stringify(Object.fromEntries(Object.entries(localStorage)))</code>
+                        <button onclick="copyLsCommand()" class="px-2 py-1 bg-slate-900 hover:bg-slate-800 text-slate-400 text-[10px] rounded border border-slate-700 cursor-pointer shrink-0">Copy</button>
+                    </div>
+                </div>
+                <textarea id="localstorageInput" rows="3" placeholder='{"key": "value", ...}'
+                    class="w-full text-xs px-3 py-2.5 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 placeholder-slate-600 outline-none focus:border-amber-500/60 font-mono resize-y"></textarea>
+            </div>
+
+            <div class="flex items-center gap-3">
+                <button onclick="importCookies()" id="importBtn" class="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-slate-950 text-xs font-bold rounded-lg cursor-pointer active:scale-95 transition-all">
+                    Import Cookies
+                </button>
+                <span id="importStatus" class="text-xs text-slate-500"></span>
+            </div>
+        </div>
+
+        <!-- Browser View -->
+        <div id="browserSection" class="hidden space-y-3">
+            <div class="flex items-center justify-between glass-panel border border-slate-800/60 rounded-xl px-4 py-2.5">
+                <div class="flex items-center gap-3">
+                    <div id="statusDot" class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></div>
+                    <span id="statusText" class="text-xs text-slate-400">Connecting...</span>
+                </div>
+                <div class="flex-1 mx-4">
+                    <div id="urlBar" class="text-[10px] text-slate-500 font-mono bg-slate-950/60 px-3 py-1.5 rounded-lg truncate border border-slate-900"></div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button onclick="saveCookies()" id="saveBtn" class="hidden px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-slate-950 text-xs font-bold rounded-lg cursor-pointer active:scale-95 transition-all">Save Cookies & Close</button>
+                    <button onclick="cancelLogin()" class="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-red-400 text-xs rounded-lg border border-slate-800 cursor-pointer">Cancel</button>
+                </div>
+            </div>
+
+            <div class="flex gap-3">
+                <div class="flex-1 relative">
+                    <div id="browserContainer" class="glass-panel border border-slate-800/60 rounded-xl overflow-auto relative" style="max-width:1024px; max-height:680px;">
+                        <canvas id="browserCanvas" class="w-full cursor-crosshair block" style="image-rendering: auto;"></canvas>
+                        <div id="loadingOverlay" class="absolute inset-0 flex items-center justify-center bg-slate-950/80">
+                            <div class="text-center">
+                                <svg class="w-8 h-8 text-amber-500 animate-spin mx-auto" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                <p class="text-xs text-slate-400 mt-2">Starting browser...</p>
+                            </div>
+                        </div>
+                        <div id="clickDot" class="absolute w-4 h-4 rounded-full bg-amber-500/60 border-2 border-amber-400 pointer-events-none hidden" style="transform: translate(-50%, -50%); z-index:10;"></div>
+                    </div>
+                </div>
+                <div class="flex flex-col justify-center gap-2">
+                    <button onclick="scrollBrowser('up')" class="w-9 h-9 flex items-center justify-center bg-slate-900 hover:bg-slate-800 text-slate-400 rounded-lg border border-slate-800 cursor-pointer transition-colors" title="Scroll Up">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"/></svg>
+                    </button>
+                    <button onclick="scrollBrowser('down')" class="w-9 h-9 flex items-center justify-center bg-slate-900 hover:bg-slate-800 text-slate-400 rounded-lg border border-slate-800 cursor-pointer transition-colors" title="Scroll Down">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                    </button>
+                </div>
+            </div>
+
+            <div class="flex gap-3">
+                <div class="flex-1 glass-panel border border-slate-800/60 rounded-xl p-2.5">
+                    <div class="flex gap-2">
+                        <input id="keyboardInput" type="text" placeholder="Type here - keystrokes go to browser..."
+                            class="flex-1 text-sm px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 placeholder-slate-600 outline-none focus:border-amber-500/60 font-mono"
+                            onkeydown="handleKeyDown(event)" autocomplete="off" autocorrect="off" spellcheck="false" />
+                        <button onclick="sendEnter()" class="px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 text-[10px] rounded-lg border border-amber-500/20 cursor-pointer font-mono font-bold">Enter</button>
+                        <button onclick="sendTab()" class="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 text-[10px] rounded-lg border border-slate-800 cursor-pointer font-mono">Tab</button>
+                        <button onclick="sendBackspace()" class="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 text-[10px] rounded-lg border border-slate-800 cursor-pointer font-mono">Bksp</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Auto-Refresh Schedule -->
+    <div class="glass-panel border border-slate-800/60 rounded-xl p-4 space-y-3">
+        <div class="flex items-center justify-between">
+            <p class="text-xs font-bold text-slate-300">Auto-Refresh Schedule</p>
+            <span class="text-[9px] text-slate-600">Live from scheduler</span>
+        </div>
+        <div id="schedulerGrid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 text-[10px]">
+            <div class="bg-slate-950/60 rounded-lg p-2.5 animate-pulse"><div class="h-8 bg-slate-900 rounded"></div></div>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-[10px] text-slate-500 pt-2 border-t border-slate-800/60">
+            <div class="space-y-1">
+                <p class="text-amber-400 font-bold">Health Check (15m)</p>
+                <p>Validates session cookies. Unhealthy triggers auto-refresh then re-login.</p>
+            </div>
+            <div class="space-y-1">
+                <p class="text-amber-400 font-bold">Cookie Refresh (6h)</p>
+                <p>Visits each engine to refresh cookies before expiry. Perplexity refreshes every 3h.</p>
+            </div>
+            <div class="space-y-1">
+                <p class="text-amber-400 font-bold">Pipeline Recovery</p>
+                <p>On scrape auth failure: refresh, then auto re-login. Failed slots enter cooldown, pool rotates.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const PROVIDER = '{{ active_provider }}';
+const ACTIVE_PROVIDER = '{{ active_provider }}';
+let sessionId = null;
+let polling = null;
+let busy = false;
+let _autoLoginSessionId = null;
+let _selectedEngine = null;
+let _engineData = {};
+
+const canvas = document.getElementById('browserCanvas');
+const ctx = canvas.getContext('2d');
+
+const ENGINE_LABELS = {
+    google: 'Google',
+    chatgpt: 'ChatGPT',
+    claude: 'Claude',
+    perplexity: 'Perplexity',
+    gemini: 'Gemini',
+};
+
+const ENGINE_ORDER = ['google', 'chatgpt', 'claude', 'perplexity', 'gemini'];
+
+// ── Engine Accounts Dashboard ──
+
+async function loadEngineAccounts() {
+    try {
+        const [accountData, poolData, schedulerData, credData] = await Promise.all([
+            fetch('/api/engine-accounts').then(r => r.json()),
+            fetch('/api/account-pool').then(r => r.json()),
+            fetch('/api/scheduler-status').then(r => r.json()).catch(() => ({})),
+            fetch('/api/auth/credentials').then(r => r.json()).catch(() => ({credentials:{}})),
+        ]);
+        _engineData = accountData;
+        _schedulerData = schedulerData;
+        _credData = credData.credentials || {};
+        renderEngineCards(accountData, poolData);
+        renderHealthSummary(accountData);
+        renderSchedulerGrid(schedulerData);
+        renderCredStatusTable(accountData, _credData);
+    } catch (e) {
+        console.error('Engine accounts load failed:', e);
+    }
+}
+
+let _credData = {};
+
+let _schedulerData = {};
+
+function renderSchedulerGrid(data) {
+    const grid = document.getElementById('schedulerGrid');
+    if (!data || !Object.keys(data).length) {
+        grid.innerHTML = '<div class="text-slate-600 text-[10px]">Scheduler not running</div>';
+        return;
+    }
+    const jobLabels = {
+        google_cookie_refresh: {label: 'Google Refresh', icon: 'text-cyan-400'},
+        chatgpt_cookie_refresh: {label: 'ChatGPT Refresh', icon: 'text-cyan-400'},
+        gemini_cookie_refresh: {label: 'Gemini Refresh', icon: 'text-cyan-400'},
+        claude_cookie_refresh: {label: 'Claude Refresh', icon: 'text-cyan-400'},
+        perplexity_cookie_refresh: {label: 'Perplexity Refresh', icon: 'text-cyan-400'},
+        cookie_health_check: {label: 'Health Check', icon: 'text-amber-400'},
+        verification_check: {label: 'Verification', icon: 'text-emerald-400'},
+    };
+    let html = '';
+    for (const [jid, info] of Object.entries(data)) {
+        const meta = jobLabels[jid];
+        if (!meta) continue;
+        const nextRun = info.next_run ? relativeTime(info.next_run) : 'N/A';
+        const interval = info.interval_seconds ? formatDuration(info.interval_seconds) : '';
+        html += `
+        <div class="bg-slate-950/60 border border-slate-800 rounded-lg p-2.5">
+            <div class="flex items-center gap-1.5 mb-1">
+                <div class="w-1.5 h-1.5 rounded-full ${meta.icon.replace('text-', 'bg-')}"></div>
+                <span class="text-[10px] font-bold text-slate-300">${meta.label}</span>
+            </div>
+            <div class="text-[9px] text-slate-500">Next: <span class="${meta.icon}">${nextRun}</span></div>
+            ${interval ? `<div class="text-[9px] text-slate-600">Interval: ${interval}</div>` : ''}
+        </div>`;
+    }
+    grid.innerHTML = html || '<div class="text-slate-600">No scheduled jobs</div>';
+}
+
+function relativeTime(isoStr) {
+    try {
+        const d = new Date(isoStr);
+        const diff = (d.getTime() - Date.now()) / 1000;
+        if (diff < 0) return 'overdue';
+        if (diff < 60) return 'in ' + Math.round(diff) + 's';
+        if (diff < 3600) return 'in ' + Math.floor(diff / 60) + 'm';
+        return 'in ' + Math.floor(diff / 3600) + 'h ' + Math.floor((diff % 3600) / 60) + 'm';
+    } catch(e) { return isoStr; }
+}
+
+function renderHealthSummary(data) {
+    let totalEngines = 0, healthyCount = 0, degradedCount = 0, unhealthyCount = 0;
+    const actionItems = [];
+    for (const eng of ENGINE_ORDER) {
+        const info = data[eng];
+        if (!info) continue;
+        totalEngines++;
+        if (info.overall_health === 'healthy') healthyCount++;
+        else if (info.overall_health === 'partial') { degradedCount++; actionItems.push({eng, action: 'degraded'}); }
+        else { unhealthyCount++; actionItems.push({eng, action: 'relogin'}); }
+    }
+
+    const dot = document.getElementById('overallDot');
+    const label = document.getElementById('overallLabel');
+    if (unhealthyCount === 0 && degradedCount === 0) {
+        dot.className = 'w-2.5 h-2.5 rounded-full bg-emerald-400';
+        label.textContent = 'All Systems Healthy';
+        label.className = 'text-xs font-bold text-emerald-400';
+    } else if (unhealthyCount === totalEngines) {
+        dot.className = 'w-2.5 h-2.5 rounded-full bg-rose-400 animate-pulse';
+        label.textContent = 'All Engines Down';
+        label.className = 'text-xs font-bold text-rose-400';
+    } else {
+        dot.className = 'w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse';
+        label.textContent = healthyCount + '/' + totalEngines + ' Engines Healthy';
+        label.className = 'text-xs font-bold text-amber-400';
+    }
+
+    document.getElementById('healthSummaryStats').innerHTML =
+        `<span class="text-emerald-400">${healthyCount} healthy</span>` +
+        (degradedCount > 0 ? ` <span class="text-amber-400">${degradedCount} degraded</span>` : '') +
+        (unhealthyCount > 0 ? ` <span class="text-rose-400">${unhealthyCount} down</span>` : '');
+
+    const healBtn = document.getElementById('healAllBtn');
+    healBtn.classList.toggle('hidden', unhealthyCount === 0 && degradedCount === 0);
+
+    // Check for missing credentials (handles new multi-account format)
+    const creds = _credData || {};
+    const hasGoogle = creds['google'] && ((creds['google'].accounts && creds['google'].accounts.length > 0) || creds['google'].has_credentials);
+    for (const eng of ENGINE_ORDER) {
+        if (eng === 'gemini') continue;
+        const hasEng = creds[eng] && ((creds[eng].accounts && creds[eng].accounts.length > 0) || creds[eng].has_credentials);
+        if (!hasEng && !hasGoogle) {
+            actionItems.push({eng, action: 'no_creds'});
+        }
+    }
+
+    const banner = document.getElementById('actionRequiredBanner');
+    const list = document.getElementById('actionRequiredList');
+    if (actionItems.length > 0) {
+        banner.classList.remove('hidden');
+        list.innerHTML = actionItems.map(item => {
+            const name = ENGINE_LABELS[item.eng];
+            if (item.action === 'relogin') return `<span class="px-2.5 py-1 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs font-semibold cursor-pointer hover:bg-rose-500/20" onclick="openLoginFor('${item.eng}')">${name} — needs re-login</span>`;
+            if (item.action === 'degraded') return `<span class="px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-semibold cursor-pointer hover:bg-amber-500/20" onclick="openLoginFor('${item.eng}')">${name} — degraded</span>`;
+            if (item.action === 'no_creds') return `<span class="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 text-xs font-semibold">${name} — no credentials</span>`;
+            return '';
+        }).join('');
+    } else {
+        banner.classList.add('hidden');
+    }
+}
+
+function renderCredStatusTable(engineData, credData) {
+    const tbody = document.getElementById('credStatusTableBody');
+    let html = '';
+    let totalCreds = 0, needsAttention = 0;
+
+    const getCredAccounts = (provider) => {
+        const cd = credData[provider];
+        if (!cd) return [];
+        if (cd.accounts) return cd.accounts;
+        if (cd.masked_email) return [{slot_index: 0, masked_email: cd.masked_email, updated_at: cd.updated_at}];
+        return [];
+    };
+
+    for (const eng of ENGINE_ORDER) {
+        const info = engineData[eng];
+        if (!info) continue;
+
+        const slots = info.slots || [];
+        const googleAccounts = getCredAccounts('google');
+        const engAccounts = getCredAccounts(eng);
+        const hasCred = engAccounts.length > 0 || googleAccounts.length > 0;
+        if (hasCred) totalCreds++;
+
+        for (let si = 0; si < Math.max(slots.length, 1); si++) {
+            const slot = slots[si] || {};
+            const ch = slot.cookie_health || {};
+            const cookieStatus = ch.status || 'missing';
+            const cookieCount = ch.cookie_count || 0;
+            const updatedAt = ch.updated_at || '';
+
+            let rowStatus, rowStatusClass, rowStatusBg;
+            if (!hasCred && cookieStatus === 'missing') {
+                rowStatus = 'Not Configured'; rowStatusClass = 'text-slate-500'; rowStatusBg = 'bg-slate-800/40'; needsAttention++;
+            } else if (cookieStatus === 'healthy') {
+                rowStatus = 'Active'; rowStatusClass = 'text-emerald-400'; rowStatusBg = 'bg-emerald-500/10';
+            } else if (cookieStatus === 'stale') {
+                rowStatus = 'Needs Re-login'; rowStatusClass = 'text-rose-400'; rowStatusBg = 'bg-rose-500/10'; needsAttention++;
+            } else if (cookieStatus === 'degraded') {
+                rowStatus = 'Degraded'; rowStatusClass = 'text-amber-400'; rowStatusBg = 'bg-amber-500/10'; needsAttention++;
+            } else if (cookieStatus === 'missing' && hasCred) {
+                rowStatus = 'Pending Login'; rowStatusClass = 'text-amber-400'; rowStatusBg = 'bg-amber-500/10'; needsAttention++;
+            } else {
+                rowStatus = 'Unknown'; rowStatusClass = 'text-slate-500'; rowStatusBg = 'bg-slate-800/40';
+            }
+
+            let credBadge;
+            if (engAccounts.length > 0 || googleAccounts.length > 0) {
+                const count = Math.max(engAccounts.length, googleAccounts.length);
+                credBadge = `<span class="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 text-xs font-semibold">${count > 1 ? count + ' accts' : 'Saved'}</span>`;
+            } else if (eng === 'gemini' && googleAccounts.length > 0) {
+                credBadge = '<span class="px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 text-xs font-semibold">Via Google</span>';
+            } else {
+                credBadge = '<span class="px-2 py-0.5 rounded-full bg-slate-800 text-slate-500 text-xs">Missing</span>';
+            }
+
+            const cookieStatusMap = {
+                healthy: {badge: 'bg-emerald-500/10 text-emerald-400', label: 'Healthy'},
+                stale: {badge: 'bg-rose-500/10 text-rose-400', label: 'Stale'},
+                degraded: {badge: 'bg-amber-500/10 text-amber-400', label: 'Degraded'},
+                missing: {badge: 'bg-slate-800 text-slate-500', label: 'No Cookies'},
+            };
+            const cs = cookieStatusMap[cookieStatus] || cookieStatusMap.missing;
+
+            let expiryHtml = '<span class="text-slate-600">-</span>';
+            if (ch.earliest_expiry) {
+                const secsLeft = ch.earliest_expiry - Date.now() / 1000;
+                if (secsLeft > 0) {
+                    const ec = secsLeft < 3600 ? 'text-rose-400' : secsLeft < 21600 ? 'text-amber-400' : 'text-slate-400';
+                    expiryHtml = `<span class="${ec}">${formatDuration(secsLeft)}</span>`;
+                } else {
+                    expiryHtml = '<span class="text-rose-400 font-bold">Expired</span>';
+                }
+            }
+
+            let emailDisplay = '<span class="text-slate-600">-</span>';
+            const credAcct = googleAccounts[si] || engAccounts[si] || googleAccounts[0] || engAccounts[0];
+            if (credAcct && credAcct.masked_email) {
+                emailDisplay = `<span class="text-slate-300 font-mono">${credAcct.masked_email}</span>`;
+            } else if (slot.account_label) {
+                emailDisplay = `<span class="text-slate-300">${slot.account_label}</span>`;
+            }
+
+            let actionBtn;
+            if (cookieStatus === 'stale' || cookieStatus === 'missing') {
+                actionBtn = `<button onclick="openLoginFor('${eng}')" class="px-2.5 py-1 bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 text-xs font-bold rounded-lg border border-amber-500/30 cursor-pointer">Login</button>`;
+            } else if (cookieStatus === 'degraded') {
+                actionBtn = `<button onclick="refreshEngine('${eng}')" class="px-2.5 py-1 bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-400 text-xs rounded-lg border border-cyan-500/30 cursor-pointer">Refresh</button>`;
+            } else {
+                actionBtn = `<button onclick="refreshEngine('${eng}')" class="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 text-slate-400 text-xs rounded-lg border border-slate-800 cursor-pointer">Refresh</button>`;
+            }
+
+            const slotLabel = slots.length > 1 ? ` <span class="text-[10px] text-slate-600">slot ${si}</span>` : '';
+
+            html += `
+            <tr class="border-b border-slate-800/30 hover:bg-slate-900/30 transition-colors">
+                <td class="py-2.5 px-3">
+                    <div class="flex items-center gap-2">
+                        <img loading="lazy" src="/static/logos/${eng}.svg" alt="${ENGINE_LABELS[eng]}" class="w-4 h-4 shrink-0">
+                        <span class="font-bold text-slate-200">${ENGINE_LABELS[eng]}</span>${slotLabel}
+                    </div>
+                </td>
+                <td class="py-2.5 px-3">${si === 0 ? credBadge : '<span class="text-slate-600">-</span>'}</td>
+                <td class="py-2.5 px-3">${emailDisplay}</td>
+                <td class="py-2.5 px-3"><span class="px-2 py-0.5 rounded-full ${cs.badge} text-xs font-semibold">${cs.label}</span></td>
+                <td class="py-2.5 px-3"><span class="font-bold ${cookieCount > 0 ? 'text-slate-200' : 'text-slate-600'}">${cookieCount}</span></td>
+                <td class="py-2.5 px-3 text-slate-400">${updatedAt ? timeAgo(updatedAt) : '<span class="text-slate-600">-</span>'}</td>
+                <td class="py-2.5 px-3">${expiryHtml}</td>
+                <td class="py-2.5 px-3"><span class="px-2 py-0.5 rounded-full ${rowStatusBg} ${rowStatusClass} text-xs font-bold">${rowStatus}</span></td>
+                <td class="py-2.5 px-3 text-right">${actionBtn}</td>
+            </tr>`;
+        }
+    }
+
+    tbody.innerHTML = html;
+
+    document.getElementById('credCountBadge').textContent = totalCreds + ' / ' + ENGINE_ORDER.length + ' engines';
+    document.getElementById('credCountBadge').className = 'text-xs px-2.5 py-1 rounded-full ' +
+        (totalCreds === ENGINE_ORDER.length ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400') + ' font-bold';
+
+    const attBadge = document.getElementById('needsAttentionBadge');
+    if (needsAttention > 0) {
+        attBadge.classList.remove('hidden');
+        attBadge.textContent = needsAttention + ' need attention';
+    } else {
+        attBadge.classList.add('hidden');
+    }
+}
+
+function renderEngineCards(data, poolData) {
+    const grid = document.getElementById('engineAccountGrid');
+    let html = '';
+
+    for (const eng of ENGINE_ORDER) {
+        const info = data[eng];
+        if (!info) continue;
+
+        const slot = info.slots[0] || {};
+        const ch = slot.cookie_health || {};
+
+        const statusMap = {
+            healthy: {bg: 'border-emerald-500/20', dot: 'bg-emerald-400', text: 'text-emerald-400', label: 'Healthy'},
+            degraded: {bg: 'border-amber-500/20', dot: 'bg-amber-400', text: 'text-amber-400', label: 'Degraded'},
+            stale: {bg: 'border-rose-500/20', dot: 'bg-rose-400', text: 'text-rose-400', label: 'Stale'},
+            missing: {bg: 'border-slate-800', dot: 'bg-slate-600', text: 'text-slate-500', label: 'No Cookies'},
+        };
+        const s = statusMap[ch.status] || statusMap.missing;
+
+        const isAvailable = slot.available !== false;
+        const cooldownSecs = slot.cooldown_remaining || 0;
+        const fails = slot.consecutive_fails || 0;
+        const reqs = slot.total_requests || 0;
+        const lastUsedSecs = slot.last_used;
+        const cookieCount = ch.cookie_count || 0;
+        const totalRaw = ch.total_cookies_raw || 0;
+        const expiredCount = ch.expired_count || 0;
+        const updatedAt = ch.updated_at;
+        const totalSlots = info.total_slots || 1;
+        const availSlots = info.available_slots || 0;
+        const domains = ch.domains || {};
+        const sessionNames = ch.session_cookie_names || [];
+        const earliestExpiry = ch.earliest_expiry;
+        const accountLabel = slot.account_label || '';
+
+        // unique session cookie names
+        const uniqueSession = [...new Set(sessionNames)];
+
+        // expiry info
+        let expiryTag = '';
+        if (earliestExpiry) {
+            const secsLeft = earliestExpiry - Date.now() / 1000;
+            if (secsLeft > 0) {
+                const ec = secsLeft < 3600 ? 'text-rose-400' : secsLeft < 21600 ? 'text-amber-400' : 'text-slate-500';
+                expiryTag = `<span class="${ec}">exp ${formatDuration(secsLeft)}</span>`;
+            } else {
+                expiryTag = '<span class="text-rose-400">expired</span>';
+            }
+        }
+
+        // domain count
+        const domainCount = Object.keys(domains).length;
+
+        // alerts line
+        let alerts = [];
+        if (cooldownSecs > 0) alerts.push(`<span class="text-rose-400">Cooldown ${formatDuration(cooldownSecs)}</span>`);
+        if (fails > 0) alerts.push(`<span class="text-rose-400">${fails} fails</span>`);
+        if (!isAvailable && cooldownSecs === 0) alerts.push('<span class="text-rose-400">Unavailable</span>');
+
+        html += `
+        <div class="glass-panel border ${s.bg} rounded-xl px-4 py-3 space-y-2">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <img loading="lazy" src="/static/logos/${eng}.svg" alt="${ENGINE_LABELS[eng]}" class="w-4 h-4 shrink-0">
+                    <span class="text-xs font-bold text-slate-100">${ENGINE_LABELS[eng]}</span>
+                    <span class="w-1.5 h-1.5 rounded-full ${s.dot}"></span>
+                    <span class="text-[9px] font-semibold ${s.text}">${s.label}</span>
+                </div>
+                <div class="flex items-center gap-2 text-[9px]">
+                    ${accountLabel ? `<span class="text-slate-500 truncate max-w-[100px]" title="${accountLabel}">${accountLabel}</span>` : ''}
+                    <span class="px-1.5 py-0.5 rounded ${availSlots > 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}">${availSlots}/${totalSlots}</span>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-3 text-[10px]">
+                <span class="flex items-center gap-1"><span class="font-bold ${cookieCount > 0 ? 'text-slate-200' : 'text-slate-600'}">${cookieCount}</span><span class="text-slate-500">cookies</span></span>
+                <span class="text-slate-800">|</span>
+                <span class="flex items-center gap-1"><span class="font-bold ${expiredCount > 0 ? 'text-rose-400' : 'text-slate-600'}">${expiredCount}</span><span class="text-slate-500">expired</span></span>
+                <span class="text-slate-800">|</span>
+                <span class="flex items-center gap-1"><span class="font-bold text-slate-300">${reqs}</span><span class="text-slate-500">reqs</span></span>
+                <span class="text-slate-800">|</span>
+                <span class="text-slate-500">${domainCount} domains</span>
+                ${expiryTag ? `<span class="text-slate-800">|</span>${expiryTag}` : ''}
+            </div>
+
+            ${uniqueSession.length ? `<div class="flex flex-wrap gap-1">${uniqueSession.map(n => `<span class="px-1.5 py-0.5 bg-emerald-500/10 rounded text-[8px] text-emerald-400 font-mono">${n}</span>`).join('')}</div>` : cookieCount > 0 ? '<div class="text-[8px] text-rose-400">No session cookies</div>' : ''}
+
+            ${alerts.length ? `<div class="flex items-center gap-2 text-[9px]">${alerts.join('<span class="text-slate-800">|</span>')}</div>` : ''}
+
+            <div class="flex items-center justify-between pt-1.5 border-t border-slate-800/60">
+                <div class="flex items-center gap-1.5">
+                    <button onclick="openLoginFor('${eng}')" class="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 text-slate-300 text-[9px] font-bold rounded border border-slate-800 cursor-pointer">Login</button>
+                    <button onclick="refreshEngine('${eng}')" class="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 text-cyan-400 text-[9px] rounded border border-slate-800 cursor-pointer" id="refreshBtn_${eng}">Refresh</button>
+                    <button onclick="reloginEngine('${eng}')" class="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 text-amber-400 text-[9px] rounded border border-slate-800 cursor-pointer" id="reloginBtn_${eng}">Re-Login</button>
+                    ${cooldownSecs > 0 ? `<button onclick="clearCooldown('${eng}')" class="px-2.5 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-[9px] rounded border border-rose-500/20 cursor-pointer">Clear</button>` : ''}
+                </div>
+                <div class="text-[8px] text-slate-600">
+                    ${updatedAt ? timeAgo(updatedAt) : 'never'}${lastUsedSecs != null ? ' / used ' + formatDuration(lastUsedSecs) + ' ago' : ''}
+                </div>
+            </div>
+        </div>`;
+    }
+
+    grid.innerHTML = html;
+}
+
+function formatDuration(secs) {
+    if (secs == null || secs <= 0) return '0s';
+    if (secs < 60) return Math.round(secs) + 's';
+    if (secs < 3600) return Math.floor(secs / 60) + 'm';
+    return Math.floor(secs / 3600) + 'h ' + Math.floor((secs % 3600) / 60) + 'm';
+}
+
+function timeAgo(dateStr) {
+    try {
+        if (!dateStr) return '';
+        let s = dateStr.trim();
+        s = s.replace(/(\d{2}:\d{2}:\d{2})\.\d+/, '$1');
+        s = s.replace(' ', 'T');
+        if (!/[Z+-]\d/.test(s)) s += 'Z';
+        const d = new Date(s);
+        if (isNaN(d.getTime())) return dateStr.substring(0, 19);
+        const diff = (Date.now() - d.getTime()) / 1000;
+        if (diff < 0) return 'just now';
+        if (diff < 60) return 'just now';
+        if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+        if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+        return Math.floor(diff / 86400) + 'd ago';
+    } catch (e) { return dateStr ? dateStr.substring(0, 19) : ''; }
+}
+
+// ── Engine Actions ──
+
+async function refreshEngine(eng) {
+    const btn = document.getElementById('refreshBtn_' + eng);
+    if (btn) { btn.textContent = 'Refreshing...'; btn.disabled = true; }
+    try {
+        const res = await fetch('/api/engine-accounts/' + eng + '/relogin', {method: 'POST'}).then(r => r.json());
+        if (res.status === 'success') {
+            if (btn) { btn.textContent = 'Refreshed!'; btn.className = btn.className.replace('text-cyan-400', 'text-emerald-400'); }
+        } else {
+            if (btn) { btn.textContent = 'Failed'; btn.className = btn.className.replace('text-cyan-400', 'text-rose-400'); }
+        }
+        setTimeout(() => loadEngineAccounts(), 1500);
+    } catch (e) {
+        if (btn) { btn.textContent = 'Error'; }
+    }
+}
+
+async function reloginEngine(eng) {
+    const btn = document.getElementById('reloginBtn_' + eng);
+    if (btn) { btn.textContent = 'Re-logging in...'; btn.disabled = true; }
+    try {
+        const res = await fetch('/api/engine-accounts/' + eng + '/force-relogin', {method: 'POST'}).then(r => r.json());
+        if (res.status === 'success') {
+            if (btn) { btn.textContent = 'Success!'; btn.className = btn.className.replace('text-amber-400', 'text-emerald-400'); }
+        } else {
+            if (btn) { btn.textContent = 'Failed'; btn.className = btn.className.replace('text-amber-400', 'text-rose-400'); }
+        }
+        setTimeout(() => loadEngineAccounts(), 2000);
+    } catch (e) {
+        if (btn) { btn.textContent = 'Error'; }
+    }
+}
+
+async function clearCooldown(eng) {
+    await fetch('/api/account-pool/' + eng + '/clear-cooldown', {method: 'POST'});
+    loadEngineAccounts();
+}
+
+async function healAllEngines() {
+    const btn = document.getElementById('healAllBtn');
+    btn.textContent = 'Healing...';
+    btn.disabled = true;
+    for (const eng of ENGINE_ORDER) {
+        const info = _engineData[eng];
+        if (!info) continue;
+        const slot = info.slots[0] || {};
+        const health = (slot.cookie_health || {}).status;
+        if (health !== 'healthy' && health !== 'missing') {
+            await fetch('/api/engine-accounts/' + eng + '/relogin', {method: 'POST'});
+        }
+    }
+    setTimeout(() => {
+        loadEngineAccounts();
+        btn.textContent = 'Auto-Heal Unhealthy';
+        btn.disabled = false;
+    }, 2000);
+}
+
+function refreshAllHealth() {
+    loadEngineAccounts();
+}
+
+// ── Login Panel ──
+
+function openLoginFor(eng) {
+    _selectedEngine = eng;
+    const panel = document.getElementById('loginPanel');
+    panel.classList.remove('hidden');
+    document.getElementById('loginPanelTitle').textContent = 'Login to ' + ENGINE_LABELS[eng];
+    document.getElementById('autoLoginEngineLabel').textContent = 'Auto Login - ' + ENGINE_LABELS[eng];
+    document.getElementById('browserLoginLabel').textContent = 'Login to ' + ENGINE_LABELS[eng];
+    document.getElementById('manualImportLabel').textContent = 'Import Cookies for ' + ENGINE_LABELS[eng];
+
+    if (['chatgpt', 'claude', 'perplexity'].includes(eng)) {
+        document.getElementById('autoLoginHint').textContent = 'Uses Google OAuth to login automatically';
+    } else if (eng === 'gemini' || eng === 'google') {
+        document.getElementById('autoLoginHint').textContent = 'Uses Google session directly';
+    }
+
+    const lsSection = document.getElementById('localstorageSection');
+    lsSection.classList.toggle('hidden', !['chatgpt', 'claude'].includes(eng));
+
+    switchMethod('auto');
+    panel.scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+
+function closeLoginPanel() {
+    document.getElementById('loginPanel').classList.add('hidden');
+    document.getElementById('browserSection').classList.add('hidden');
+    _selectedEngine = null;
+    if (polling) clearInterval(polling);
+}
+
+// ── Method Tabs ──
+
+function switchMethod(method) {
+    const tabs = {auto: 'methodAutoTab', browser: 'methodBrowserTab', manual: 'methodManualTab'};
+    const sections = {auto: 'autoLoginSection', browser: 'loginAction', manual: 'manualImportSection'};
+    const activeClass = 'px-3 py-1.5 rounded-lg text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 cursor-pointer transition-all';
+    const inactiveClass = 'px-3 py-1.5 rounded-lg text-[10px] font-bold bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200 cursor-pointer transition-all';
+
+    for (const [k, id] of Object.entries(tabs)) {
+        document.getElementById(id).className = k === method ? activeClass : inactiveClass;
+    }
+    for (const [k, id] of Object.entries(sections)) {
+        const el = document.getElementById(id);
+        if (el) el.classList.toggle('hidden', k !== method);
+    }
+    const bs = document.getElementById('browserSection');
+    if (bs && method !== 'browser') bs.classList.add('hidden');
+    if (method === 'auto') loadCredentialStatus();
+}
+
+// ── Credentials ──
+
+async function loadCredentialStatus() {
+    try {
+        const data = await fetch('/api/auth/credentials').then(r => r.json());
+        const creds = data.credentials || {};
+        _credData = creds;
+
+        const googleAccounts = creds['google'] ? creds['google'].accounts || [] : [];
+        const badge = document.getElementById('googleAccountBadge');
+        const listEl = document.getElementById('storedAccountsList');
+        const multiBtn = document.getElementById('multiLoginBtn');
+
+        if (googleAccounts.length > 0) {
+            badge.textContent = googleAccounts.length + ' account' + (googleAccounts.length > 1 ? 's' : '');
+            badge.className = 'text-xs px-2 py-1 rounded-full bg-emerald-500/10 text-emerald-400 font-bold';
+            multiBtn.classList.remove('hidden');
+
+            let html = '';
+            for (const acct of googleAccounts) {
+                html += `
+                <div class="flex items-center justify-between bg-slate-950/60 border border-slate-800 rounded-lg px-4 py-2.5">
+                    <div class="flex items-center gap-3">
+                        <div class="w-7 h-7 rounded-full bg-cyan-500/15 flex items-center justify-center text-cyan-400 text-xs font-bold">${acct.slot_index + 1}</div>
+                        <div>
+                            <span class="text-xs font-bold text-slate-200 font-mono">${acct.masked_email}</span>
+                            <span class="text-[10px] text-slate-600 ml-2">Slot ${acct.slot_index}</span>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <span class="text-[10px] text-slate-500">${acct.updated_at ? timeAgo(acct.updated_at) : ''}</span>
+                        <button onclick="deleteCredentialSlot('google', ${acct.slot_index})" class="px-2 py-1 bg-slate-900 hover:bg-rose-500/10 text-slate-500 hover:text-rose-400 text-[10px] rounded border border-slate-800 cursor-pointer transition-colors">Remove</button>
+                    </div>
+                </div>`;
+            }
+            listEl.innerHTML = html;
+        } else {
+            badge.textContent = 'No accounts';
+            badge.className = 'text-xs px-2 py-1 rounded-full bg-slate-900 text-slate-500';
+            multiBtn.classList.add('hidden');
+            listEl.innerHTML = '<div class="text-[10px] text-slate-600 py-2">No Google accounts stored. Add one below.</div>';
+        }
+    } catch(e) { console.error('loadCredentialStatus error:', e); }
+}
+
+async function saveCredentials() {
+    const email = document.getElementById('autoEmail').value.trim();
+    const password = document.getElementById('autoPassword').value;
+    const status = document.getElementById('autoStatus');
+    if (!email || !password) { status.textContent = 'Enter both email and password'; status.className = 'text-[10px] text-rose-400'; return; }
+
+    status.textContent = 'Saving...'; status.className = 'text-[10px] text-amber-400';
+    try {
+        const res = await fetch('/api/auth/credentials', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({provider: 'google', email, password})
+        }).then(r => r.json());
+        status.textContent = 'Account added (slot ' + (res.slot_index || 0) + ')'; status.className = 'text-[10px] text-emerald-400';
+        document.getElementById('autoEmail').value = '';
+        document.getElementById('autoPassword').value = '';
+        loadCredentialStatus();
+        loadEngineAccounts();
+    } catch(e) {
+        status.textContent = 'Save failed: ' + e; status.className = 'text-[10px] text-rose-400';
+    }
+}
+
+async function deleteCredentialSlot(provider, slotIndex) {
+    if (!confirm('Remove this account?')) return;
+    await fetch('/api/auth/credentials/' + provider + '?slot_index=' + slotIndex, {method: 'DELETE'});
+    loadCredentialStatus();
+    loadEngineAccounts();
+}
+
+async function triggerMultiLogin() {
+    const btn = document.getElementById('multiLoginBtn');
+    const statusEl = document.getElementById('multiLoginStatus');
+    btn.disabled = true;
+    btn.textContent = 'Starting...';
+    statusEl.classList.remove('hidden');
+    statusEl.textContent = 'Initiating multi-account login across all engines...';
+
+    try {
+        const res = await fetch('/api/auth/multi-login', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({delay_seconds: 30})
+        }).then(r => r.json());
+
+        if (res.error) {
+            statusEl.textContent = res.error;
+            statusEl.className = 'text-xs text-rose-400';
+            btn.disabled = false;
+            btn.textContent = 'Login All Engines';
+            return;
+        }
+
+        statusEl.textContent = 'Running ' + res.total_logins + ' logins across ' + res.engines.length + ' engines with ' + res.accounts + ' accounts. Est: ~' + res.estimated_time_minutes + ' min';
+        statusEl.className = 'text-xs text-amber-400';
+        btn.textContent = 'Running...';
+
+        const es = new EventSource('/api/activity-stream');
+        es.addEventListener('multi_login_complete', function(e) {
+            const data = JSON.parse(e.data);
+            const succeeded = (data.results || []).filter(r => r.status === 'success').length;
+            const total = (data.results || []).length;
+            statusEl.textContent = 'Complete: ' + succeeded + '/' + total + ' logins succeeded';
+            statusEl.className = succeeded === total ? 'text-xs text-emerald-400' : 'text-xs text-amber-400';
+            btn.disabled = false;
+            btn.textContent = 'Login All Engines';
+            es.close();
+            setTimeout(() => loadEngineAccounts(), 2000);
+        });
+        es.addEventListener('multi_login', function(e) {
+            const data = JSON.parse(e.data);
+            statusEl.textContent = 'Logging in: ' + data.engine + ' slot ' + data.slot + '...';
+        });
+        es.onerror = () => { es.close(); btn.disabled = false; btn.textContent = 'Login All Engines'; };
+    } catch(e) {
+        statusEl.textContent = 'Error: ' + e;
+        statusEl.className = 'text-xs text-rose-400';
+        btn.disabled = false;
+        btn.textContent = 'Login All Engines';
+    }
+}
+
+// ── Auto Login ──
+
+async function triggerAutoLogin() {
+    const engine = _selectedEngine || ACTIVE_PROVIDER;
+    const status = document.getElementById('autoLoginStatus');
+    const logEl = document.getElementById('autoLoginLog');
+    logEl.innerHTML = '';
+    logEl.classList.remove('hidden');
+    status.textContent = 'Starting auto-login...'; status.className = 'text-[10px] text-amber-400';
+
+    try {
+        const res = await fetch('/api/auth/auto-login/' + engine, {method: 'POST'}).then(r => r.json());
+        if (res.error) { status.textContent = res.error; status.className = 'text-[10px] text-rose-400'; return; }
+        _autoLoginSessionId = res.session_id;
+        status.textContent = 'Running (session: ' + res.session_id + ')';
+
+        const es = new EventSource('/api/activity-stream');
+        window._geoAutoLoginES = es;
+        window.addEventListener('beforeunload', function() { es.close(); });
+        es.addEventListener('auto_login', function(e) {
+            const data = JSON.parse(e.data);
+            if (data.provider === engine || (engine === 'gemini' && data.provider === 'google')) {
+                addAutoLog(data.step, data.message);
+                if (data.step === 'success') {
+                    status.textContent = 'Login successful!'; status.className = 'text-[10px] text-emerald-400';
+                    es.close();
+                    setTimeout(() => loadEngineAccounts(), 1500);
+                } else if (data.step === 'blocked' || data.step === 'otp_timeout') {
+                    status.textContent = data.message; status.className = 'text-[10px] text-rose-400';
+                    document.getElementById('autoRedoBanner').classList.remove('hidden');
+                    document.getElementById('redoDetail').textContent = data.message;
+                    es.close();
+                } else if (data.step === 'failed' || data.step === 'error') {
+                    status.textContent = data.message; status.className = 'text-[10px] text-rose-400';
+                    document.getElementById('autoRedoBanner').classList.remove('hidden');
+                    document.getElementById('redoDetail').textContent = data.message;
+                    es.close();
+                }
+            }
+        });
+        es.addEventListener('auto_login_otp', function(e) {
+            const data = JSON.parse(e.data);
+            _autoLoginSessionId = data.session_id;
+            document.getElementById('autoOtpSection').classList.remove('hidden');
+            document.getElementById('autoOtpInput').focus();
+            addAutoLog('otp', 'OTP/2FA required - enter code below');
+        });
+        es.onerror = () => { es.close(); };
+    } catch(e) {
+        status.textContent = 'Error: ' + e; status.className = 'text-[10px] text-rose-400';
+    }
+}
+
+function addAutoLog(step, message) {
+    const el = document.getElementById('autoLoginLog');
+    const time = new Date().toLocaleTimeString('en-US', {hour12: false, hour:'2-digit', minute:'2-digit', second:'2-digit'});
+    const stepColors = {success: 'text-emerald-400', failed: 'text-rose-400', error: 'text-rose-400', otp: 'text-amber-400'};
+    const color = stepColors[step] || 'text-slate-400';
+    const div = document.createElement('div');
+    div.innerHTML = `<span class="text-slate-600">${time}</span> <span class="${color} font-bold uppercase">${step}</span> <span class="text-slate-400">${message}</span>`;
+    el.appendChild(div);
+    el.scrollTop = el.scrollHeight;
+}
+
+async function submitAutoOtp() {
+    const code = document.getElementById('autoOtpInput').value.trim();
+    if (!code || !_autoLoginSessionId) return;
+    await fetch('/api/auth/auto-login/' + _autoLoginSessionId + '/otp', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({code})
+    });
+    document.getElementById('autoOtpInput').value = '';
+    addAutoLog('otp_submitted', 'Code submitted - verifying...');
+    setTimeout(() => document.getElementById('autoOtpSection').classList.add('hidden'), 10000);
+}
+
+function redoAsInteractive() {
+    document.getElementById('autoRedoBanner').classList.add('hidden');
+    switchMethod('browser');
+    setTimeout(() => { const btn = document.getElementById('startBtn'); if (btn) btn.click(); }, 300);
+}
+
+// ── Browser Login ──
+
+function logAction(msg) {
+    const el = document.getElementById('actionLog');
+    if (el) { el.textContent = msg; setTimeout(() => { if (el.textContent === msg) el.textContent = ''; }, 2000); }
+}
+
+async function startLogin() {
+    const engine = _selectedEngine || PROVIDER;
+    document.getElementById('browserSection').classList.remove('hidden');
+    document.getElementById('loadingOverlay').classList.remove('hidden');
+    document.getElementById('statusText').textContent = 'Starting browser...';
+    document.getElementById('saveBtn').classList.add('hidden');
+    document.getElementById('startBtn').disabled = true;
+    document.getElementById('startBtn').classList.add('opacity-50');
+
+    canvas.width = 1024; canvas.height = 640;
+    ctx.fillStyle = '#0a0f1d'; ctx.fillRect(0, 0, 1024, 640);
+
+    try {
+        const res = await fetch(`/api/auth/start/${engine}`, { method: 'POST' });
+        const data = await res.json();
+        if (data.error) {
+            alert('Failed: ' + data.error);
+            document.getElementById('browserSection').classList.add('hidden');
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('startBtn').classList.remove('opacity-50');
+            return;
+        }
+        sessionId = data.session_id;
+        document.getElementById('statusText').textContent = 'Browser ready - complete the login';
+        document.getElementById('statusDot').className = 'w-2 h-2 rounded-full bg-emerald-500 animate-pulse';
+        polling = setInterval(refreshScreenshot, 700);
+        setTimeout(() => document.getElementById('loadingOverlay').classList.add('hidden'), 1000);
+        document.getElementById('keyboardInput').focus();
+    } catch (e) {
+        alert('Error: ' + e.message);
+        document.getElementById('browserSection').classList.add('hidden');
+        document.getElementById('startBtn').disabled = false;
+        document.getElementById('startBtn').classList.remove('opacity-50');
+    }
+}
+
+async function refreshScreenshot() {
+    if (!sessionId || busy) return;
+    try {
+        const res = await fetch(`/api/auth/screenshot/${sessionId}`);
+        const data = await res.json();
+        if (data.error) return;
+        if (data.loading) { document.getElementById('statusText').textContent = 'Loading page...'; return; }
+        document.getElementById('loadingOverlay').classList.add('hidden');
+        const img = new Image();
+        img.onload = function() { canvas.width = img.naturalWidth; canvas.height = img.naturalHeight; ctx.drawImage(img, 0, 0); };
+        img.src = 'data:image/jpeg;base64,' + data.image;
+        document.getElementById('urlBar').textContent = data.url || '';
+        if (data.logged_in) {
+            document.getElementById('statusText').textContent = 'Logged in! Click "Save Cookies & Close" to finish.';
+            document.getElementById('statusDot').className = 'w-2 h-2 rounded-full bg-emerald-500';
+            document.getElementById('saveBtn').classList.remove('hidden');
+        }
+    } catch (e) {}
+}
+
+function getCanvasCoords(event) {
+    const rect = canvas.getBoundingClientRect();
+    return { x: Math.round((event.clientX - rect.left) * (canvas.width / rect.width)), y: Math.round((event.clientY - rect.top) * (canvas.height / rect.height)) };
+}
+
+canvas.addEventListener('click', async function(event) {
+    if (!sessionId || busy) return;
+    busy = true;
+    const { x, y } = getCanvasCoords(event);
+    const rect = canvas.getBoundingClientRect();
+    const dot = document.getElementById('clickDot');
+    dot.style.left = (event.clientX - rect.left + canvas.offsetLeft) + 'px';
+    dot.style.top = (event.clientY - rect.top + canvas.offsetTop) + 'px';
+    dot.classList.remove('hidden');
+    setTimeout(() => dot.classList.add('hidden'), 600);
+    try {
+        await fetch(`/api/auth/click/${sessionId}`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ x, y }) });
+        await new Promise(r => setTimeout(r, 400));
+        await refreshScreenshot();
+    } catch (e) {}
+    busy = false;
+    document.getElementById('keyboardInput').focus();
+});
+
+async function scrollBrowser(direction) {
+    if (!sessionId || busy) return;
+    busy = true;
+    try {
+        await fetch(`/api/auth/scroll/${sessionId}`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ direction, amount: 350 }) });
+        await new Promise(r => setTimeout(r, 200));
+        await refreshScreenshot();
+    } catch (e) {}
+    busy = false;
+}
+
+async function handleKeyDown(event) {
+    if (!sessionId || busy) return;
+    const specialKeys = { Enter: sendEnter, Tab: sendTab, Backspace: sendBackspace, Escape: () => sendSpecialKey('Escape') };
+    if (specialKeys[event.key]) { event.preventDefault(); await specialKeys[event.key](); return; }
+    if (event.key.length === 1) {
+        event.preventDefault(); busy = true;
+        try { await fetch(`/api/auth/type/${sessionId}`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ text: event.key }) }); } catch (e) {}
+        busy = false;
+    }
+}
+
+async function sendEnter() {
+    if (!sessionId || busy) return; busy = true;
+    try { await fetch(`/api/auth/key/${sessionId}`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ key: 'Enter' }) }); document.getElementById('keyboardInput').value = ''; await new Promise(r => setTimeout(r, 500)); await refreshScreenshot(); } catch (e) {}
+    busy = false;
+}
+async function sendTab() {
+    if (!sessionId || busy) return; busy = true;
+    try { await fetch(`/api/auth/key/${sessionId}`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ key: 'Tab' }) }); await new Promise(r => setTimeout(r, 300)); await refreshScreenshot(); } catch (e) {}
+    busy = false;
+}
+async function sendBackspace() {
+    if (!sessionId || busy) return; busy = true;
+    try { await fetch(`/api/auth/key/${sessionId}`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ key: 'Backspace' }) }); } catch (e) {}
+    busy = false;
+}
+async function sendSpecialKey(key) {
+    if (!sessionId || busy) return; busy = true;
+    try { await fetch(`/api/auth/key/${sessionId}`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ key }) }); } catch (e) {}
+    busy = false;
+}
+
+async function saveCookies() {
+    if (!sessionId) return;
+    const engine = _selectedEngine || PROVIDER;
+    const res = await fetch(`/api/auth/save/${sessionId}`, { method: 'POST' });
+    const data = await res.json();
+    if (data.error) { alert('Failed to save: ' + data.error); return; }
+    if (data.warning) { alert('Warning: ' + data.warning); }
+    clearInterval(polling); sessionId = null;
+    document.getElementById('browserSection').classList.add('hidden');
+    document.getElementById('startBtn').disabled = false;
+    document.getElementById('startBtn').classList.remove('opacity-50');
+    loadEngineAccounts();
+}
+
+async function cancelLogin() {
+    if (sessionId) await fetch(`/api/auth/cancel/${sessionId}`, { method: 'POST' });
+    clearInterval(polling); sessionId = null;
+    document.getElementById('browserSection').classList.add('hidden');
+    document.getElementById('startBtn').disabled = false;
+    document.getElementById('startBtn').classList.remove('opacity-50');
+}
+
+// ── Manual Import ──
+
+function copyLsCommand() {
+    const cmd = document.getElementById('lsCommand');
+    if (cmd) { navigator.clipboard.writeText(cmd.textContent); }
+}
+
+async function importCookies() {
+    const engine = _selectedEngine || PROVIDER;
+    const cookiesInput = document.getElementById('cookiesInput');
+    const lsInput = document.getElementById('localstorageInput');
+    const statusEl = document.getElementById('importStatus');
+    const btn = document.getElementById('importBtn');
+    if (!cookiesInput.value.trim()) { statusEl.textContent = 'Paste cookie JSON first'; statusEl.className = 'text-xs text-red-400'; return; }
+    try { JSON.parse(cookiesInput.value.trim()); } catch (e) { statusEl.textContent = 'Invalid JSON'; statusEl.className = 'text-xs text-red-400'; return; }
+
+    btn.disabled = true; btn.classList.add('opacity-50');
+    statusEl.textContent = 'Importing...'; statusEl.className = 'text-xs text-amber-400';
+    const body = { cookies_json: cookiesInput.value.trim() };
+    if (lsInput && lsInput.value.trim()) body.localstorage_json = lsInput.value.trim();
+
+    try {
+        const res = await fetch(`/api/auth/import/${engine}`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+        const data = await res.json();
+        if (data.error) { statusEl.textContent = data.error; statusEl.className = 'text-xs text-red-400'; btn.disabled = false; btn.classList.remove('opacity-50'); return; }
+        statusEl.textContent = `Imported ${data.cookie_count} cookies for ${data.provider}.`;
+        statusEl.className = 'text-xs text-emerald-400';
+        setTimeout(() => loadEngineAccounts(), 1500);
+    } catch (e) {
+        statusEl.textContent = 'Import failed: ' + e.message; statusEl.className = 'text-xs text-red-400';
+        btn.disabled = false; btn.classList.remove('opacity-50');
+    }
+}
+
+// ── Init ──
+loadEngineAccounts();
+loadCredentialStatus();
+
+setInterval(loadEngineAccounts, 30000);
+</script>
+{% endblock %}
