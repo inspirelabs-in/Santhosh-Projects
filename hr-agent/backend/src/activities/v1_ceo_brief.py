@@ -33,6 +33,7 @@ from src.llm.client import get_llm_client
 from src.llm.prompt_manager import compile_prompt
 from src.llm.prompts.ceo_brief import CEO_BRIEF_V1, CEO_BRIEF_VERSION
 from src.llm.model_registry import Stage, model_for
+from src.services.scoring_context import scoring_prompt_vars
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +129,18 @@ async def generate_ceo_brief(*, application_id: UUID) -> str:
         jd_excerpt = role.jd_text[:3500]
         fit_score = app.fit_score
         fit_tier = app.fit_tier or "n/a"
+        role_evaluation_spec = role.evaluation_spec
+        role_company_context = role.company_context
+
+        # Label for the technical interview round is role-tuned (the stage can be
+        # relabelled per role). Resolve it from role_pipeline_stages, else use
+        # the literal default.
+        from src.db.repositories import role_pipeline_stage as stage_repo
+
+        tech_stage = await stage_repo.get_stage(session, role.id, "technical")
+        tech_round_label = (
+            tech_stage.label if tech_stage and tech_stage.label else "Technical interview"
+        )
 
     _NA = "DATA_NOT_AVAILABLE"
     prompt = compile_prompt(
@@ -135,6 +148,8 @@ async def generate_ceo_brief(*, application_id: UUID) -> str:
         fallback=CEO_BRIEF_V1,
         role_title=role_title,
         jd_text=jd_excerpt,
+        tech_round_label=tech_round_label,
+        **scoring_prompt_vars(role_evaluation_spec, role_company_context),
         candidate_json=json.dumps(candidate_summary, ensure_ascii=False)[:4000],
         fit_score=fit_score if fit_score is not None else _NA,
         fit_tier=fit_tier if fit_score is not None else _NA,

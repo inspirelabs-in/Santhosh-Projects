@@ -29,6 +29,7 @@ from src.config import get_settings
 from src.llm.client import get_llm_client
 from src.llm.model_registry import Stage, model_for
 from src.llm.prompt_manager import compile_prompt
+from src.services.scoring_context import scoring_prompt_vars
 
 logger = logging.getLogger(__name__)
 _settings = get_settings()
@@ -96,6 +97,9 @@ async def gen_assignment(
     time_budget_hours: int,
     deadline_days: int,
     user_brief: str | None = None,
+    evaluation_spec: dict | list | None = None,
+    company_context: dict | None = None,
+    problem_count: int = 2,
     application_id: UUID,
     candidate_id: UUID,
 ) -> AssignmentBriefOut:
@@ -132,6 +136,8 @@ async def gen_assignment(
         jd_text=_truncate(jd_text, 8000),
         time_budget_hours=time_budget_hours,
         deadline_days=deadline_days,
+        problem_count=problem_count,
+        **scoring_prompt_vars(evaluation_spec, company_context),
     )
     client = get_llm_client()
     # v2 schema is large (5 problems with rich per-problem fields + cover

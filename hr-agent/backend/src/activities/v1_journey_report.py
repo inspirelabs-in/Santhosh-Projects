@@ -118,6 +118,15 @@ async def generate_journey_report(*, application_id: UUID) -> str:
             assignment_sent_at=(app.updated_at.isoformat() if app.updated_at else "n/a"),
             assignment_summary_json=json.dumps(assignment_summary, ensure_ascii=False)[:3000],
             current_stage=app.current_stage,
+            # Flight-risk thresholds: CTC overshoot has no config knob yet, so use
+            # the established 20% default. Notice ceiling is role-tuned; fall back
+            # to a sane full-time default when the role has none.
+            ctc_overshoot_pct=20,
+            max_notice_days=(
+                role.max_notice_days
+                if role and role.max_notice_days is not None
+                else 60
+            ),
         )
 
         client = get_llm_client()
