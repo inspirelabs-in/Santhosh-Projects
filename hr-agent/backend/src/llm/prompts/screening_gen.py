@@ -4,6 +4,9 @@ Input: role JD + parsed resume. Output: 5-7 targeted questions mixing
 must-have skill checks, role fit, CTC/notice logistics, open-text depth probes.
 """
 
+# [TO_FIX] Written screening is OUT OF SCOPE (voice is the mandated screen). The
+# hardcoded "5+ years" seniority threshold / canned senior-vs-junior themes should
+# derive from the role's seniority/spec when screening is revisited. Left as-is.
 SCREENING_GEN_VERSION = "v6"  # Langfuse version 6
 SCREENING_GEN_V1 = """You are a senior recruiter drafting a tailored screening questionnaire for ONE candidate applying to ONE role.
 

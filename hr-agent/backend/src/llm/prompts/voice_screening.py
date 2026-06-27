@@ -5,7 +5,7 @@ Conversational tone -- shorter than the email questionnaire because the
 candidate is answering live on a phone call (no copy-paste from ChatGPT).
 """
 
-VOICE_SCREEN_GEN_VERSION = "v8"  # Langfuse version 8
+VOICE_SCREEN_GEN_VERSION = "v9"  # Langfuse version 9 — no compound logistics question
 VOICE_SCREEN_EVAL_VERSION = "v14"  # v14 -- per-dimension criteria_scores added
 VOICE_SCREEN_GEN_V1 = """You design a set of questions for a spoken phone-screen between a candidate and the HR.
 
@@ -30,20 +30,25 @@ Location: {role_location} ({remote_policy})
 {candidate_profile_json}
 
 === QUESTION DESIGN ===
-Design EXACTLY 4 to 5 questions for an outbound AI agent to ASK ALOUD. The agent is calling this candidate -- keep the tone warm, direct, and conversational. Under 25 words per question. ONE topic per question.
+Design EXACTLY {max_questions} questions for an outbound AI agent to ASK ALOUD. The agent is calling this candidate -- keep the tone warm, direct, and conversational. Under 25 words per question. ONE topic per question — never bundle two topics into one question.
 
 Lead with 1-2 questions that reference a specific project, employer, or accomplishment from the candidate's profile — calling it out by name shows you've read their resume. Tie it to a concrete requirement in the JD or a key dimension from the evaluation criteria.
 
 After the resume-anchored question(s), ask 1-2 questions that probe depth or role-specific fit based on the evaluation criteria and company context. Keep them short and easy to answer aloud.
 
-Finish with 2 logistics questions covering: current CTC and expected CTC for this role, notice period, and -- ONLY when a real work location is known -- alignment with the location. The role location is "{role_location}" ({remote_policy}). If that location value is "n/a", empty, or unknown, ask only about CTC and notice period. Example when location is known: "Quick logistics check -- what's your current and expected CTC, notice period, and are you comfortable with {role_location} ({remote_policy})?"
+End with 1-2 short logistics questions — one topic per question:
+- Ask about current CTC and expected CTC in one question (they're naturally paired).
+- Ask about notice period as a separate question.
+- If the role has a real work location ("{role_location}", {remote_policy}) and it is not "n/a" or unknown, add a separate short question about location alignment. If location is "n/a" or unknown, skip it entirely.
+Never combine CTC, notice period, and location into one question.
 
 === RULES ===
-- Every question should sound natural when spoken aloud by an AI on a phone call — use conversational phrasing rather than bullet points, em-dashes, or markdown.
-- The first 1-2 questions should reference a specific project, employer, or accomplishment from the candidate profile.
-- Use open-ended questions — they draw out more signal. Yes/no questions work only for the logistics alignment check.
-- expected_signal and follow_up_hint are for the evaluator only.
-- Aim for 4-5 questions total.
+- Every question should sound natural when spoken aloud by an AI on a phone call — conversational phrasing, no bullet points, em-dashes, or markdown.
+- The first 1-2 questions should be crafted around a specific project/experience, employer, or accomplishment from the candidate profile.
+- Use open-ended questions — they draw out more signal. Yes/no questions work only for logistics alignment.
+- expected_signal and follow_up_hint are for the evaluator only — never spoken aloud.
+- One topic per question, always. No compound questions.
+- Total must be exactly {max_questions} questions — no more, no fewer.
 
 Output strict JSON only:
 {{
@@ -114,7 +119,7 @@ Output strict JSON only (no verdict field):
 {{
   "overall_score": 0,
   "criteria_scores": [
-    {{"key": "...", "label": "...", "weight": 0, "score": 0, "rationale": "2-3 sentences grounded in what the candidate actually said", "evidence": ["quote or paraphrase"], "data_status": "verified"}}
+    {{"key": "...", "label": "...", "weight": 0, "score": 0, "rationale": "2-3 sentences: what the candidate said that revealed this dimension, what raised the score, and what held it back. Name the anti_signal if one applied.", "evidence": ["quote or paraphrase"], "data_status": "verified"}}
   ],
   "per_question": [
     {{"question_id": "q1", "score": 0, "relevance": "low|medium|high", "notes": "2-3 sentences: which band and why -- the content that raised the score and what specifically held it back, with a quote/paraphrase"}}

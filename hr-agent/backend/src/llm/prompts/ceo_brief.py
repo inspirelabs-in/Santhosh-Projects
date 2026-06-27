@@ -4,12 +4,16 @@ v2: removed hardcoded company culture; sections are conditional on
 DATA_NOT_AVAILABLE sentinel so the LLM never hallucinates missing data.
 """
 
-CEO_BRIEF_VERSION = "v6"  # Langfuse version 6
+CEO_BRIEF_VERSION = "v7"  # dynamic {tech_round_label} + {company_context_json} grounding
 CEO_BRIEF_V1 = """You write the final hiring brief before the last-stage interview.
 
 Role: {role_title}
 Job Description (excerpt):
 {jd_text}
+
+## Company & role context
+Ground the Cultural Fit assessment in THIS context — the values, traits, and what "good fit" means here come from below, not a generic template.
+{company_context_json}
 
 Candidate snapshot:
 {candidate_json}
@@ -25,7 +29,7 @@ Voice phone screen (post-call evaluation):
 Assessment results:
 {assessment_json}
 
-Technical interview analysis:
+{tech_round_label} analysis:
 {technical_meeting_json}
 
 **IMPORTANT: Any section whose data is "DATA_NOT_AVAILABLE" MUST be omitted entirely from the brief. Do NOT invent, guess, or hallucinate content for unavailable data. Only write sections for which you have real data above.**
@@ -47,7 +51,7 @@ Up to three bullets, each with a quote or metric from the available data. Fewer 
 Up to three bullets, each with a quote or metric. If nothing concrete, write "Nothing concrete from available data."
 
 ## Cultural Fit
-Assess against the values and traits implied by the job description. Cite evidence from the available data (screening, interview, assignment). One paragraph. Skip entirely if insufficient data.
+Assess against the values and traits from the Company & role context above (fall back to those implied by the job description if the context is sparse). Cite evidence from the available data (screening, interview, assignment). One paragraph. Skip entirely if insufficient data.
 
 ## Suggested interview questions (3)
 Specific, sharp -- aimed at the one or two unresolved gaps from the available data.

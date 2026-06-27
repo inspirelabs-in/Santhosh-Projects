@@ -100,7 +100,7 @@ Output strict JSON only -- no markdown fences, no extra keys:
   "confidence_score": 0,
   "overall_score": 0,
   "criteria_scores": [
-    {{"key": "...", "label": "...", "weight": 0, "score": 0, "rationale": "2-3 sentences grounded in specific transcript evidence", "evidence": ["quote or paraphrase"], "data_status": "verified"}}
+    {{"key": "...", "label": "...", "weight": 0, "score": 0, "rationale": "2-3 sentences: what the candidate said that revealed this dimension, what raised the score, and what held it back. Name the anti_signal if one applied.", "evidence": ["quote or paraphrase"], "data_status": "verified"}}
   ],
   "score_rationale": {{
     "overall": "2-3 sentences: what the overall number reflects and the one or two signals that drove it",

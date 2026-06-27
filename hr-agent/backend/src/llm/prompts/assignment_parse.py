@@ -95,7 +95,7 @@ Output strict JSON:
     "technical_rigor": "low | medium | high"
   }},
   "criteria_scores": [
-    {{"key": "...", "label": "...", "weight": 0, "score": 0, "rationale": "2-3 sentences grounded in the submission evidence", "evidence": ["quote or observation"], "data_status": "verified"}}
+    {{"key": "...", "label": "...", "weight": 0, "score": 0, "rationale": "2-3 sentences: what in the submission revealed this dimension, what raised the score (the specific work or evidence), and what held it back. Name the anti_signal if one applied.", "evidence": ["quote or observation"], "data_status": "verified"}}
   ],
   "overall_score": 0,
   "highlights": ["specific strong points -- name WHAT is strong, WHY it matters for this role, and which quality signal it supports"],

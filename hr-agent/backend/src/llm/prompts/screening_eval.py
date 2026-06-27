@@ -5,7 +5,10 @@ diagnostic fields. Pass/fail routing is handled entirely by downstream code
 against overall_score. The model does NOT emit a verdict.
 """
 
-SCREENING_EVAL_VERSION = "v6"  # Langfuse version 6
+# [TO_FIX] Written screening is OUT OF SCOPE (voice is the mandated screen). The
+# three fixed scoring axes baked alongside the role's dynamic dimensions should be
+# reconciled with evaluation_spec when screening is revisited. Left as-is.
+SCREENING_EVAL_VERSION = "v7"  # criteria_scores output; per_question notes explain score reasoning
 SCREENING_EVAL_V1 = """You are evaluating a candidate's screening responses against this role.
 
 ## Company & role context (role-tuned, generated at JD time)
@@ -39,13 +42,21 @@ answered the substantive questions for THIS role. Three axes drive the score:
 
 1. Relevance -- did the candidate actually answer each question, or deflect?
 2. Depth -- concrete specifics (numbers, project names, tech decisions, personal
-   experience) vs. generic buzzwords. Quote the candidate's own words as
-   evidence in per_question notes.
-3. Honesty / consistency -- cross-check answers against the resume profile
-   ({candidate_profile_json}) and against what the role expects
-   (evaluation_spec_json / company_context_json). Claims that contradict the
-   resume or that are implausibly vague relative to claimed seniority lower the
-   score for the affected question(s).
+   experience) vs. generic buzzwords.
+3. Honesty / consistency -- cross-check answers against the resume profile and
+   against what the role expects (evaluation_spec_json / company_context_json).
+   Claims that contradict the resume or are implausibly vague relative to claimed
+   seniority lower the score for the affected question(s).
+
+Per question, the notes must explain the score: which relevance band the answer
+landed in, what concrete content raised it (the specific example, number, or
+decision the candidate named), and what held it back (the deflection, the vague
+claim, the buzzword where a proof should be). Quote or closely paraphrase the
+candidate. A note that just says "candidate answered well" is not acceptable.
+
+For each evaluation_spec dimension in criteria_scores, the rationale must name
+the specific answer evidence that revealed it — what raised the dimension score
+and what held it back. If an anti_signal applies, name it.
 
 IMPORTANT: logistics (CTC, notice, location) are extracted and assessed
 separately in logistics_check / logistics_values rather than reflected in the
@@ -70,19 +81,22 @@ who answers substantively should still receive a fair content score.
   score that question 0, set relevance "low", and set notes "no answer provided".
   There's no content to evaluate in that case.
 - If all answers are empty, the score naturally settles at 0 since there's nothing
-  to assess — flag it in red_flags as "no_screening_responses".
+  to assess -- flag it in red_flags as "no_screening_responses".
 
 ## Output
 
 Return strict JSON -- no prose outside the JSON block:
 {{
   "overall_score": 0,
+  "criteria_scores": [
+    {{"key": "...", "label": "...", "weight": 0, "score": 0, "rationale": "2-3 sentences: what in the answers revealed this dimension, what raised the score, what held it back. Name the anti_signal if one applied.", "evidence": ["direct quote or close paraphrase"], "data_status": "verified | pending_verification"}}
+  ],
   "per_question": [
     {{
       "question_id": "q1",
       "score": 0,
       "relevance": "low | medium | high",
-      "notes": "one sentence quoting or citing the candidate's actual answer"
+      "notes": "2-3 sentences: relevance call and why; what specifically raised the score (the concrete example or number cited); what held it back (deflection, vagueness, unsupported claim). Quote the candidate."
     }}
   ],
   "logistics_check": {{
@@ -100,7 +114,7 @@ Return strict JSON -- no prose outside the JSON block:
   }},
   "red_flags": [],
   "strengths": [],
-  "summary": "2-3 sentences on the candidate's substantive fit for the role"
+  "summary": "3-4 sentence snapshot of THIS candidate: the overall content quality, the strongest answer with evidence, the weakest or most evasive, and what most needs probing next."
 }}
 
 ### logistics_values extraction rules
@@ -113,5 +127,4 @@ Return strict JSON -- no prose outside the JSON block:
 ### Guardrails
 - Score what's in the answers. If a question wasn't answered, note that.
 - For data the candidate wasn't asked about, use a neutral score.
-- Output the fields listed above.
-- The score is the output — routing decisions are handled in code."""
+- The score is the output -- routing decisions are handled in code."""
