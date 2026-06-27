@@ -11,7 +11,7 @@ model reads the JD, extracts the actual skills/domain/challenges, and generates
 problems that test THOSE specific requirements. No hardcoded project names.
 """
 
-ASSIGNMENT_GEN_VERSION = "v9"  # role-level only: dropped candidate/screening inputs
+ASSIGNMENT_GEN_VERSION = "v12"  # recruiter brief is the authoritative source of problems + count when present
 
 # ─── Part 1 + Part 2: persona is injected at compile time ────────
 
@@ -21,7 +21,29 @@ ASSIGNMENT_GEN_V1 = """{company_persona}
 
 Design a take-home assignment for the role below. The output is a polished brief that will be rendered as a PDF and emailed to the candidate.
 
-# CRITICAL: READ THE JD FIRST
+{user_brief_section}
+
+# SOURCE OF PROBLEMS — decide this before anything else
+
+If a "Recruiter's Requirements" section appears ABOVE, it is the AUTHORITATIVE source of the problems:
+  * Produce ONE problem per distinct item the recruiter listed. Their count OVERRIDES the requested problem count below — if they wrote "1 assignment", output exactly 1; if they listed 3, output 3.
+  * Each problem MUST be the recruiter's described task, expanded into a full brief — same subject and intent, never a substitute. (Recruiter said "data structure visualizer" → the problem is a data structure visualizer, not a generic backend system.)
+  * Use the JD and company context ONLY to ground framing, tech stack, and scenario. Never let the JD replace or add problems the recruiter did not ask for.
+ONLY when there is NO "Recruiter's Requirements" section do you derive problems from the JD (steps below).
+
+# Company & role context (role-tuned, generated at JD time)
+
+Ground the assignment's framing, scenarios, and what a strong submission looks like in THIS context. Let the role's own context define what good work means here — do not impose a generic engineering lens.
+{company_context_json}
+
+# Role-specific evaluation criteria
+
+These are the dimensions this role is actually evaluated on (each with a label, weight, what_good_looks_like, anti_signals). The assignment's rubric MUST be derived from these — see the Rubric section below.
+{evaluation_spec_json}
+
+# IF NO RECRUITER REQUIREMENTS: READ THE JD FIRST
+
+(Skip this section entirely if a "Recruiter's Requirements" section was given above — in that case the problems come from the recruiter, and the JD is only framing.)
 
 The JD below contains the ACTUAL skills, tools, domain, and challenges for this role. Your assignment problems MUST test what the JD asks for. Do NOT default to generic engineering problems.
 
@@ -31,8 +53,6 @@ STEP 1 — Extract from the JD:
   * Key tools/technologies mentioned
   * Key outcomes/responsibilities mentioned
   * Seniority level
-
-{user_brief_override}
 
 STEP 2 — Generate problems that directly test JD requirements:
 
@@ -65,13 +85,11 @@ STEP 2 — Generate problems that directly test JD requirements:
 STEP 3 — Verify before outputting:
   * Does each problem test skills explicitly listed in the JD? If not, rewrite.
   * Would someone who read the JD recognize these problems as relevant? If not, rewrite.
-  * Are the two problems DIFFERENT in what they test? If they overlap, replace one.
+  * Are the problems DIFFERENT in what they test? If any two overlap, replace one.
 
 # Inputs
 
 This brief is generated at the ROLE level, before any candidate applies. There is NO candidate data. Base everything on the JD and role below; never reference a specific candidate, resume, or prior answers.
-
-{user_brief_section}
 
 Role: {role_title}
 
@@ -81,7 +99,7 @@ Job Description (THIS IS YOUR PRIMARY INPUT — base ALL problems on this):
 Constraints:
   * Total candidate time budget: {time_budget_hours} hours across ALL problems combined; candidate picks ONE.
   * Submission deadline: {deadline_days} days from receipt.
-  * Problem count: 2. Each problem is HARD and INDEPENDENT. Candidate selects whichever matches their strengths.
+  * Problem count: {problem_count} — UNLESS the recruiter's requirements specify how many (then use THAT count exactly). Each problem is HARD and INDEPENDENT. Candidate selects whichever matches their strengths.
 
 # Quality Bar
 
@@ -96,7 +114,7 @@ Banned:
   * Leetcode / algorithm puzzles disconnected from the JD.
   * "Build a CRUD app" with no strategic framing.
   * Vague deliverables ("build something cool").
-  * Two problems that test the same skill set.
+  * Multiple problems that test the same skill set.
   * Generic company names. Always use {company_name}.
   * Repeating the same problem across different roles. Each role's JD is unique; problems must be unique.
 
@@ -114,10 +132,10 @@ new_initiatives: 1 short paragraph (~50 words). Infer what {company_name} is bui
 strategic_context: 1 short paragraph (~40 words). Strategic levers relevant to THIS role's function.
 what_we_look_for: 4 bullets, 1 sentence each. Reflect qualities the JD asks for.
 
-# Per-problem fields (2 problems)
+# Per-problem fields ({problem_count} problems)
 
 For EACH problem produce ALL of:
-  * id: "p1" or "p2".
+  * id: "p1", "p2", ... numbered sequentially up to the problem count.
   * title: 5-9 words. Derived from JD requirements, grounded in {company_name} context.
   * vertical: 3-6 words (the business area this problem maps to).
   * tags: 4 short tech/skill chips. MUST match skills from the JD.
@@ -138,17 +156,16 @@ submission_requirements: 4 bullets. For technical roles: GitHub repo + README + 
 
 # Rubric
 
-evaluation_rubric.criteria: an ARRAY of 5 OBJECTS. Each object MUST have exactly these keys:
-  * name: the dimension name (string).
-  * weight: integer, all five sum to 100 (use 20 each).
-  * description: 1 sentence on what a strong answer on this dimension looks like.
+evaluation_rubric.criteria: an ARRAY of OBJECTS, one per dimension in the "Role-specific evaluation criteria" JSON above. DERIVE the rubric from that array — do NOT invent your own dimension set, count, or weights.
+
+For EACH dimension in {evaluation_spec_json}, produce one criterion object with exactly these keys:
+  * name: the dimension's `label`, verbatim.
+  * weight: the dimension's `weight`, unchanged (weights come from the spec — they need NOT be 5 in number nor 20 each; preserve whatever the spec gives).
+  * description: 1 sentence on what a strong submission on THIS dimension looks like, grounded in the dimension's what_good_looks_like / anti_signals and the company context above.
 Do NOT output bare strings. Each criterion is an object, e.g.:
   {"name": "Technical Depth", "weight": 20, "description": "Handles edge cases and scale, not just the happy path."}
 
-Dimension names to use:
-For technical roles: Technical Depth, Product Thinking, Demo Quality, AI/Tool Usage, Code Quality & Documentation.
-For non-technical roles: Strategic Thinking, Analytical Rigor, Communication Quality, Creativity & Insight, Practical Feasibility.
-For hybrid roles: mix dimensions from both.
+If {evaluation_spec_json} is empty (`[]`), fall back to deriving 3-5 dimensions directly from the JD's most important requirements, with integer weights summing to 100.
 
 # brief_md
 
