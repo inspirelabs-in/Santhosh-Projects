@@ -142,7 +142,13 @@ async def manual_schedule_meeting(
             await set_stage(session, application_id, _legacy_stage, force=True)
         _app = await session.get(Application, application_id)
         if _app is not None:
-            _app.current_stage_key = body.round
+            # Option B: cursor = the candidate's real interview stage_key, not the
+            # round literal (so the stepper + analyze_meeting stay aligned).
+            from src.db.repositories import role_pipeline_stage as _stage_repo
+            _target_key = await _stage_repo.resolve_interview_stage_key(
+                session, _app.role_id, _app.current_stage_key
+            )
+            _app.current_stage_key = _target_key or _app.current_stage_key or body.round
             _app.stage_status = str(StageStatus.SCHEDULED)
         await log_audit(
             session,

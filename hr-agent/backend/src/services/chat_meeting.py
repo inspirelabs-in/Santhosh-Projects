@@ -305,11 +305,22 @@ async def book_meeting(
             "scheduled_via": "chat",
         }
         meeting_session_id = meeting_row.id
-        await set_stage(session, application_id, _ROUND_TO_STAGE[round], force=True)
+        # Option B: keep the cursor on the candidate's REAL interview stage_key
+        # (they're already parked at it) instead of the round literal, so the V2
+        # stepper shows it as current and analyze_meeting advances the right stage.
+        # `round` stays a display label. Legacy enum write guarded (.get) so a
+        # custom round can't KeyError.
+        from src.db.repositories import role_pipeline_stage as _stage_repo
         from src.models.pipeline import StageStatus
         _app = await session.get(Application, application_id)
+        _legacy = _ROUND_TO_STAGE.get(round)
+        if _legacy is not None:
+            await set_stage(session, application_id, _legacy, force=True)
         if _app is not None:
-            _app.current_stage_key = round
+            _target_key = await _stage_repo.resolve_interview_stage_key(
+                session, _app.role_id, _app.current_stage_key
+            )
+            _app.current_stage_key = _target_key or _app.current_stage_key or round
             _app.stage_status = str(StageStatus.SCHEDULED)
         await log_audit(
             session,

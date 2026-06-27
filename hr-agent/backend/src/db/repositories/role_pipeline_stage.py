@@ -53,6 +53,33 @@ async def next_stage(
     return None
 
 
+async def resolve_interview_stage_key(
+    session: AsyncSession, role_id: UUID, current_stage_key: str | None
+) -> str | None:
+    """The interview-type stage_key to schedule a meeting for (Option B).
+
+    Scheduling tools speak in a ``round`` enum (technical/ceo/hr), but the cursor
+    must be a REAL pipeline ``stage_key``. The candidate is already parked at the
+    interview stage they reached, so: if the cursor is itself an interview stage,
+    use it; otherwise pick the first enabled interview stage at/after the cursor
+    (falling back to the first interview stage). Returns None when the role has no
+    interview stage, so callers can fall back to legacy behaviour.
+    """
+    stages = await for_role(session, role_id, enabled_only=True)
+    interviews = [s for s in stages if str(s.stage_type) == "interview"]
+    if not interviews:
+        return None
+    if current_stage_key and any(s.stage_key == current_stage_key for s in interviews):
+        return current_stage_key
+    cursor_pos = next(
+        (s.position for s in stages if s.stage_key == current_stage_key), -1
+    )
+    for s in interviews:  # already ordered by position
+        if s.position >= cursor_pos:
+            return s.stage_key
+    return interviews[0].stage_key
+
+
 async def seed_default(
     session: AsyncSession, *, role_id: UUID, org_id: UUID | None = None
 ) -> list[RolePipelineStage]:
