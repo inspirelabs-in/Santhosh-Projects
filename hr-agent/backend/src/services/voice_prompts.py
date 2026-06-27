@@ -97,8 +97,7 @@ def _build_screening_prompt(
     else:
         first_message = (
             f"Hi {candidate_name}, this is Aria calling from {company} regarding "
-            f"the {role} role you applied for. Is now a good time to talk for about "
-            "10 minutes?"
+            f"the {role} role you applied for. Is now a good time to talk?"
         )
 
     candidate_ctx_block = format_context_for_prompt(context)
@@ -129,8 +128,7 @@ def _build_screening_prompt(
             if attempt_no > 1
             else
             f"Start with: 'Hi {candidate_name}, this is Aria calling from {company} "
-            f"regarding the {role} role you applied for. Is now a good time to talk "
-            "for about 10 minutes?'\n\n"
+            f"regarding the {role} role you applied for. Is now a good time to talk?'\n\n"
         )
         +
         "If they say YES or seem open:\n"

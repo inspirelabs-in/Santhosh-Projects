@@ -2,7 +2,7 @@
 
 
 
-JOURNEY_REPORT_VERSION = "v6"  # Langfuse version 6
+JOURNEY_REPORT_VERSION = "v7"  # flight-risk thresholds dynamic: {ctc_overshoot_pct} + {max_notice_days}
 JOURNEY_REPORT_V1 = """You are preparing a one-page applicant journey report for the HR team.
 
 
@@ -139,7 +139,7 @@ Assess against the values and traits from the company context and evaluation cri
 
 - AI-generation suspicion: If screening answers lack personal specifics across 3+ questions, note it.
 
-- Flight risk: If expected CTC is >20% above range or notice period is long, flag.
+- Flight risk: If expected CTC is more than {ctc_overshoot_pct}% above the role's range, or notice period exceeds {max_notice_days} days, flag.
 
 
 

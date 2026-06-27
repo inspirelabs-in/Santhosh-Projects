@@ -43,7 +43,6 @@ JD_GENERATION_SYSTEM = """You are a senior hiring partner. From the conversation
     ]
   },
   "company_context": {
-    "intensity": "<light | standard | high | critical -- scaled to the seniority and stakes of the role>",
     "summary": "2-3 sentences of real grounding a scorer reads before judging candidates for THIS role: what the team does, the stage it is at, and what the role contributes.",
     "what_matters_here": ["a concrete signal that predicts success here", "another concrete signal"],
     "hiring_bar": "a specific, observable description of what clearing the bar looks like for this role, not a platitude"
@@ -59,7 +58,6 @@ HARD RULES:
 - pipeline: Derive stages from the conversation and what makes sense for THIS specific role. There are NO mandatory stages. Do not include stages the conversation does not call for. Every stage MUST have: stage_key (unique slug), stage_type (from EXACTLY this set: {pipeline_stage_types}), label (human-readable name), position (integer, 0-based), and mode ("auto" or "manual"). Never include stages like "fit_score", "scrape", "extract" — those are internal implementation details, not pipeline stages. A typical pipeline has 3-7 stages and reflects the actual hiring process for this role.
 - evaluation_spec.dimensions: 3 to 6 role-specific dimensions, each named and weighted for THIS specific role (never copy a placeholder key like "dimension_key" literally). For EACH dimension, what_good_looks_like and anti_signals must each contain 2 to 4 signals, and EVERY signal must be an ELABORATE, fully-written criterion: one to two complete sentences, roughly 150 to 250 characters, that names the concrete thing a scorer should look for and why it matters for THIS role. NEVER terse one-liners, single fragments, or one-word labels. weight is an integer; the weights MUST sum to 100 (e.g. four 25s, or five 20s).
 - company_context: summary and hiring_bar must be substantial, elaborate, role-specific prose (full sentences, not one-liners or placeholders); what_matters_here is 2 to 4 concrete, fully-written signals.
-- company_context.intensity MUST be exactly one of: light, standard, high, critical (scale it with the seniority/stakes of the role).
 - assignment.brief: if the hiring manager described their OWN take-home, problem statement, or even rough ideas for the assignment anywhere in the conversation, CAPTURE it here as clean markdown (preserve their intent and any specifics; lightly structure it). This is the team's own assignment and must be used verbatim, not replaced. If they did NOT mention any assignment idea, leave assignment.brief as "" (empty) -- NEVER invent or auto-write an assignment yourself; an empty brief lets the team provide one or explicitly ask for a generated draft later.
 - Honor explicit input: if the recruiter stated a comp band, location, notice period, or any other field, use that value exactly. Infer sensible defaults only for fields the conversation left unsaid.
 """
