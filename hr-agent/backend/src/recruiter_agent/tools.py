@@ -355,6 +355,7 @@ async def create_role_with_assignment(
     deadline_days: int = 7,
     brief: str | None = None,
     _prerendered_brief: dict | None = None,
+    conversation_id: str | None = None,
     **_ignored: Any,
 ) -> dict[str, Any]:
     """Create a role. Does NOT auto-generate a take-home assignment.
@@ -386,7 +387,21 @@ async def create_role_with_assignment(
 
     # No auto-generation. Persist a recruiter-provided brief as text only, and
     # compute status: draft when an assignment stage exists but no PDF yet.
-    _captured_brief = (brief or "").strip()
+    #
+    # The recruiter's draft-artifact brief is the source of truth. The agent's
+    # ``brief`` arg is an unreliable narrator (observed hallucination:
+    # "nodejs + typescript"), so when the active draft carries a brief it WINS
+    # over whatever the agent passed -- otherwise the hallucination would be
+    # persisted to role.assignment_brief and seed every later PDF render.
+    _agent_brief = (brief or "").strip()
+    _artifact_brief = (await _draft_brief_for_active_conversation(conversation_id)).strip()
+    if _artifact_brief and _agent_brief and _artifact_brief != _agent_brief:
+        logger.warning(
+            "create_role_with_assignment: overriding agent-passed brief=%r with the "
+            "recruiter's draft-artifact brief",
+            _agent_brief[:120],
+        )
+    _captured_brief = _artifact_brief or _agent_brief
     async with session_scope() as session:
         role = await session.get(Role, UUID(role_id))
         if role is not None:
@@ -426,6 +441,64 @@ async def create_role_with_assignment(
     }
 
 
+async def _draft_brief_for_active_conversation(conversation_id: str | None = None) -> str:
+    """Read the assignment brief the recruiter typed in the artifact panel.
+
+    The panel brief lives on the conversation's active role-draft artifact
+    (``content.assignment.brief``) and is only copied to ``role.assignment_brief``
+    when the role is APPLIED. If the recruiter asks Pulse to generate the
+    assignment before applying, the role carries no brief yet -- so we read it
+    straight from the draft here, rather than trusting the agent's user_brief
+    (an unreliable narrator). Returns "" when there is no draft brief.
+
+    The conversation id is supplied by ``call_tool`` (system-injected, never the
+    LLM). Falls back to the legacy contextvar for ``propose_role_draft``.
+    """
+    conv_id = conversation_id or _conversation_id_var.get()
+    if not conv_id:
+        return ""
+    try:
+        from src.db.repositories import artifact as artifact_repo
+
+        async with session_scope() as session:
+            art = await artifact_repo.get_active_for_conversation(session, UUID(conv_id))
+        content = getattr(art, "content", None)
+        if isinstance(content, dict):
+            asg = content.get("assignment")
+            if isinstance(asg, dict):
+                return (asg.get("brief") or "").strip()
+    except Exception:  # noqa: BLE001
+        return ""
+    return ""
+
+
+async def _applied_role_for_active_conversation(conversation_id: str | None = None) -> UUID | None:
+    """Resolve the role the recruiter applied in this conversation.
+
+    The role is created out-of-band by the apply endpoint (no agent turn), so the
+    agent never receives a structured role_id — it only sees it in prose and often
+    passes the draft artifact id as role_id instead. apply_artifact records the
+    created role on ``conversation.state['applied_role_id']``; this reads it back so
+    brief-aware tools can recover the real role regardless of what the agent passed.
+    """
+    conv_id = conversation_id or _conversation_id_var.get()
+    if not conv_id:
+        return None
+    try:
+        from src.db.base import RecruiterConversation
+
+        async with session_scope() as session:
+            conv = await session.get(RecruiterConversation, UUID(conv_id))
+        state = getattr(conv, "state", None)
+        if isinstance(state, dict):
+            rid = state.get("applied_role_id")
+            if rid:
+                return UUID(str(rid))
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
 async def generate_assignment_for_role(
     *,
     role_id: str,
@@ -435,6 +508,7 @@ async def generate_assignment_for_role(
     save: bool = False,
     prerendered: dict | None = None,
     user_brief: str | None = None,
+    conversation_id: str | None = None,
 ) -> dict[str, Any]:
     """LLM-draft a take-home assignment with ``n_problems`` distinct problems
     tailored to the role's JD.
@@ -444,9 +518,29 @@ async def generate_assignment_for_role(
     Default is preview-only so the confirm-card flow can show the draft to
     the user first.
     """
-    rid = UUID(role_id)
     async with session_scope() as session:
-        role = await session.get(Role, rid)
+        role = None
+        try:
+            rid = UUID(role_id)
+        except (ValueError, TypeError, AttributeError):
+            rid = None
+        if rid is not None:
+            role = await session.get(Role, rid)
+        if role is None and conversation_id:
+            # The agent commonly passes the DRAFT artifact id (it never receives a
+            # structured role_id — the role is created out-of-band on apply). Resolve
+            # the role the recruiter actually applied in this conversation instead of
+            # erroring out and forcing a list_roles round-trip.
+            resolved = await _applied_role_for_active_conversation(conversation_id)
+            if resolved is not None:
+                role = await session.get(Role, resolved)
+                if role is not None:
+                    rid = resolved
+                    logger.info(
+                        "generate_assignment_for_role: agent passed %r; resolved applied "
+                        "role %s from conversation %s",
+                        role_id, rid, conversation_id,
+                    )
         if role is None:
             return {"error": "role_not_found"}
 
@@ -463,6 +557,17 @@ async def generate_assignment_for_role(
     # OVERRIDES whatever the agent passed. The agent's user_brief is only used when
     # there is no saved brief yet (e.g. brand-new ideas described in chat).
     _existing_brief = (getattr(role, "assignment_brief", None) or "").strip()
+    if not _existing_brief:
+        # Role has no saved brief yet (not applied). Fall back to the draft
+        # artifact's brief (what the recruiter typed in the panel) BEFORE trusting
+        # the agent's user_brief. This is the artifact-brief-discarded fix.
+        _draft_brief = await _draft_brief_for_active_conversation(conversation_id)
+        if _draft_brief:
+            _existing_brief = _draft_brief
+            logger.info(
+                "generate_assignment_for_role: grounding on draft artifact brief for %s",
+                role_id,
+            )
     if _existing_brief:
         _agent_brief = (user_brief or "").strip()
         if _agent_brief and _agent_brief != _existing_brief:
@@ -647,6 +752,7 @@ async def ensure_role_assignment(
     source: str = "create",
     attempts: int = 2,
     user_brief: str | None = None,
+    conversation_id: str | None = None,
 ) -> dict[str, Any]:
     """Generate + persist a take-home for a role *reliably*.
 
@@ -681,6 +787,7 @@ async def ensure_role_assignment(
                 deadline_days=deadline_days,
                 save=True,
                 user_brief=user_brief,
+                conversation_id=conversation_id,
             )
         except Exception as e:  # noqa: BLE001
             last_err = str(e)
@@ -1830,7 +1937,14 @@ async def recall(
 
 async def _format_conversation_for_draft(conversation_id: str) -> str:
     """Pull recruiter + assistant messages from the conversation and format as
-    a compact transcript the LLM can read to infer role details."""
+    a compact transcript the LLM can read to infer role details.
+
+    Crucially this INCLUDES the recruiter's give_choice answers (stored as
+    ``role == "tool"`` rows): those chip selections are the recruiter's most
+    explicit statement of seniority / comp / location / skills, and dropping them
+    is what made the draft re-invent values from prose. They are rendered as a
+    "RECRUITER (selected)" block so the model treats them as stated facts.
+    """
     from src.db.repositories import recruiter_chat as chat_repo
 
     lines: list[str] = []
@@ -1845,14 +1959,29 @@ async def _format_conversation_for_draft(conversation_id: str) -> str:
             text = (m.content or "").strip()
             if text:
                 lines.append(f"PULSE: {text}")
-    return "\n".join(lines[-20:])  # last 20 exchanges at most
+        elif m.role == "tool" and m.tool_name == "give_choice":
+            # The recruiter's structured answers to scoping questions.
+            val = m.tool_result
+            text = val.strip() if isinstance(val, str) else ""
+            if text:
+                lines.append(f"RECRUITER (selected):\n{text}")
+    return "\n".join(lines[-40:])  # keep recent exchanges + the scoping answers
 
 
 async def _complete_draft_from_context(
-    conversation_id: str, partial: dict[str, Any]
+    conversation_id: str,
+    user_stated: dict[str, Any] | None = None,
+    fallback_defaults: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Generate a COMPLETE, strictly-validated ``RoleDraftContent`` from the
     conversation transcript.
+
+    ``user_stated`` are values the recruiter explicitly gave or selected (passed
+    as tool args) -- these are AUTHORITATIVE and must be used verbatim.
+    ``fallback_defaults`` are data-driven guesses (smart_defaults_for_role) used
+    ONLY for fields the recruiter never stated. Keeping them in separate blocks
+    is what stops a hardcoded default (e.g. "Hyderabad") from masquerading as
+    something the recruiter said.
 
     The model previously failed because its prompt never described the nested
     shapes ``RoleDraftContent`` requires (``PipelineStageDef`` needs a
@@ -1870,6 +1999,15 @@ async def _complete_draft_from_context(
     if not transcript.strip():
         logger.warning("auto_complete_draft: empty transcript for %s", conversation_id)
         return None
+
+    # Authoritative vs fallback: a fallback is only kept for a field the recruiter
+    # never stated, so it can never overwrite a real answer.
+    _user_stated = {k: v for k, v in (user_stated or {}).items() if v is not None}
+    _fallbacks = {
+        k: v
+        for k, v in (fallback_defaults or {}).items()
+        if v is not None and k not in _user_stated
+    }
 
     from src.llm.client import get_llm_client
     from src.llm.prompt_manager import compile_prompt
@@ -1920,8 +2058,15 @@ async def _complete_draft_from_context(
                 + f"\nCONTEXT (use these REAL values, never invent):\n"
                 + f"- Company name: {company_name}\n"
                 + f"- Application email (for the '## How to apply' section): {apply_email}\n"
-                + f"\nPARTIAL DATA ALREADY KNOWN (merge these in, fill the rest):\n"
-                + json.dumps(partial, indent=2)
+                + "\nUSER-STATED VALUES (AUTHORITATIVE -- the recruiter gave or"
+                + " selected these; use each one EXACTLY, never override or"
+                + " round them):\n"
+                + json.dumps(_user_stated, indent=2)
+                + "\n\nFALLBACK DEFAULTS (use a value here ONLY for a field that"
+                + " is absent from BOTH the user-stated values above AND the"
+                + " conversation; never let these override anything the recruiter"
+                + " said):\n"
+                + json.dumps(_fallbacks, indent=2)
                 + f"\n\nCONVERSATION:\n{transcript}\n\n"
                 + "Respond with ONLY the JSON object specified above, fully filled."
             ),
@@ -1943,8 +2088,8 @@ async def _complete_draft_from_context(
     if not (draft.jd_text and draft.jd_text.strip()):
         logger.warning("auto_complete_draft produced empty jd_text for %s", conversation_id)
         return None
-    if not draft.title and isinstance(partial, dict):
-        draft.title = partial.get("title")
+    if not draft.title and _user_stated:
+        draft.title = _user_stated.get("title")
     return {
         "ok": True,
         "artifact_type": "role_draft",
@@ -1991,7 +2136,26 @@ async def propose_role_draft(
     # Auto-complete from conversation history when the LLM passes empty/partial args.
     conv_id = _conversation_id_var.get()
     if conv_id:
-        completed = await _complete_draft_from_context(conv_id, raw)
+        # The values the recruiter actually stated/selected are authoritative.
+        # smart_defaults are kept in a SEPARATE fallback block (not merged into
+        # the stated values) so a data-driven guess can never masquerade as
+        # something the recruiter said. The completer uses each fallback only for
+        # a field absent from both the stated values and the conversation.
+        user_stated = dict(raw)
+        fallback_defaults: dict[str, Any] = {}
+        _title = (raw or {}).get("title") or ""
+        if _title and isinstance(_title, str) and len(_title) > 2:
+            try:
+                defaults = await smart_defaults_for_role(title=_title)
+                if isinstance(defaults, dict) and "error" not in defaults:
+                    for _k in ("ctc_min_lpa", "ctc_max_lpa", "location", "remote_policy", "max_notice_days"):
+                        if user_stated.get(_k) is None:
+                            fallback_defaults[_k] = defaults.get(_k)
+            except Exception:  # noqa: BLE001
+                pass
+        completed = await _complete_draft_from_context(
+            conv_id, user_stated, fallback_defaults
+        )
         if completed:
             return completed
 
@@ -2070,6 +2234,17 @@ TOOLS: dict[str, Any] = {
 
 _ACTOR_HASH_TOOLS = frozenset({"remember", "recall"})
 
+# Tools that ground on the recruiter's active role-draft artifact (its
+# ``assignment.brief``). ``call_tool`` injects the system-supplied conversation
+# id into their kwargs -- the LLM never passes it -- mirroring ``actor_hash``.
+_CONVERSATION_ID_TOOLS = frozenset(
+    {
+        "generate_assignment_for_role",
+        "ensure_role_assignment",
+        "create_role_with_assignment",
+    }
+)
+
 
 async def call_tool(
     name: str,
@@ -2088,6 +2263,10 @@ async def call_tool(
         if not actor_hash:
             return {"error": "actor_hash_missing"}
         args["actor_hash"] = actor_hash
+    # Inject the system-supplied conversation id so brief-aware tools can read
+    # the recruiter's draft-artifact brief (never trust the LLM to pass it).
+    if name in _CONVERSATION_ID_TOOLS and conversation_id:
+        args["conversation_id"] = conversation_id
     # Inject conversation context for propose_role_draft auto-completion.
     if name == "propose_role_draft" and conversation_id:
         token = _conversation_id_var.set(conversation_id)

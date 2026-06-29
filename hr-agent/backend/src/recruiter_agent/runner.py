@@ -57,6 +57,7 @@ from src.db.repositories import recruiter_chat as repo
 from src.db.repositories import recruiter_memory as memory_repo
 from src.llm.client import LLMError, assert_model_allowed, pat_sub
 from src.llm.model_registry import Stage, model_for
+from src.recruiter_agent.loaders import generic_loader, loader_for
 from src.recruiter_agent.prompts import COMPANY_CONTEXT_TEMPLATE, RECRUITER_SYSTEM_V3, RECRUITER_SYSTEM_VERSION
 from src.recruiter_agent.rbac import can, needs_confirm, required_role
 from src.recruiter_agent.schemas import RECRUITER_TOOLS
@@ -271,19 +272,54 @@ def _propose_preview(tool_name: str, args: dict[str, Any]) -> str:
     return f"{tool_name}({a})"
 
 
-async def _prerender_for_confirm(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
+async def _prerender_for_confirm(tool_name: str, args: dict[str, Any], *, conversation_id: UUID | None = None) -> dict[str, Any]:
     """Pre-generate large artifacts so the confirm card shows the full draft.
 
     Currently handles ``create_role_with_assignment``: drafts the assignment
     BEFORE the user confirms, so the confirm card surfaces all problems +
     brief_md + rubric. The cached draft is stored on ``args`` and reused on
     confirm-execute so we don't regenerate on click.
+
+    When ``conversation_id`` is provided, looks up the latest role-draft artifact
+    to auto-populate ``brief``, ``evaluation_spec``, ``company_context``, and
+    ``n_problems`` when the LLM forgot to pass them — the most common root cause
+    of irrelevant/random assignment problems.
     """
     if tool_name != "create_role_with_assignment":
         return args
     # Already prerendered (e.g. on a re-issue of the same confirm). Skip.
     if isinstance(args.get("_prerendered_brief"), dict):
         return args
+    # Ensure args is mutable.
+    args = dict(args)
+    # Auto-populate missing fields from the conversation's role-draft artifact.
+    # The LLM is an unreliable narrator for brief/eval_spec/company_context — it
+    # often omits them from the tool call. The artifact carries the authoritative
+    # values produced by propose_role_draft -> _complete_draft_from_context.
+    if conversation_id is not None:
+        try:
+            async with session_scope() as _a_session:
+                _art = await artifact_repo.get_active_for_conversation(_a_session, conversation_id)
+            if _art is not None and isinstance(_art.content, dict):
+                _ac = _art.content
+                # The recruiter's panel brief is authoritative: when the active
+                # draft carries one it OVERRIDES whatever the LLM passed (which
+                # is often a hallucination), so the confirm-card preview and the
+                # persisted brief both reflect what the recruiter actually wrote.
+                if isinstance(_ac.get("assignment"), dict):
+                    _artifact_brief = (_ac["assignment"].get("brief") or "").strip()
+                    if _artifact_brief:
+                        args["brief"] = _artifact_brief
+                if not args.get("evaluation_spec") and _ac.get("evaluation_spec"):
+                    args["evaluation_spec"] = _ac["evaluation_spec"]
+                if not args.get("company_context") and _ac.get("company_context"):
+                    args["company_context"] = _ac["company_context"]
+                if not args.get("n_problems") and isinstance(_ac.get("assignment"), dict):
+                    _np = _ac["assignment"].get("n_problems")
+                    if _np:
+                        args["n_problems"] = int(_np)
+        except Exception:  # noqa: BLE001
+            pass
     try:
         from src.agent.generators import gen_assignment
 
@@ -297,6 +333,10 @@ async def _prerender_for_confirm(tool_name: str, args: dict[str, Any]) -> dict[s
             jd_text=args.get("jd_text") or "",
             time_budget_hours=int(args.get("time_budget_hours") or 6),
             deadline_days=int(args.get("deadline_days") or 7),
+            user_brief=args.get("brief"),
+            evaluation_spec=args.get("evaluation_spec"),
+            company_context=args.get("company_context"),
+            problem_count=n,
             application_id=synthetic_id,
             candidate_id=synthetic_id,
         )
@@ -410,9 +450,13 @@ async def _execute_confirmed(
         }
         return
 
-    yield {"type": "thinking", "label": f"Executing {tool_name}"}
+    yield {"type": "thinking", "label": loader_for(tool_name)}
     yield {"type": "tool_call", "id": request_id, "name": tool_name, "arguments": args, "confirmed": True}
-    result = await call_tool(tool_name, args, actor_hash=actor_hash)
+    # Pass the conversation id (system-supplied) so brief-aware tools can recover
+    # the recruiter's draft-artifact brief even on the confirmed-execute path.
+    result = await call_tool(
+        tool_name, args, actor_hash=actor_hash, conversation_id=str(conversation_id)
+    )
     yield {
         "type": "tool_result",
         "id": request_id,
@@ -817,7 +861,7 @@ async def run_recruiter_turn(
                 yield {"type": "error", "message": "conversation_not_found"}
                 return
         await _clear_cancel(conversation_id)
-        yield {"type": "thinking", "label": "Processing your answer"}
+        yield {"type": "thinking", "label": generic_loader()}
         async for ev in _run_tool_loop(conversation_id, conv.actor_hash, conv.actor_role):
             yield ev
         return
@@ -853,7 +897,7 @@ async def run_recruiter_turn(
         return
 
     await _clear_cancel(conversation_id)
-    yield {"type": "thinking", "label": "Reading your request"}
+    yield {"type": "thinking", "label": generic_loader()}
 
     async for ev in _run_tool_loop(
         conversation_id,
@@ -1095,16 +1139,14 @@ async def _run_tool_loop(
             # ---- Confirm gate ----
             if needs_confirm(name):
                 request_id = c["id"]
+                # Show the tool-specific loader while we (optionally) prerender
+                # and assemble the confirm card.
+                yield {"type": "thinking", "label": loader_for(name)}
                 # For combo tools that generate large artifacts (assignment
                 # brief, etc.), pre-render the artifact so the confirm card
                 # shows the FULL draft to the user before they confirm. The
                 # tool then receives the cached payload on confirm-execute
                 # and skips regeneration.
-                if name == "create_role_with_assignment":
-                    yield {
-                        "type": "thinking",
-                        "label": "Drafting the role + 5-problem assignment...",
-                    }
                 # Wrap in a hard timeout so a slow LLM never freezes the UI.
                 # If prerender stalls, show the confirm card without the
                 # generated problems; the execute path will still produce a
@@ -1112,7 +1154,7 @@ async def _run_tool_loop(
                 import asyncio as _aio
                 try:
                     args = await _aio.wait_for(
-                        _prerender_for_confirm(name, args),
+                        _prerender_for_confirm(name, args, conversation_id=conversation_id),
                         timeout=45.0,
                     )
                 except _aio.TimeoutError:
@@ -1156,6 +1198,7 @@ async def _run_tool_loop(
                 break
 
             # ---- Direct execution ----
+            yield {"type": "thinking", "label": loader_for(name)}
             yield {"type": "tool_call", "id": c["id"], "name": name, "arguments": args}
             result = await call_tool(name, args, actor_hash=actor_hash, conversation_id=str(conversation_id))
 
@@ -1199,7 +1242,15 @@ async def _run_tool_loop(
                         role="tool",
                         tool_name=name,
                         tool_calls=[{"id": c["id"]}],
-                        tool_result={"ok": True, "artifact_id": art_payload["id"]},
+                        tool_result={
+                            "ok": True,
+                            "draft_artifact_id": art_payload["id"],
+                            "note": (
+                                "Draft saved to the panel. This is a DRAFT id, NOT a "
+                                "role_id — the role does not exist until the recruiter "
+                                "applies the draft. Never pass this id as role_id."
+                            ),
+                        },
                         attachments=[
                             {
                                 "kind": "artifact",
