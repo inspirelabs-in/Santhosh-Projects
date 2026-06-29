@@ -163,7 +163,7 @@ function MessageBubble({
   );
 }
 
-function ThinkingIndicator() {
+function ThinkingIndicator({ label }: { label?: string }) {
   return (
     <div className="flex items-start gap-3 pl-0">
       <PulseAvatar />
@@ -173,7 +173,7 @@ function ThinkingIndicator() {
           <span className="h-2 w-2 animate-bounce rounded-full bg-primary/50" style={{ animationDelay: "150ms" }} />
           <span className="h-2 w-2 animate-bounce rounded-full bg-primary/50" style={{ animationDelay: "300ms" }} />
         </div>
-        <span className="ml-1 text-xs text-muted-foreground">thinking</span>
+        <span className="ml-1 text-xs text-muted-foreground">{label?.trim() || "Thinking…"}</span>
       </div>
     </div>
   );
@@ -182,6 +182,7 @@ function ThinkingIndicator() {
 interface Props {
   messages: RecruiterMessage[];
   isThinking: boolean;
+  thinkingLabel?: string;
   emptyHint?: string;
   conversationId?: string | null;
   dispatch?: (msg: string) => void;
@@ -190,6 +191,7 @@ interface Props {
 export function ChatMessages({
   messages,
   isThinking,
+  thinkingLabel,
   emptyHint,
   conversationId,
   dispatch,
@@ -245,7 +247,7 @@ export function ChatMessages({
       {messages.map((m) => (
         <MessageBubble key={m.id} msg={m} conversationId={conversationId ?? null} dispatch={dispatch} />
       ))}
-      {isThinking && <ThinkingIndicator />}
+      {isThinking && <ThinkingIndicator label={thinkingLabel} />}
       <div ref={endRef} />
     </div>
   );

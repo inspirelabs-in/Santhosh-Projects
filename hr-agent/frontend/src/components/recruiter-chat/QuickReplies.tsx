@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { QuickReplyQuestion } from "@/lib/useRecruiterChat";
 
@@ -14,41 +14,100 @@ interface QuickRepliesProps {
 /**
  * Claude-style in-composer options picker. Renders the LLM's questions inside
  * the input bar: option chips + an optional "type your own" field, with
- * navigation between questions. Once every question has an answer, the combined
- * "question -> answer" text is sent off.
+ * navigation between questions.
+ *
+ * Single-select questions commit on click and auto-advance. Multi-select
+ * questions (multiSelect) toggle chips and wait for an explicit Next/Send so the
+ * recruiter can pick several. Once every question has at least one answer, the
+ * combined "Q: ...\nAns: ..." text is sent off.
  */
 export function QuickReplies({ questions, onComplete }: QuickRepliesProps) {
   const total = questions.length;
   const [idx, setIdx] = useState(0);
-  const [answers, setAnswers] = useState<string[]>(() => questions.map(() => ""));
+  // One list of chosen values per question (single-select holds 0 or 1).
+  const [selections, setSelections] = useState<string[][]>(() =>
+    questions.map(() => []),
+  );
   const [custom, setCustom] = useState("");
 
   const q = questions[idx];
-  const answeredCount = answers.filter((a) => a.trim()).length;
+  const answeredCount = selections.filter((s) => s.length > 0).length;
+  const currentAnswered = selections[idx].length > 0;
 
-  function commit(value: string) {
-    const v = value.trim();
-    if (!v) return;
-    const next = answers.map((a, i) => (i === idx ? v : a));
-    setAnswers(next);
-    setCustom("");
-    // Every question answered -> send off (matches "once selected, send it").
-    if (next.every((a) => a.trim())) {
+  function maybeSend(next: string[][]): boolean {
+    if (next.every((s) => s.length > 0)) {
       const combined = questions
-        .map((qq, i) => `${qq.question} ${next[i]}`)
-        .join("\n");
+        .map((qq, i) => `Q: ${qq.question}\nAns: ${next[i].join(", ")}`)
+        .join("\n\n");
       onComplete(combined);
-      return;
+      return true;
     }
-    // Otherwise advance to the next still-unanswered question.
-    const nextUnanswered = next.findIndex((a, i) => i > idx && !a.trim());
+    return false;
+  }
+
+  function advance(next: string[][]) {
+    const nextUnanswered = next.findIndex((s, i) => i > idx && s.length === 0);
     setIdx(nextUnanswered === -1 ? Math.min(idx + 1, total - 1) : nextUnanswered);
   }
+
+  // Single-select: replace the answer and move on (or send when all done).
+  function pickSingle(value: string) {
+    const v = value.trim();
+    if (!v) return;
+    const next = selections.map((s, i) => (i === idx ? [v] : s));
+    setSelections(next);
+    setCustom("");
+    if (!maybeSend(next)) advance(next);
+  }
+
+  // Multi-select: toggle the value in/out; never auto-advance.
+  function toggleMulti(value: string) {
+    const v = value.trim();
+    if (!v) return;
+    setSelections((prev) =>
+      prev.map((s, i) =>
+        i !== idx ? s : s.includes(v) ? s.filter((x) => x !== v) : [...s, v],
+      ),
+    );
+  }
+
+  function onOptionClick(opt: string) {
+    if (q.multiSelect) toggleMulti(opt);
+    else pickSingle(opt);
+  }
+
+  function onCustom() {
+    const v = custom.trim();
+    if (!v) return;
+    if (q.multiSelect) {
+      setSelections((prev) =>
+        prev.map((s, i) => (i === idx && !s.includes(v) ? [...s, v] : s)),
+      );
+      setCustom("");
+    } else {
+      pickSingle(v);
+    }
+  }
+
+  // Multi-select footer: commit the current question and continue/send.
+  function onContinue() {
+    if (!currentAnswered) return;
+    if (!maybeSend(selections)) advance(selections);
+  }
+
+  const isLast = idx === total - 1;
 
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
-        <p className="text-sm font-medium text-foreground">{q.question}</p>
+        <p className="text-sm font-medium text-foreground">
+          {q.question}
+          {q.multiSelect && (
+            <span className="ml-1.5 text-[11px] font-normal text-muted-foreground">
+              (pick any)
+            </span>
+          )}
+        </p>
         {total > 1 && (
           <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
             <button
@@ -78,22 +137,37 @@ export function QuickReplies({ questions, onComplete }: QuickRepliesProps) {
       </div>
 
       <div className="flex flex-col gap-1.5">
-        {q.options.map((opt) => (
-          <button
-            key={opt}
-            type="button"
-            onClick={() => commit(opt)}
-            className={cn(
-              "w-full rounded-md border px-3 py-1.5 text-left text-xs transition-colors",
-              answers[idx] === opt
-                ? "border-brand-green bg-brand-green/10 text-foreground"
-                : "border-border/60 hover:border-brand-green/60 hover:bg-brand-green/5",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-green/40",
-            )}
-          >
-            {opt}
-          </button>
-        ))}
+        {q.options.map((opt) => {
+          const selected = selections[idx].includes(opt);
+          return (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => onOptionClick(opt)}
+              className={cn(
+                "flex w-full items-center gap-2 rounded-md border px-3 py-1.5 text-left text-xs transition-colors",
+                selected
+                  ? "border-brand-green bg-brand-green/10 text-foreground"
+                  : "border-border/60 hover:border-brand-green/60 hover:bg-brand-green/5",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-green/40",
+              )}
+            >
+              {q.multiSelect && (
+                <span
+                  className={cn(
+                    "flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border",
+                    selected
+                      ? "border-brand-green bg-brand-green text-white"
+                      : "border-border/70",
+                  )}
+                >
+                  {selected && <Check className="h-2.5 w-2.5" />}
+                </span>
+              )}
+              {opt}
+            </button>
+          );
+        })}
       </div>
 
       {q.allowCustom && (
@@ -101,19 +175,19 @@ export function QuickReplies({ questions, onComplete }: QuickRepliesProps) {
           <input
             type="text"
             className="flex-1 rounded-md border border-border/60 bg-transparent px-2.5 py-1 text-xs outline-none focus:border-brand-green/60"
-            placeholder="Or type your own..."
+            placeholder={q.multiSelect ? "Add your own..." : "Or type your own..."}
             value={custom}
             onChange={(e) => setCustom(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
-                commit(custom);
+                onCustom();
               }
             }}
           />
           <button
             type="button"
-            onClick={() => commit(custom)}
+            onClick={onCustom}
             disabled={!custom.trim()}
             className={cn(
               "rounded-md px-3 py-1 text-xs font-medium transition-colors",
@@ -122,9 +196,25 @@ export function QuickReplies({ questions, onComplete }: QuickRepliesProps) {
                 : "bg-muted text-muted-foreground cursor-default",
             )}
           >
-            {idx === total - 1 ? "Send" : "Next"}
+            {q.multiSelect ? "Add" : isLast ? "Send" : "Next"}
           </button>
         </div>
+      )}
+
+      {q.multiSelect && (
+        <button
+          type="button"
+          onClick={onContinue}
+          disabled={!currentAnswered}
+          className={cn(
+            "self-end rounded-md px-3 py-1 text-xs font-medium transition-colors",
+            currentAnswered
+              ? "bg-brand-green text-white hover:bg-brand-green/90"
+              : "bg-muted text-muted-foreground cursor-default",
+          )}
+        >
+          {isLast ? "Send" : "Next"}
+        </button>
       )}
     </div>
   );
