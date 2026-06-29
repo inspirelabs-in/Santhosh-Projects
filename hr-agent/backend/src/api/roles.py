@@ -52,6 +52,9 @@ class RoleRead(BaseModel):
     assignment_problem_doc_filename: str | None
     has_problem_doc: bool
     pipeline_template: list[str] | None
+    # Real pipeline source of truth (role_pipeline_stages), ordered by position.
+    # Mirrors the stage_view shape rendered on the candidate detail page.
+    pipeline: list[dict[str, Any]] = Field(default_factory=list)
     screening_modality: str
     evaluation_spec: dict[str, Any] | None = None
     company_context: dict[str, Any] | None = None
@@ -106,7 +109,7 @@ class RolePatch(BaseModel):
     company_context: dict[str, Any] | None = None
 
 
-def _to_read(r: Role) -> RoleRead:
+def _to_read(r: Role, stages: list[Any] | None = None) -> RoleRead:
     return RoleRead(
         id=r.id,
         title=r.title,
@@ -127,6 +130,17 @@ def _to_read(r: Role) -> RoleRead:
         assignment_problem_doc_filename=r.assignment_problem_filename,
         has_problem_doc=bool(r.assignment_problem_doc_key),
         pipeline_template=r.pipeline_template,
+        pipeline=[
+            {
+                "stage_key": s.stage_key,
+                "stage_type": str(s.stage_type),
+                "label": s.label,
+                "position": s.position,
+                "mode": str(s.mode),
+                "is_enabled": s.is_enabled,
+            }
+            for s in (stages or [])
+        ],
         screening_modality=r.screening_modality,
         evaluation_spec=r.evaluation_spec,
         company_context=r.company_context,
@@ -157,7 +171,9 @@ async def get_role(
         role = await session.get(Role, role_id)
         if role is None:
             raise HTTPException(status_code=404, detail="Role not found")
-        return _to_read(role)
+        from src.db.repositories import role_pipeline_stage as stage_repo
+        stages = await stage_repo.for_role(session, role_id, enabled_only=False)
+        return _to_read(role, stages)
 
 
 @router.post("", response_model=RoleRead, status_code=status.HTTP_201_CREATED)

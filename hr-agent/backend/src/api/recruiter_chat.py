@@ -30,7 +30,7 @@ from src.db.connection import get_redis, session_scope
 from src.db.repositories import recruiter_chat as repo
 from src.db.repositories.recruiter_chat import hash_actor
 from src.recruiter_agent.runner import run_recruiter_turn
-from src.db.base import Role, RolePipelineStage
+from src.db.base import RecruiterConversation, Role, RolePipelineStage
 from src.db.repositories import artifact as artifact_repo
 from src.db.repositories import organization as org_repo
 from src.db.repositories import role_pipeline_stage as stage_repo
@@ -438,6 +438,15 @@ async def apply_artifact(
         await artifact_repo.set_status(session, artifact_id, ArtifactStatus.APPLIED)
         conversation_id = art.conversation_id
         role_title = draft.title
+
+        # Record the applied role on the conversation. The role is created here
+        # OUT OF BAND (no agent turn), so the agent never receives a structured
+        # role_id — it only sees it in prose and routinely passes the draft id
+        # instead. Brief-aware tools resolve the real role from this state.
+        # (Reassign the dict so SQLAlchemy detects the JSONB mutation.)
+        conv = await session.get(RecruiterConversation, conversation_id)
+        if conv is not None:
+            conv.state = {**(conv.state or {}), "applied_role_id": str(role_id)}
 
     # NOTE: Pulse never auto-generates an assignment on apply. When the pipeline
     # has an assignment stage but no PDF yet, the role is held at "draft" (set

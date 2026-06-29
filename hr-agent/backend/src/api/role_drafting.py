@@ -119,11 +119,16 @@ async def _maybe_generate_assignment(
         from src.agent.generators import gen_assignment
 
         synthetic_id = uuid4()
+        _assignment = draft.get("assignment") or {}
         brief = await gen_assignment(
             role_title=title,
             jd_text=jd_text,
             time_budget_hours=int(draft.get("assignment_deadline_days") or 6),
             deadline_days=int(draft.get("assignment_deadline_days") or 7),
+            user_brief=_assignment.get("brief"),
+            evaluation_spec=draft.get("evaluation_spec"),
+            company_context=draft.get("company_context"),
+            problem_count=int(_assignment.get("n_problems", 2)),
             application_id=synthetic_id,
             candidate_id=synthetic_id,
         )
