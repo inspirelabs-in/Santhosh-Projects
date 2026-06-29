@@ -37,7 +37,7 @@ v12 changes from v11 (the dynamic-only rewrite):
     red_flags), never as a scored dimension.
 """
 
-FIT_SCORE_VERSION = "v13"
+FIT_SCORE_VERSION = "v13"  # Langfuse version 13
 FIT_SCORE_V1 = """You are the recruitment scoring engine. Produce a fair 0-100 score for this candidate against the job description using ONLY factual data present in their profile and medium data.
 
 ## Company and role context (role-tuned, generated at JD time)

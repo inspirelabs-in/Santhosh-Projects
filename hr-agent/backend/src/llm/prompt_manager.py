@@ -140,6 +140,18 @@ def compile_prompt(
     """
     template = get_prompt(name, fallback=fallback, label=label)
 
+    # Drift guard: warn when a supplied variable has NO slot in the template, so it
+    # is silently dropped. This is exactly how a stale Langfuse prompt (missing e.g.
+    # {user_brief_section}) discards data with no error — surface it loudly instead.
+    present = set(re.findall(r"\{(\w+)\}", template))
+    dropped = [k for k in variables if k not in present]
+    if dropped:
+        logger.warning(
+            "compile_prompt('%s', label='%s'): supplied variables have NO slot in the "
+            "template and were DROPPED: %s — the live prompt may be stale/out of sync.",
+            name, label, sorted(dropped),
+        )
+
     def _replace(match: re.Match) -> str:
         key = match.group(1)
         return str(variables[key]) if key in variables else match.group(0)
