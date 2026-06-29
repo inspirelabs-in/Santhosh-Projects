@@ -601,12 +601,16 @@ RECRUITER_TOOLS: list[dict] = [
                 "Create or update the role draft and open the editable side panel. "
                 "You MUST call this tool to produce a draft -- the draft and the panel "
                 "do not exist until you do. Never tell the recruiter you drafted "
-                "something without calling this in the same turn. Call it as soon as "
-                "you have enough context (seniority, comp, location, must-haves); the "
-                "system auto-generates the complete draft (title, JD, pipeline, "
-                "evaluation spec, company context) from your conversation, so calling "
-                "with NO arguments is the norm. Call again to revise the same artifact. "
-                "Does NOT create the role; the user applies it from the panel."
+                "something without calling this in the same turn. "
+                "PASS the concrete values the recruiter stated or picked as arguments "
+                "(title, ctc_min_lpa, ctc_max_lpa, location, remote_policy, "
+                "max_notice_days, and assignment.brief for any take-home they "
+                "described). Those passed values are treated as AUTHORITATIVE and used "
+                "exactly. The system then writes the JD prose, pipeline, evaluation "
+                "spec, and company context from the full conversation to complete the "
+                "draft. Do not pass jd_text yourself; let the system write it. Call "
+                "again to revise the same artifact. Does NOT create the role; the user "
+                "applies it from the panel."
             ),
             "parameters": {
                 "type": "object",
