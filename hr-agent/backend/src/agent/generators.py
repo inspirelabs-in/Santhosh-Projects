@@ -140,9 +140,6 @@ async def gen_assignment(
         **scoring_prompt_vars(evaluation_spec, company_context),
     )
     client = get_llm_client()
-    # v2 schema is large (5 problems with rich per-problem fields + cover
-    # context). 8K tokens fits the slimmed v2.1 schema. Single attempt for
-    # latency reasons; failures bubble up to the caller which can fall back.
     result = await client.complete(
         prompt=prompt,
         response_model=AssignmentBriefOut,
@@ -152,7 +149,7 @@ async def gen_assignment(
         candidate_id=candidate_id,
         application_id=application_id,
         temperature=0.7,
-        max_tokens=5000,
+        max_tokens=8000,
         max_attempts=2,
     )
     return result.parsed
