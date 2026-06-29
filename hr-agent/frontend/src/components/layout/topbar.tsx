@@ -1,7 +1,6 @@
 "use client";
 
-import { LogOut, User } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { User } from "lucide-react";
 import { clearDashboardKey } from "@/lib/auth";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
@@ -20,12 +19,14 @@ export function Topbar({ title, subtitle, breadcrumbOverrides }: { title: string
     router.push("/login");
   }
 
+  const roleInitial = who?.role ? who.role[0].toUpperCase() : "?";
+
   return (
-    <header className="relative z-30 flex h-auto min-h-[3.5rem] shrink-0 items-center justify-between gap-4 border-b bg-background/80 px-6 py-2 backdrop-blur">
-      <div className="flex flex-col min-w-0">
-        <Breadcrumbs overrides={breadcrumbOverrides} />
+    <header className="relative z-30 flex h-14 shrink-0 items-center justify-between gap-4 border-b border-border/60 bg-background/95 px-6 backdrop-blur-sm">
+      <div className="flex flex-col justify-center min-w-0">
+        <Breadcrumbs overrides={breadcrumbOverrides} className="text-xs text-muted-foreground/70" />
         <div className="flex items-baseline gap-3 min-w-0">
-          <h1 className="truncate text-lg font-bold leading-tight tracking-tight">{title}</h1>
+          <h1 className="truncate text-xl font-bold leading-tight tracking-tight">{title}</h1>
           {subtitle && (
             <span className="hidden truncate text-sm text-muted-foreground sm:inline">
               {subtitle}
@@ -34,19 +35,19 @@ export function Topbar({ title, subtitle, breadcrumbOverrides }: { title: string
         </div>
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        <kbd className="hidden rounded border border-border bg-muted px-1.5 py-0.5 font-data text-[10px] text-muted-foreground md:inline-block">
+        <kbd className="hidden rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground md:inline-block">
           ⌘K
         </kbd>
         <AgentLiveIndicator />
         <ThemeToggle />
         <NotificationsBell />
-        <div className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 font-mono text-[11px]">
-          <User className="h-3 w-3 text-muted-foreground" />
-          <span className="capitalize">{who?.role ?? "…"}</span>
+        <div
+          className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-white text-xs font-bold cursor-pointer select-none"
+          title={who?.role ? `Signed in as ${who.role}` : "User"}
+          onClick={logout}
+        >
+          {roleInitial}
         </div>
-        <Button variant="ghost" size="sm" onClick={logout}>
-          <LogOut className="mr-1 h-3.5 w-3.5" /> Sign out
-        </Button>
       </div>
     </header>
   );

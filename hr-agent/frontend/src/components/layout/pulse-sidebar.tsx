@@ -180,25 +180,25 @@ export function PulseSidebar() {
   }
 
   if (!hydrated) {
-    return <aside className="h-screen w-[268px] shrink-0 border-r border-border/50 bg-card/50" />;
+    return <aside className="h-screen w-[268px] shrink-0 border-r border-white/10 bg-brand-blue-deep" />;
   }
 
   // ── Collapsed state ──────────────────────────────────────────────────
   if (collapsed) {
     return (
-      <aside className="relative flex h-screen w-[56px] shrink-0 flex-col border-r border-border/50 bg-card/50">
+      <aside className="relative flex h-screen w-[56px] shrink-0 flex-col border-r border-white/10 bg-brand-blue-deep">
         {confirmDialog}
         <button
           type="button"
           onClick={toggleCollapsed}
-          className="absolute -right-3 top-6 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-sm hover:bg-accent/40 hover:text-foreground transition-colors"
+          className="absolute -right-3 top-6 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-white/20 bg-brand-blue-deep text-white/60 shadow-sm hover:bg-white/10 hover:text-white transition-colors"
           aria-label="Expand sidebar"
           title="Expand"
         >
           <ChevronRight className="h-3.5 w-3.5" />
         </button>
 
-        <div className="flex items-center justify-center border-b border-border/40 px-2 py-3">
+        <div className="flex items-center justify-center border-b border-white/10 px-2 py-3">
           <Logo width={26} kind="icon" />
         </div>
 
@@ -207,7 +207,7 @@ export function PulseSidebar() {
             onClick={() => void newConv()}
             variant="default"
             size="icon"
-            className="h-8 w-full rounded-lg shadow-sm"
+            className="h-8 w-full rounded-lg shadow-sm bg-primary hover:bg-primary/90 text-white"
             title="New chat"
           >
             <Plus className="h-4 w-4" />
@@ -217,7 +217,7 @@ export function PulseSidebar() {
         <nav className="scrollbar-slim flex-1 overflow-y-auto px-1.5 py-1">
           {NAV_GROUPS.map((group) => (
             <div key={group.section} className="mb-2">
-              <div className="mx-auto my-1 h-px w-6 bg-border/60" />
+              <div className="mx-auto my-1 h-px w-6 bg-white/10" />
               <ul className="space-y-0.5">
                 {group.items.map(({ href, label, icon: Icon }) => {
                   const active =
@@ -231,8 +231,8 @@ export function PulseSidebar() {
                         className={cn(
                           "flex h-8 w-full items-center justify-center rounded-lg transition-colors",
                           active
-                            ? "bg-primary/10 text-primary"
-                            : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
+                            ? "bg-primary text-white"
+                            : "text-white/60 hover:bg-white/8 hover:text-white/90",
                         )}
                       >
                         <Icon className="h-4 w-4" />
@@ -245,15 +245,15 @@ export function PulseSidebar() {
           ))}
         </nav>
 
-        <div className="border-t border-border/40">
+        <div className="border-t border-white/10">
           <AgentStatusBadge collapsed />
         </div>
 
-        <div className="border-t border-border/40 p-1.5">
+        <div className="border-t border-white/10 p-1.5">
           <button
             type="button"
             onClick={signOut}
-            className="flex h-8 w-full items-center justify-center rounded-lg text-muted-foreground hover:bg-accent/40 hover:text-foreground transition-colors"
+            className="flex h-8 w-full items-center justify-center rounded-lg text-white/60 hover:bg-white/8 hover:text-white/90 transition-colors"
             title="Sign out"
           >
             <LogOut className="h-3.5 w-3.5" />
@@ -265,12 +265,12 @@ export function PulseSidebar() {
 
   // ── Expanded state ───────────────────────────────────────────────────
   return (
-    <aside className="relative flex h-screen w-[268px] shrink-0 flex-col overflow-hidden border-r border-border/50 bg-card/50">
+    <aside className="relative flex h-screen w-[268px] shrink-0 flex-col overflow-hidden border-r border-white/10 bg-brand-blue-deep">
       {confirmDialog}
       <button
         type="button"
         onClick={toggleCollapsed}
-        className="absolute -right-3 top-6 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-sm hover:bg-accent/40 hover:text-foreground transition-colors"
+        className="absolute -right-3 top-6 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-white/20 bg-brand-blue-deep text-white/60 shadow-sm hover:bg-white/10 hover:text-white transition-colors"
         aria-label="Collapse sidebar"
         title="Collapse"
       >
@@ -278,21 +278,21 @@ export function PulseSidebar() {
       </button>
 
       {/* Brand */}
-      <div className="flex items-center gap-2.5 border-b border-border/40 px-4 py-3">
+      <div className="flex items-center gap-2.5 border-b border-white/10 px-4 py-3">
         <Logo width={26} kind="icon" />
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-bold leading-tight tracking-tight">GrabOn Hiring</div>
-          <div className="text-[9px] font-medium uppercase tracking-[0.2em] text-primary/70">
+          <div className="text-sm font-bold leading-tight tracking-tight text-white">GrabOn Hiring</div>
+          <div className="text-[9px] font-medium uppercase tracking-[0.2em] text-primary">
             Pulse
           </div>
         </div>
       </div>
 
       {/* Navigation — capped so the chat list always keeps room on short screens */}
-      <nav className="scrollbar-slim max-h-[40vh] shrink-0 overflow-y-auto border-b border-border/40 px-2 py-2">
+      <nav className="scrollbar-slim max-h-[40vh] shrink-0 overflow-y-auto border-b border-white/10 px-2 py-2">
         {NAV_GROUPS.map((group, gi) => (
           <div key={group.section} className={gi > 0 ? "mt-3" : ""}>
-            <div className="px-2 pb-1 font-mono text-[9px] uppercase tracking-[0.2em] text-muted-foreground/70">
+            <div className="px-2 pb-1 font-mono text-[10px] uppercase tracking-widest text-white/30">
               {group.section}
             </div>
             <ul className="space-y-px">
@@ -307,8 +307,8 @@ export function PulseSidebar() {
                       className={cn(
                         "flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium transition-colors",
                         active
-                          ? "bg-primary/10 text-primary"
-                          : "text-foreground/70 hover:bg-accent/30 hover:text-foreground",
+                          ? "bg-primary text-white"
+                          : "text-white/60 hover:bg-white/8 hover:text-white/90",
                       )}
                     >
                       <Icon className="h-4 w-4 shrink-0" />
@@ -325,31 +325,33 @@ export function PulseSidebar() {
       {/* Agent status */}
       <AgentStatusBadge />
 
-      {/* Chat header */}
-      <div className="px-3 pt-2 pb-1">
-        <div className="font-mono text-[9px] uppercase tracking-[0.2em] text-muted-foreground">
+      {/* Chat header + new chat button */}
+      <div className="flex items-center justify-between px-3 pt-3 pb-1">
+        <div className="font-mono text-[10px] uppercase tracking-widest text-white/30">
           Chats
-        </div>
-      </div>
-      <div className="flex items-center gap-1.5 px-3 pb-2">
-        <div className="relative flex-1">
-          <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search chats"
-            className="w-full rounded-lg border border-border bg-background py-1 pl-7 pr-2 text-[11px] outline-none placeholder:text-muted-foreground/60 focus:border-primary/40 focus:ring-2 focus:ring-primary/20"
-          />
         </div>
         <Button
           onClick={() => void newConv()}
           variant="default"
           size="icon"
-          className="h-6 w-6 shrink-0 rounded-md shadow-sm"
+          className="h-6 w-6 shrink-0 rounded-md shadow-sm bg-primary hover:bg-primary/90 text-white"
           title="New chat"
         >
           <Plus className="h-3 w-3" />
         </Button>
+      </div>
+
+      {/* Search */}
+      <div className="px-3 pb-2">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-white/40" />
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search chats"
+            className="w-full rounded-lg border border-white/15 bg-white/8 py-1 pl-7 pr-2 text-[11px] text-white outline-none placeholder:text-white/40 focus:border-primary/60 focus:ring-2 focus:ring-primary/20"
+          />
+        </div>
       </div>
 
       {/* Conversation list */}
@@ -359,7 +361,7 @@ export function PulseSidebar() {
           if (items.length === 0) return null;
           return (
             <section key={b} className="mb-1">
-              <div className="px-2 pb-0.5 pt-2 font-mono text-[9px] uppercase tracking-[0.2em] text-muted-foreground/70">
+              <div className="px-2 pb-0.5 pt-2 font-mono text-[10px] uppercase tracking-widest text-white/30">
                 {BUCKET_LABEL[b]}
               </div>
               <ul className="space-y-px">
@@ -370,8 +372,8 @@ export function PulseSidebar() {
                       className={cn(
                         "group flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] transition-colors",
                         chat.conversationId === c.id && isDashboard
-                          ? "bg-primary/10 text-foreground"
-                          : "hover:bg-accent/30 text-foreground/80",
+                          ? "bg-white/10 text-white"
+                          : "hover:bg-white/8 text-white/70",
                       )}
                     >
                       <MessageCircle
@@ -379,11 +381,11 @@ export function PulseSidebar() {
                           "h-3.5 w-3.5 shrink-0",
                           chat.conversationId === c.id && isDashboard
                             ? "text-primary"
-                            : "text-muted-foreground",
+                            : "text-white/40",
                         )}
                       />
                       <span className="flex-1 truncate">{c.title || "Untitled"}</span>
-                      <span className="text-[9px] tabular-nums text-muted-foreground">
+                      <span className="text-[9px] tabular-nums text-white/30">
                         {fmtTime(c.updated_at)}
                       </span>
                       <button
@@ -396,7 +398,7 @@ export function PulseSidebar() {
                         aria-label="Delete chat"
                         title="Delete chat"
                       >
-                        <Trash2 className="h-3 w-3 text-muted-foreground hover:text-destructive" />
+                        <Trash2 className="h-3 w-3 text-white/40 hover:text-destructive" />
                       </button>
                     </button>
                   </li>
@@ -407,46 +409,22 @@ export function PulseSidebar() {
         })}
 
         {Object.values(groups).every((g) => g.length === 0) && (
-          <p className="px-3 py-6 text-center text-xs text-muted-foreground">
+          <p className="px-3 py-6 text-center text-xs text-white/40">
             {q ? "No matches." : "No chats yet — start one above."}
           </p>
         )}
       </div>
 
       {/* Footer */}
-      <div className="border-t border-border/40 px-3 py-2 space-y-1.5">
-        <button
-          type="button"
-          onClick={async () => {
-            const ok = await confirm({
-              title: "Wipe all data?",
-              description: "This will permanently delete all candidates, applications, roles, and audit entries. Dev only — cannot be undone.",
-              confirmLabel: "Wipe everything",
-              cancelLabel: "Cancel",
-              tone: "danger",
-            });
-            if (!ok) return;
-            try {
-              const { api } = await import("@/lib/api");
-              await api.post("/dashboard/v1/dev/reset");
-              window.location.reload();
-            } catch (e: unknown) {
-              alert(`Wipe failed: ${e instanceof Error ? e.message : e}`);
-            }
-          }}
-          className="flex w-full items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-2.5 py-1.5 font-mono text-[10px] text-destructive transition hover:bg-destructive/10"
-        >
-          <Trash2 className="h-3 w-3" />
-          Wipe all data
-        </button>
-        <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+      <div className="border-t border-white/10 px-3 py-2">
+        <div className="flex items-center justify-between text-[11px] text-white/50">
           <div className="flex items-center gap-1.5">
             <KeyRound className="h-3 w-3" />
             <span className="font-medium">Admin</span>
           </div>
           <button
             onClick={signOut}
-            className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 hover:bg-accent/40 hover:text-foreground transition-colors"
+            className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-white/50 hover:bg-white/8 hover:text-white/90 transition-colors"
             type="button"
           >
             <LogOut className="h-3 w-3" />
