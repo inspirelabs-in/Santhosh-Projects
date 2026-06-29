@@ -47,6 +47,8 @@ export interface QuickReplyQuestion {
   question: string;
   options: string[];
   allowCustom: boolean;
+  // When true, the recruiter can select several options for this question.
+  multiSelect: boolean;
 }
 
 export interface QuickRepliesData {
@@ -98,6 +100,8 @@ export interface UseRecruiterChatReturn {
   conversationId: string | null;
   messages: RecruiterMessage[];
   isThinking: boolean;
+  // Loader copy for the thinking indicator (tool-specific or generic filler).
+  thinkingLabel: string;
   isStreaming: boolean;
   connected: boolean;
   error: string | null;
@@ -172,6 +176,7 @@ export function useRecruiterChat(): UseRecruiterChatReturn {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<RecruiterMessage[]>([]);
   const [isThinking, setIsThinking] = useState(false);
+  const [thinkingLabel, setThinkingLabel] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -336,6 +341,7 @@ export function useRecruiterChat(): UseRecruiterChatReturn {
         }
         switch (payload.type) {
           case "thinking":
+            setThinkingLabel((payload.label as string) || "");
             setIsThinking(true);
             break;
           case "tool_call": {
@@ -356,6 +362,7 @@ export function useRecruiterChat(): UseRecruiterChatReturn {
                         question: args.question,
                         options: args.options,
                         allow_custom: args.allow_custom,
+                        multi_select: args.multi_select,
                       },
                     ]
                   : [];
@@ -363,6 +370,7 @@ export function useRecruiterChat(): UseRecruiterChatReturn {
                 question: (q.question as string) || "",
                 options: (q.options as string[]) || [],
                 allowCustom: (q.allow_custom as boolean) ?? true,
+                multiSelect: (q.multi_select as boolean) ?? false,
               }));
               if (questions.length > 0) {
                 setPendingQuickReplies({
@@ -720,6 +728,7 @@ export function useRecruiterChat(): UseRecruiterChatReturn {
       conversationId,
       messages,
       isThinking,
+      thinkingLabel,
       isStreaming,
       connected,
       error,
@@ -746,6 +755,7 @@ export function useRecruiterChat(): UseRecruiterChatReturn {
       conversationId,
       messages,
       isThinking,
+      thinkingLabel,
       isStreaming,
       connected,
       error,

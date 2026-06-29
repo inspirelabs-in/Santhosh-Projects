@@ -200,10 +200,21 @@ export interface Role {
   assignment_problem_doc_filename?: string | null;
   has_problem_doc?: boolean;
   pipeline_template: string[] | null;
+  /** Real pipeline source of truth (role_pipeline_stages), ordered by position. */
+  pipeline?: RolePipelineStageEntry[];
   screening_modality: string;
   evaluation_spec?: Record<string, unknown> | null;
   company_context?: Record<string, unknown> | null;
   created_at: string;
+}
+
+export interface RolePipelineStageEntry {
+  stage_key: string;
+  stage_type: string;
+  label: string;
+  position: number;
+  mode: string;
+  is_enabled: boolean;
 }
 
 export interface ScreeningQuestion {
