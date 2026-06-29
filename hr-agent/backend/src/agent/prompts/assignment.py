@@ -139,7 +139,7 @@ For EACH problem produce ALL of:
   * title: 5-9 words. Derived from JD requirements, grounded in {company_name} context.
   * vertical: 3-6 words (the business area this problem maps to).
   * tags: 4 short tech/skill chips. MUST match skills from the JD.
-  * difficulty: "Hard — 2.5 to 3 days".
+  * difficulty: a short label that fits the problem and the {time_budget_hours}-hour budget (e.g. "Moderate", "Hard"). Do not hardcode a day count; keep it consistent with the time budget and deadline above.
   * challenge: 2-3 sentences. Business problem at {company_name} tied to this role, then what to build.
   * why_it_matters: 2-3 sentences. One business impact, one strategic hook.
   * technical_requirements: 6 bullets. Each 15-25 words. For technical roles: specific APIs, schemas, metrics. For non-technical: specific deliverables, frameworks, analysis methods.
