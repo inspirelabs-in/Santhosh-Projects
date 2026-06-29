@@ -10,14 +10,11 @@ import {
   Plus,
   Loader2,
   Download,
-  ArrowLeft,
-  ChevronDown,
-  ChevronUp,
+  ChevronRight,
   RefreshCw,
 } from "lucide-react";
 
 import { Topbar } from "@/components/layout/topbar";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -28,7 +25,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetBody,
+  SheetFooter,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet";
 import { StatusTag } from "@/components/status-tag";
 import {
   assessments,
@@ -38,9 +49,9 @@ import {
 import { fmtRelative, fmtDate } from "@/lib/utils";
 
 const BAND_CLASS = {
-  green: "bg-success/15 text-success",
-  amber: "bg-warning/15 text-foreground",
-  red: "bg-destructive/15 text-destructive",
+  green: "bg-emerald-50 text-emerald-700 border border-emerald-200",
+  amber: "bg-amber-50 text-amber-700 border border-amber-200",
+  red: "bg-red-50 text-red-600 border border-red-200",
 } as const;
 
 type Band = "green" | "amber" | "red";
@@ -67,7 +78,7 @@ export default function AssessmentsPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [kindFilter, setKindFilter] = useState<string>("all");
   const [bandFilter, setBandFilter] = useState<string>("all");
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<AssessmentListItem | null>(null);
   const [showDispatch, setShowDispatch] = useState(false);
 
   const stats = useMemo(() => {
@@ -178,58 +189,88 @@ export default function AssessmentsPage() {
     URL.revokeObjectURL(url);
   }
 
-  if (showDispatch) {
-    return (
-      <>
-        <Topbar
-          title="Assessments"
-          subtitle="Take-home Assignments"
-        />
-        <div className="flex-1 overflow-auto px-8 py-6">
-          <DispatchForm
-            onCancel={() => setShowDispatch(false)}
-            onDispatched={() => {
-              setShowDispatch(false);
-              mutate();
-            }}
-          />
-        </div>
-      </>
-    );
-  }
+  const bandTotal = stats.bands.green + stats.bands.amber + stats.bands.red || 1;
 
   return (
     <>
-      <Topbar
-        title="Assessments"
-        subtitle="Take-home Assignments"
-      />
-      <div className="flex-1 overflow-auto px-8 py-6 pb-24 space-y-6">
-        <KpiStrip stats={stats} />
+      <Topbar title="Assessments" subtitle="Take-home Assignments" />
+      <div className="flex-1 overflow-auto px-8 py-6 pb-24 space-y-5">
 
+        {/* KPI Strip — single horizontal card */}
+        <div className="flex items-stretch bg-card rounded-xl shadow-card overflow-hidden">
+          <KpiItem label="Total" value={stats.total} last={false} />
+          <KpiItem label="Active" value={stats.active} accent="blue" last={false} />
+          <KpiItem label="Completed" value={stats.completed} accent="green" last={false} />
+          <KpiItem
+            label="Avg Percentile"
+            value={stats.avgPct != null ? `${stats.avgPct}%` : "—"}
+            accent="purple"
+            last={false}
+          />
+          {/* Band mix — inline bar */}
+          <div className="flex-1 px-5 py-4 border-l border-border">
+            <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground mb-2">
+              Band Mix
+            </p>
+            <div className="flex h-2 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                className="bg-emerald-500 transition-all"
+                style={{ width: `${(stats.bands.green / bandTotal) * 100}%` }}
+              />
+              <div
+                className="bg-amber-400 transition-all"
+                style={{ width: `${(stats.bands.amber / bandTotal) * 100}%` }}
+              />
+              <div
+                className="bg-destructive transition-all"
+                style={{ width: `${(stats.bands.red / bandTotal) * 100}%` }}
+              />
+            </div>
+            <div className="mt-1.5 flex gap-3 font-mono text-[10px] text-muted-foreground">
+              <span className="text-emerald-600">G {stats.bands.green}</span>
+              <span className="text-amber-600">A {stats.bands.amber}</span>
+              <span className="text-destructive">R {stats.bands.red}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Toolbar */}
         <div className="flex flex-wrap items-center gap-2">
-          <Tabs value={tab} onValueChange={(v) => setTab(v as TabKey)}>
-            <TabsList>
-              <TabsTrigger value="all">All ({stats.total})</TabsTrigger>
-              <TabsTrigger value="active">Active ({stats.active})</TabsTrigger>
-              <TabsTrigger value="completed">
-                Completed ({stats.completed})
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
+          {/* Segment control tabs */}
+          <div className="flex rounded-lg bg-muted p-1 gap-0.5">
+            {(["all", "active", "completed"] as TabKey[]).map((t) => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
+                  tab === t
+                    ? "bg-card shadow-sm text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {t === "all"
+                  ? `All (${stats.total})`
+                  : t === "active"
+                  ? `Active (${stats.active})`
+                  : `Completed (${stats.completed})`}
+              </button>
+            ))}
+          </div>
 
-          <div className="relative ml-auto w-72">
-            <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          {/* Search */}
+          <div className="relative ml-auto w-64">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search candidate, role, app id"
-              className="pl-8"
+              className="pl-8 h-8 text-xs"
             />
           </div>
 
+          {/* Status select */}
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-36">
+            <SelectTrigger className="w-36 h-8 text-xs">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
@@ -242,8 +283,9 @@ export default function AssessmentsPage() {
             </SelectContent>
           </Select>
 
+          {/* Kind select */}
           <Select value={kindFilter} onValueChange={setKindFilter}>
-            <SelectTrigger className="w-36">
+            <SelectTrigger className="w-32 h-8 text-xs">
               <SelectValue placeholder="Kind" />
             </SelectTrigger>
             <SelectContent>
@@ -256,8 +298,9 @@ export default function AssessmentsPage() {
             </SelectContent>
           </Select>
 
+          {/* Band select */}
           <Select value={bandFilter} onValueChange={setBandFilter}>
-            <SelectTrigger className="w-32">
+            <SelectTrigger className="w-28 h-8 text-xs">
               <SelectValue placeholder="Band" />
             </SelectTrigger>
             <SelectContent>
@@ -268,259 +311,316 @@ export default function AssessmentsPage() {
             </SelectContent>
           </Select>
 
-          <Button variant="outline" size="sm" onClick={() => mutate()}>
-            <RefreshCw className="mr-1 h-4 w-4" /> Refresh
+          <Button variant="outline" size="sm" className="h-8" onClick={() => mutate()}>
+            <RefreshCw className="mr-1 h-3.5 w-3.5" /> Refresh
           </Button>
           <Button
             variant="outline"
             size="sm"
+            className="h-8"
             onClick={exportCsv}
             disabled={filtered.length === 0}
           >
-            <Download className="mr-1 h-4 w-4" /> CSV
+            <Download className="mr-1 h-3.5 w-3.5" /> CSV
           </Button>
-          <Button size="sm" onClick={() => setShowDispatch(true)}>
-            <Plus className="mr-1 h-4 w-4" /> Dispatch
+          <Button size="sm" className="h-8" onClick={() => setShowDispatch(true)}>
+            <Plus className="mr-1 h-3.5 w-3.5" /> Dispatch
           </Button>
         </div>
 
         {error ? (
-          <Card className="border-destructive/30 bg-destructive/5">
-            <CardContent className="p-3 text-sm text-destructive">
-              {error.message}
-            </CardContent>
-          </Card>
-        ) : null}
-
-        {isLoading ? (
-          <div className="space-y-2">
-            {[0, 1, 2, 3, 4].map((i) => (
-              <div key={i} className="h-16 rounded-lg skeleton" />
-            ))}
+          <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+            {error.message}
           </div>
         ) : null}
 
-        {!isLoading && filtered.length === 0 ? (
-          <Card>
-            <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
-              <ClipboardCheck className="h-8 w-8 text-primary" />
+        {/* Main table */}
+        <div className="bg-card rounded-xl shadow-card overflow-hidden">
+          {/* Table header */}
+          <div className="grid grid-cols-[2fr_1.5fr_120px_150px_90px_110px_110px_32px] items-center gap-3 border-b border-border bg-muted/40 px-4 py-2.5 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground sticky top-0 backdrop-blur z-10">
+            <span>Candidate · Role</span>
+            <span>Role</span>
+            <span>Kind</span>
+            <span>Status</span>
+            <span>Band</span>
+            <span>Score</span>
+            <span>Sent / Created</span>
+            <span />
+          </div>
+
+          {/* Loading skeletons */}
+          {isLoading ? (
+            <div className="space-y-px">
+              {[0, 1, 2, 3, 4].map((i) => (
+                <div key={i} className="h-14 skeleton mx-0 rounded-none" />
+              ))}
+            </div>
+          ) : null}
+
+          {/* Empty state */}
+          {!isLoading && filtered.length === 0 ? (
+            <div className="flex flex-col items-center gap-3 py-20 text-center">
+              <ClipboardCheck className="h-10 w-10 text-primary" />
               <p className="text-base font-bold">No assessments match</p>
               <p className="max-w-md text-sm text-muted-foreground">
                 {(data ?? []).length === 0
                   ? "Send a PI invite from a candidate page or use Dispatch above."
-                  : "Try clearing filters."}
+                  : "Try clearing filters or switching tabs."}
               </p>
-            </CardContent>
-          </Card>
-        ) : null}
-
-        {filtered.length > 0 ? (
-          <Card className="overflow-hidden">
-            <div className="grid grid-cols-[2fr_120px_140px_110px_120px_120px_60px] items-center gap-3 border-b border-border bg-muted/40 px-4 py-2 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-              <span>Candidate · role</span>
-              <span>Kind</span>
-              <span>Status</span>
-              <span>Band</span>
-              <span>Percentile</span>
-              <span>Created</span>
-              <span />
             </div>
+          ) : null}
+
+          {/* Rows */}
+          {!isLoading && filtered.length > 0 ? (
             <div>
-              {filtered.map((row) => {
-                const open = expandedId === row.assessment_id;
-                return (
-                  <div
-                    key={row.assessment_id}
-                    className="border-b border-border"
-                  >
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setExpandedId(open ? null : row.assessment_id)
-                      }
-                      className="grid w-full grid-cols-[2fr_120px_140px_110px_120px_120px_60px] items-center gap-3 px-4 py-3 text-left text-sm transition hover:bg-muted/40"
+              {filtered.map((row) => (
+                <div
+                  key={row.assessment_id}
+                  onClick={() => setSelected(row)}
+                  className="grid w-full grid-cols-[2fr_1.5fr_120px_150px_90px_110px_110px_32px] items-center gap-3 border-b border-border last:border-0 px-4 py-3 text-left text-sm transition hover:bg-muted/30 cursor-pointer group"
+                >
+                  {/* Candidate */}
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold text-sm">
+                      {row.candidate_name ?? "Unnamed"}
+                    </p>
+                  </div>
+
+                  {/* Role */}
+                  <p className="truncate text-xs text-muted-foreground">
+                    {row.role_title ?? "—"}
+                  </p>
+
+                  {/* Kind */}
+                  <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground truncate">
+                    {row.kind ?? row.provider}
+                  </span>
+
+                  {/* Status */}
+                  <div>
+                    <StatusTag stage={`assessment_${row.status}`} />
+                  </div>
+
+                  {/* Band */}
+                  {row.fit_band ? (
+                    <span
+                      className={`inline-block rounded-full px-2 py-0.5 text-center font-mono text-[10px] uppercase tracking-[0.15em] w-fit ${BAND_CLASS[row.fit_band]}`}
                     >
-                      <div className="min-w-0">
-                        <p className="truncate font-semibold">
-                          {row.candidate_name ?? "Unnamed"}
+                      {row.fit_band}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">—</span>
+                  )}
+
+                  {/* Score */}
+                  <span className="font-mono text-sm font-bold tabular-nums">
+                    {row.percentile != null
+                      ? `${Math.round(row.percentile)}%`
+                      : row.normalized_score != null
+                        ? row.normalized_score.toFixed(1)
+                        : "—"}
+                  </span>
+
+                  {/* Time */}
+                  <span className="text-xs text-muted-foreground">
+                    {fmtRelative(row.created_at)}
+                  </span>
+
+                  {/* Trailing affordance */}
+                  <div className="flex justify-end">
+                    <ChevronRight className="h-4 w-4 text-muted-foreground/40 transition-transform group-hover:translate-x-0.5 group-hover:text-muted-foreground" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      {/* Row detail — Sheet slide-over */}
+      <Sheet open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>
+        <SheetContent width="md">
+          {selected && (
+            <>
+              <SheetHeader>
+                <SheetTitle>{selected.candidate_name ?? "Unnamed"}</SheetTitle>
+                <SheetDescription>
+                  {selected.role_title ?? "—"}
+                  {" · "}
+                  <StatusTag stage={`assessment_${selected.status}`} />
+                </SheetDescription>
+              </SheetHeader>
+
+              <SheetBody className="space-y-5">
+                {/* Scores — prominent */}
+                <div>
+                  <p className="mb-3 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                    Scores
+                  </p>
+                  <div className="flex items-end gap-6">
+                    <div>
+                      <p className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground mb-0.5">
+                        Percentile
+                      </p>
+                      <p className="font-mono text-4xl font-extrabold tabular-nums leading-none text-foreground">
+                        {selected.percentile != null
+                          ? `${Math.round(selected.percentile)}%`
+                          : "—"}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground mb-0.5">
+                        Normalized
+                      </p>
+                      <p className="font-mono text-4xl font-extrabold tabular-nums leading-none text-foreground">
+                        {selected.normalized_score != null
+                          ? selected.normalized_score.toFixed(2)
+                          : "—"}
+                      </p>
+                    </div>
+                    {selected.fit_band ? (
+                      <div className="ml-auto">
+                        <p className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground mb-1">
+                          Band
                         </p>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {row.role_title ?? "—"}
-                        </p>
-                      </div>
-                      <span className="font-mono text-xs uppercase tracking-[0.1em] text-muted-foreground">
-                        {row.kind ?? row.provider}
-                      </span>
-                      <StatusTag stage={`assessment_${row.status}`} />
-                      {row.fit_band ? (
                         <span
-                          className={`rounded-full px-2 py-0.5 text-center font-mono text-[10px] uppercase tracking-[0.15em] ${BAND_CLASS[row.fit_band]}`}
+                          className={`inline-block rounded-full px-3 py-1 font-mono text-xs font-semibold uppercase tracking-[0.15em] ${BAND_CLASS[selected.fit_band]}`}
                         >
-                          {row.fit_band}
+                          {selected.fit_band}
                         </span>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
-                      <span className="font-mono text-sm font-semibold tabular-nums">
-                        {row.percentile != null
-                          ? `${Math.round(row.percentile)}%`
-                          : row.normalized_score != null
-                            ? row.normalized_score.toFixed(1)
-                            : "—"}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {fmtRelative(row.created_at)}
-                      </span>
-                      {open ? (
-                        <ChevronUp className="h-4 w-4 text-muted-foreground" />
-                      ) : (
-                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                      )}
-                    </button>
-                    {open ? (
-                      <RowDetail row={row} />
+                      </div>
                     ) : null}
                   </div>
-                );
-              })}
-            </div>
-          </Card>
-        ) : null}
-      </div>
+                </div>
+
+                <div className="border-t border-border" />
+
+                {/* Identifiers */}
+                <div>
+                  <p className="mb-3 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                    Identifiers
+                  </p>
+                  <div className="space-y-2 text-xs">
+                    <div className="flex justify-between gap-4">
+                      <span className="text-muted-foreground shrink-0">Assessment</span>
+                      <span className="font-mono break-all text-right">{selected.assessment_id}</span>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span className="text-muted-foreground shrink-0">Application</span>
+                      <span className="font-mono break-all text-right">{selected.application_id}</span>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span className="text-muted-foreground shrink-0">Provider</span>
+                      <span className="font-mono">{selected.provider}</span>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span className="text-muted-foreground shrink-0">Kind</span>
+                      <span className="font-mono uppercase">{selected.kind ?? "—"}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border-t border-border" />
+
+                {/* Timeline */}
+                <div>
+                  <p className="mb-3 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                    Timeline
+                  </p>
+                  <div className="space-y-2 text-xs">
+                    <div className="flex justify-between gap-4">
+                      <span className="text-muted-foreground shrink-0">Created</span>
+                      <span className="tabular-nums">{fmtDate(selected.created_at)}</span>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span className="text-muted-foreground shrink-0">Invite sent</span>
+                      <span className="tabular-nums">{fmtDate(selected.invite_sent_at)}</span>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span className="text-muted-foreground shrink-0">Completed</span>
+                      <span className="tabular-nums">{fmtDate(selected.completed_at)}</span>
+                    </div>
+                  </div>
+                </div>
+              </SheetBody>
+
+              <SheetFooter className="flex justify-end">
+                <Link
+                  href={`/candidates/${selected.application_id}`}
+                  className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline"
+                >
+                  Open candidate <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              </SheetFooter>
+            </>
+          )}
+        </SheetContent>
+      </Sheet>
+
+      {/* Dispatch Dialog */}
+      <Dialog open={showDispatch} onOpenChange={setShowDispatch}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ClipboardCheck className="h-5 w-5 text-primary" />
+              Dispatch PI Assessment
+            </DialogTitle>
+          </DialogHeader>
+          <DispatchForm
+            onCancel={() => setShowDispatch(false)}
+            onDispatched={() => {
+              setShowDispatch(false);
+              mutate();
+            }}
+          />
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
 
-function KpiStrip({
-  stats,
+/* -------------------------------------------------------------------------- */
+/* KpiItem — single stat in the horizontal strip                               */
+/* -------------------------------------------------------------------------- */
+function KpiItem({
+  label,
+  value,
+  accent,
+  last,
 }: {
-  stats: {
-    total: number;
-    active: number;
-    completed: number;
-    avgPct: number | null;
-    bands: Record<Band, number>;
-  };
+  label: string;
+  value: number | string;
+  accent?: "blue" | "green" | "purple" | "amber";
+  last: boolean;
 }) {
-  const bandTotal =
-    stats.bands.green + stats.bands.amber + stats.bands.red || 1;
+  const valClass =
+    accent === "blue"
+      ? "text-blue-600"
+      : accent === "green"
+      ? "text-emerald-600"
+      : accent === "purple"
+      ? "text-violet-600"
+      : accent === "amber"
+      ? "text-amber-600"
+      : "text-foreground";
+
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-      <Kpi label="Total" value={stats.total} />
-      <Kpi label="Active" value={stats.active} />
-      <Kpi label="Completed" value={stats.completed} />
-      <Kpi
-        label="Avg percentile"
-        value={stats.avgPct != null ? `${stats.avgPct}%` : "—"}
-      />
-      <Card>
-        <CardContent className="p-3">
-          <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-            Band mix
-          </p>
-          <div className="mt-2 flex h-2 w-full overflow-hidden rounded-full bg-muted">
-            <div
-              className="bg-success"
-              style={{ width: `${(stats.bands.green / bandTotal) * 100}%` }}
-            />
-            <div
-              className="bg-warning"
-              style={{ width: `${(stats.bands.amber / bandTotal) * 100}%` }}
-            />
-            <div
-              className="bg-destructive"
-              style={{ width: `${(stats.bands.red / bandTotal) * 100}%` }}
-            />
-          </div>
-          <div className="mt-1 flex justify-between font-mono text-[10px] text-muted-foreground">
-            <span>G {stats.bands.green}</span>
-            <span>A {stats.bands.amber}</span>
-            <span>R {stats.bands.red}</span>
-          </div>
-        </CardContent>
-      </Card>
+    <div
+      className={`flex flex-col justify-center px-5 py-4 ${last ? "" : "border-r border-border"}`}
+    >
+      <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground whitespace-nowrap">
+        {label}
+      </p>
+      <p className={`mt-0.5 text-2xl font-extrabold tabular-nums leading-none ${valClass}`}>
+        {value}
+      </p>
     </div>
   );
 }
 
-function Kpi({ label, value }: { label: string; value: number | string }) {
-  return (
-    <Card>
-      <CardContent className="p-3">
-        <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-          {label}
-        </p>
-        <p className="mt-1 text-2xl font-bold tabular-nums">{value}</p>
-      </CardContent>
-    </Card>
-  );
-}
-
-function RowDetail({ row }: { row: AssessmentListItem }) {
-  return (
-    <div className="grid grid-cols-1 gap-4 border-t border-border bg-muted/20 px-4 py-3 text-xs md:grid-cols-3">
-      <div>
-        <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-          Identifiers
-        </p>
-        <p className="mt-1 break-all">
-          <span className="text-muted-foreground">assessment:</span>{" "}
-          {row.assessment_id}
-        </p>
-        <p className="mt-1 break-all">
-          <span className="text-muted-foreground">application:</span>{" "}
-          {row.application_id}
-        </p>
-        <p className="mt-1">
-          <span className="text-muted-foreground">provider:</span> {row.provider}
-        </p>
-      </div>
-      <div>
-        <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-          Timeline
-        </p>
-        <p className="mt-1">
-          <span className="text-muted-foreground">created:</span>{" "}
-          {fmtDate(row.created_at)}
-        </p>
-        <p className="mt-1">
-          <span className="text-muted-foreground">invite sent:</span>{" "}
-          {fmtDate(row.invite_sent_at)}
-        </p>
-        <p className="mt-1">
-          <span className="text-muted-foreground">completed:</span>{" "}
-          {fmtDate(row.completed_at)}
-        </p>
-      </div>
-      <div className="flex flex-col items-start gap-2">
-        <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-          Scores
-        </p>
-        <p>
-          <span className="text-muted-foreground">percentile:</span>{" "}
-          <span className="font-mono font-semibold">
-            {row.percentile != null ? `${Math.round(row.percentile)}%` : "—"}
-          </span>
-        </p>
-        <p>
-          <span className="text-muted-foreground">normalized:</span>{" "}
-          <span className="font-mono font-semibold">
-            {row.normalized_score != null
-              ? row.normalized_score.toFixed(2)
-              : "—"}
-          </span>
-        </p>
-        <Link
-          href={`/candidates/${row.application_id}`}
-          className="mt-auto inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
-        >
-          Open candidate <ArrowRight className="h-3 w-3" />
-        </Link>
-      </div>
-    </div>
-  );
-}
-
+/* -------------------------------------------------------------------------- */
+/* DispatchForm — rendered inside the Dialog                                   */
+/* -------------------------------------------------------------------------- */
 function DispatchForm({
   onCancel,
   onDispatched,
@@ -554,69 +654,52 @@ function DispatchForm({
   }
 
   return (
-    <Card className="max-w-2xl">
-      <CardHeader>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="mb-2 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="h-3 w-3" /> Back to list
-        </button>
-        <CardTitle className="flex items-center gap-2 text-xl">
-          <ClipboardCheck className="h-5 w-5 text-primary" />
-          Dispatch PI assessment
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="space-y-1.5">
-          <Label>Application ID</Label>
-          <Input
-            value={applicationId}
-            onChange={(e) => setApplicationId(e.target.value)}
-            placeholder="UUID"
+    <div className="space-y-4">
+      <div className="space-y-1.5">
+        <Label>Application ID</Label>
+        <Input
+          value={applicationId}
+          onChange={(e) => setApplicationId(e.target.value)}
+          placeholder="UUID"
+        />
+      </div>
+      <div className="flex flex-wrap gap-4">
+        <label className="inline-flex items-center gap-2 text-sm cursor-pointer">
+          <input
+            type="checkbox"
+            checked={behavioral}
+            onChange={(e) => setBehavioral(e.target.checked)}
+            className="rounded"
           />
-        </div>
-        <div className="flex flex-wrap gap-3">
-          <label className="inline-flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={behavioral}
-              onChange={(e) => setBehavioral(e.target.checked)}
-            />
-            Behavioral
-          </label>
-          <label className="inline-flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={cognitive}
-              onChange={(e) => setCognitive(e.target.checked)}
-            />
-            Cognitive
-          </label>
-        </div>
-        {err ? (
-          <p className="rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive">
-            {err}
-          </p>
-        ) : null}
-        <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={onCancel}>
-            Cancel
-          </Button>
-          <Button
-            onClick={dispatch}
-            disabled={
-              busy ||
-              !applicationId.trim() ||
-              (!behavioral && !cognitive)
-            }
-          >
-            {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            Send invite
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
+          Behavioral
+        </label>
+        <label className="inline-flex items-center gap-2 text-sm cursor-pointer">
+          <input
+            type="checkbox"
+            checked={cognitive}
+            onChange={(e) => setCognitive(e.target.checked)}
+            className="rounded"
+          />
+          Cognitive
+        </label>
+      </div>
+      {err ? (
+        <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+          {err}
+        </p>
+      ) : null}
+      <div className="flex justify-end gap-2 pt-1">
+        <Button variant="outline" onClick={onCancel} disabled={busy}>
+          Cancel
+        </Button>
+        <Button
+          onClick={dispatch}
+          disabled={busy || !applicationId.trim() || (!behavioral && !cognitive)}
+        >
+          {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+          Send invite
+        </Button>
+      </div>
+    </div>
   );
 }
