@@ -16,8 +16,6 @@ import type { ArtifactData } from "@/lib/useRecruiterChat";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
 /* ------------------------------------------------------------------ */
@@ -96,7 +94,7 @@ const linesToArr = (s: string): string[] => s.split("\n");
 const arrToLines = (a?: string[]): string => (a || []).join("\n");
 
 /* ------------------------------------------------------------------ */
-/* Collapsible section                                                 */
+/* Collapsible section — divider + heading, no box wrapping            */
 /* ------------------------------------------------------------------ */
 function Section({
   title,
@@ -111,24 +109,35 @@ function Section({
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="rounded-lg border border-border/40 bg-background/50">
+    <div className="border-t border-border/40 first:border-t-0">
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="flex w-full items-center justify-between px-4 py-2.5 text-left text-sm font-medium hover:bg-muted/30"
+        className="group flex w-full items-center justify-between py-3 text-left"
       >
-        <span className="flex items-center gap-2">
+        <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground group-hover:text-foreground transition-colors">
           {title}
           {badge}
         </span>
         {open ? (
-          <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" />
+          <ChevronUp className="h-3 w-3 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors" />
         ) : (
-          <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+          <ChevronDown className="h-3 w-3 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors" />
         )}
       </button>
-      {open && <div className="border-t border-border/30 px-4 py-3">{children}</div>}
+      {open && <div className="pb-5">{children}</div>}
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Field row — muted label above an input, used for uniform alignment  */
+/* ------------------------------------------------------------------ */
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="block font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground mb-1">
+      {children}
+    </span>
   );
 }
 
@@ -315,51 +324,58 @@ export function ArtifactPanel({
   return (
     <aside
       ref={panelRef}
-      className="relative flex h-full shrink-0 flex-col border-l border-border/40 bg-card/40"
+      className="relative flex h-full shrink-0 flex-col border-l border-border/50 bg-card"
       style={{ width }}
     >
       {/* Resize handle */}
       <div
         onMouseDown={onMouseDown}
         className={cn(
-          "group/handle absolute left-0 top-0 z-10 flex h-full w-1.5 cursor-col-resize items-center justify-center hover:bg-brand-green/30",
-          resizing && "bg-brand-green/40",
+          "group/handle absolute left-0 top-0 z-10 flex h-full w-1.5 cursor-col-resize items-center justify-center hover:bg-primary/20",
+          resizing && "bg-primary/30",
         )}
       >
         <GripVertical className="h-4 w-4 text-muted-foreground/40 opacity-0 group-hover/handle:opacity-100" />
       </div>
 
       {/* Header */}
-      <header className="flex shrink-0 items-center justify-between border-b border-border/40 px-4 py-3">
-        <div className="flex items-center gap-2">
-          <FileText className="h-4 w-4 text-brand-green" />
-          <span className="text-sm font-semibold">Role draft</span>
-          <Badge variant="outline" className="text-[10px] font-mono">
-            v{artifact.version} · {artifact.status}
-          </Badge>
+      <header className="flex shrink-0 items-center justify-between border-b border-border/50 px-5 py-3">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10">
+            <FileText className="h-3.5 w-3.5 text-primary" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold leading-tight">Role Draft</p>
+            <p className="font-mono text-[10px] text-muted-foreground">
+              v{artifact.version} · {artifact.status}
+            </p>
+          </div>
         </div>
-        <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close panel">
-          <X className="h-4 w-4" />
+        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose} aria-label="Close panel">
+          <X className="h-3.5 w-3.5" />
         </Button>
       </header>
 
-      {/* Scrollable body — always scrollable */}
-      <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
+      {/* Scrollable body */}
+      <div className="flex-1 overflow-y-auto px-5 py-2">
+
         {/* ====== BASICS ====== */}
         <Section title="Basics" defaultOpen={true}>
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label>Title</Label>
+          <div className="space-y-4">
+            {/* Title — full width, prominent */}
+            <div>
+              <FieldLabel>Title</FieldLabel>
               <Input
                 value={draft.title || ""}
                 onChange={(e) => patch({ title: e.target.value })}
                 placeholder="e.g. Senior Backend Engineer"
+                className="text-sm font-medium"
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs">CTC min (LPA)</Label>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-4">
+              <div>
+                <FieldLabel>CTC min (LPA)</FieldLabel>
                 <Input
                   type="number"
                   value={draft.ctc_min_lpa ?? ""}
@@ -371,8 +387,8 @@ export function ArtifactPanel({
                   }
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">CTC max (LPA)</Label>
+              <div>
+                <FieldLabel>CTC max (LPA)</FieldLabel>
                 <Input
                   type="number"
                   value={draft.ctc_max_lpa ?? ""}
@@ -384,16 +400,16 @@ export function ArtifactPanel({
                   }
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Location</Label>
+              <div>
+                <FieldLabel>Location</FieldLabel>
                 <Input
                   value={draft.location || ""}
                   onChange={(e) => patch({ location: e.target.value })}
                   placeholder="Hyderabad"
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Remote policy</Label>
+              <div>
+                <FieldLabel>Remote policy</FieldLabel>
                 <select
                   className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   value={draft.remote_policy || ""}
@@ -407,8 +423,8 @@ export function ArtifactPanel({
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <Label className="text-xs">Max notice period (days)</Label>
+            <div>
+              <FieldLabel>Max notice period (days)</FieldLabel>
               <Input
                 type="number"
                 value={draft.max_notice_days ?? ""}
@@ -419,6 +435,7 @@ export function ArtifactPanel({
                   })
                 }
                 placeholder="60"
+                className="w-32"
               />
             </div>
           </div>
@@ -438,28 +455,29 @@ export function ArtifactPanel({
         <Section
           title="Pipeline"
           badge={
-            <Badge variant="outline" className="text-[10px]">
-              {stages.filter((s) => s.is_enabled !== false).length} stages
+            <Badge variant="outline" className="text-[10px] font-mono">
+              {stages.filter((s) => s.is_enabled !== false).length} active
             </Badge>
           }
         >
-          <div className="mb-2 rounded-md border border-muted bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-            These stages always run automatically before your pipeline: <strong>Intake</strong> → <strong>Resume Parse</strong> → <strong>Fit Score</strong>
-          </div>
-          <div className="space-y-2">
+          {/* Soft note — no box */}
+          <p className="mb-3 text-[11px] leading-relaxed text-muted-foreground">
+            Always runs first: <span className="text-foreground/70">Intake → Resume Parse → Fit Score</span>
+          </p>
+          <div className="space-y-1">
             {stages.map((s, i) => (
               <div
                 key={i}
                 className={cn(
-                  "flex items-center gap-2 rounded-md border px-2.5 py-2 transition-colors",
+                  "flex items-center gap-2 rounded-md px-2 py-1.5 transition-colors",
                   s.is_enabled !== false
-                    ? "border-border/50 bg-background"
-                    : "border-border/30 bg-muted/30 opacity-60",
+                    ? "hover:bg-muted/40"
+                    : "opacity-50",
                 )}
               >
                 <input
                   type="checkbox"
-                  className="h-3.5 w-3.5 rounded accent-brand-green"
+                  className="h-3.5 w-3.5 shrink-0 rounded accent-primary"
                   checked={s.is_enabled !== false}
                   onChange={(e) => setStage(i, { is_enabled: e.target.checked })}
                 />
@@ -490,7 +508,7 @@ export function ArtifactPanel({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive"
+                  className="h-6 w-6 shrink-0 text-muted-foreground/50 hover:text-destructive"
                   onClick={() => removeStage(i)}
                   aria-label="Remove stage"
                 >
@@ -502,7 +520,7 @@ export function ArtifactPanel({
               variant="ghost"
               size="sm"
               onClick={addStage}
-              className="h-auto gap-1.5 px-2 text-xs text-brand-green hover:text-brand-green"
+              className="mt-1 h-auto gap-1.5 px-2 text-xs text-primary hover:text-primary/80"
             >
               <Plus className="h-3 w-3" /> Add stage
             </Button>
@@ -515,7 +533,7 @@ export function ArtifactPanel({
           badge={
             <span
               className={cn(
-                "text-[10px] font-mono",
+                "font-mono text-[10px]",
                 weightTotal >= 95 && weightTotal <= 105
                   ? "text-muted-foreground"
                   : "text-amber-500",
@@ -525,23 +543,24 @@ export function ArtifactPanel({
             </span>
           }
         >
-          <div className="space-y-3">
+          <div className="space-y-4">
             {dims.map((d, i) => (
+              /* Each dimension: left accent bar, no border box */
               <div
                 key={i}
-                className="space-y-2 rounded-md border border-border/40 p-3"
+                className="border-l-2 border-primary/30 pl-3 space-y-2.5"
               >
                 <div className="flex items-center gap-2">
                   <Input
-                    className="h-7 flex-1 text-sm font-medium"
+                    className="h-7 flex-1 text-sm font-medium border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
                     value={d.label || ""}
                     onChange={(e) => setDim(i, { label: e.target.value })}
                     placeholder="Dimension label"
                   />
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1 shrink-0">
                     <Input
                       type="number"
-                      className="h-7 w-14 text-center text-xs"
+                      className="h-7 w-12 text-center text-xs font-mono"
                       value={d.weight ?? 0}
                       onChange={(e) =>
                         setDim(i, { weight: Number(e.target.value) })
@@ -552,37 +571,33 @@ export function ArtifactPanel({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive"
+                    className="h-6 w-6 shrink-0 text-muted-foreground/40 hover:text-destructive"
                     onClick={() => removeDim(i)}
                     aria-label="Remove dimension"
                   >
                     <Trash2 className="h-3 w-3" />
                   </Button>
                 </div>
-                <div className="space-y-1.5">
-                  <Label className="text-[11px] text-muted-foreground">
-                    What good looks like (one per line)
-                  </Label>
+                <div>
+                  <FieldLabel>What good looks like</FieldLabel>
                   <AutoTextarea
                     value={arrToLines(d.what_good_looks_like)}
                     onChange={(val) =>
                       setDim(i, { what_good_looks_like: linesToArr(val) })
                     }
-                    className="min-h-[48px] text-xs"
-                    placeholder="Concrete signals of a strong candidate..."
+                    className="min-h-[48px] text-xs leading-relaxed"
+                    placeholder="Concrete signals of a strong candidate, one per line..."
                   />
                 </div>
-                <div className="space-y-1.5">
-                  <Label className="text-[11px] text-muted-foreground">
-                    Anti-signals (one per line)
-                  </Label>
+                <div>
+                  <FieldLabel>Anti-signals</FieldLabel>
                   <AutoTextarea
                     value={arrToLines(d.anti_signals)}
                     onChange={(val) =>
                       setDim(i, { anti_signals: linesToArr(val) })
                     }
-                    className="min-h-[36px] text-xs"
-                    placeholder="Red flags or weak signals..."
+                    className="min-h-[36px] text-xs leading-relaxed"
+                    placeholder="Red flags or weak signals, one per line..."
                   />
                 </div>
               </div>
@@ -591,19 +606,20 @@ export function ArtifactPanel({
               variant="ghost"
               size="sm"
               onClick={addDim}
-              className="h-auto gap-1.5 px-2 text-xs text-brand-green hover:text-brand-green"
+              className="h-auto gap-1.5 px-2 text-xs text-primary hover:text-primary/80"
             >
               <Plus className="h-3 w-3" /> Add dimension
             </Button>
           </div>
 
-          {/* Knockouts */}
-          <div className="mt-4 space-y-2">
-            <Label className="text-xs font-medium">
-              Knockouts (hard disqualifiers)
-            </Label>
+          {/* Knockouts — sub-section within Evaluation, separated by thin rule */}
+          <div className="mt-5 pt-4 border-t border-border/30 space-y-2">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">
+              Knockouts <span className="normal-case font-normal tracking-normal">(hard disqualifiers)</span>
+            </p>
             {knockouts.map((k, i) => (
               <div key={i} className="flex items-center gap-2">
+                <span className="text-muted-foreground/50 text-xs select-none">·</span>
                 <Input
                   className="h-7 flex-1 text-xs"
                   value={k.rule || ""}
@@ -613,7 +629,7 @@ export function ArtifactPanel({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive"
+                  className="h-6 w-6 shrink-0 text-muted-foreground/40 hover:text-destructive"
                   onClick={() => removeKnockout(i)}
                   aria-label="Remove knockout"
                 >
@@ -634,33 +650,33 @@ export function ArtifactPanel({
 
         {/* ====== COMPANY CONTEXT ====== */}
         <Section title="Company Context" defaultOpen={false}>
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label className="text-xs">Summary</Label>
+          <div className="space-y-4">
+            <div>
+              <FieldLabel>Summary</FieldLabel>
               <AutoTextarea
                 value={ctx.summary || ""}
                 onChange={(val) => patchCtx({ summary: val })}
-                className="min-h-[60px] text-xs"
+                className="min-h-[60px] text-xs leading-relaxed"
                 placeholder="Role-specific grounding narrative for LLM stages..."
               />
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">What matters here (one per line)</Label>
+            <div>
+              <FieldLabel>What matters here</FieldLabel>
               <AutoTextarea
                 value={arrToLines(ctx.what_matters_here)}
                 onChange={(val) =>
                   patchCtx({ what_matters_here: linesToArr(val) })
                 }
-                className="min-h-[48px] text-xs"
-                placeholder="Role-specific signals that matter..."
+                className="min-h-[48px] text-xs leading-relaxed"
+                placeholder="Role-specific signals that matter, one per line..."
               />
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Hiring bar</Label>
+            <div>
+              <FieldLabel>Hiring bar</FieldLabel>
               <AutoTextarea
                 value={ctx.hiring_bar || ""}
                 onChange={(val) => patchCtx({ hiring_bar: val })}
-                className="min-h-[36px] text-xs"
+                className="min-h-[36px] text-xs leading-relaxed"
                 placeholder="What clearing the bar looks like for this role..."
               />
             </div>
@@ -671,118 +687,115 @@ export function ArtifactPanel({
         {/* Gated on the pipeline including an enabled assignment stage; if the
             draft has no pipeline, falls back to showing it. */}
         {hasAssignmentStage && (
-        <Section title="Take-home Assignment" defaultOpen={false}>
-          <div className="space-y-3">
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                className="h-4 w-4 rounded accent-brand-green"
-                checked={draft.assignment?.enabled !== false}
-                onChange={(e) =>
-                  patch({
-                    assignment: {
-                      ...draft.assignment,
-                      enabled: e.target.checked,
-                    },
-                  })
-                }
-              />
-              Enable take-home assignment
-            </label>
-            {draft.assignment?.enabled !== false && (
-              <div className="space-y-3">
-                {/* Brief textarea */}
-                <div className="space-y-1">
-                  <Label className="text-[11px]">Assignment brief (markdown)</Label>
-                  <AutoTextarea
-                    value={draft.assignment?.brief || ""}
-                    onChange={(val) =>
-                      patch({
-                        assignment: {
-                          ...draft.assignment,
-                          brief: val,
-                        },
-                      })
-                    }
-                    placeholder="Describe the take-home assignment. If the hiring manager described their own brief, capture it here verbatim. Otherwise leave empty and Pulse can draft one later."
-                    className="min-h-[80px] text-xs"
-                  />
-                </div>
-                {/* Instructions textarea */}
-                <div className="space-y-1">
-                  <Label className="text-[11px]">Submission instructions</Label>
-                  <AutoTextarea
-                    value={draft.assignment?.instructions || ""}
-                    onChange={(val) =>
-                      patch({
-                        assignment: {
-                          ...draft.assignment,
-                          instructions: val,
-                        },
-                      })
-                    }
-                    placeholder="Any specific submission instructions (format, repo link, deadline notes)..."
-                    className="min-h-[60px] text-xs"
-                  />
-                </div>
-                {/* Numeric fields */}
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="space-y-1">
-                    <Label className="text-[11px]">Problems</Label>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={8}
-                      value={draft.assignment?.n_problems ?? 2}
-                      onChange={(e) =>
+          <Section title="Take-home Assignment" defaultOpen={false}>
+            <div className="space-y-4">
+              <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded accent-primary"
+                  checked={draft.assignment?.enabled !== false}
+                  onChange={(e) =>
+                    patch({
+                      assignment: {
+                        ...draft.assignment,
+                        enabled: e.target.checked,
+                      },
+                    })
+                  }
+                />
+                Enable take-home assignment
+              </label>
+              {draft.assignment?.enabled !== false && (
+                <div className="space-y-4">
+                  <div>
+                    <FieldLabel>Assignment brief (markdown)</FieldLabel>
+                    <AutoTextarea
+                      value={draft.assignment?.brief || ""}
+                      onChange={(val) =>
                         patch({
                           assignment: {
                             ...draft.assignment,
-                            n_problems: Number(e.target.value),
+                            brief: val,
                           },
                         })
                       }
+                      placeholder="Describe the take-home assignment. If the hiring manager described their own brief, capture it here verbatim. Otherwise leave empty and Pulse can draft one later."
+                      className="min-h-[80px] text-xs leading-relaxed"
                     />
                   </div>
-                  <div className="space-y-1">
-                    <Label className="text-[11px]">Hours</Label>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={40}
-                      value={draft.assignment?.time_budget_hours ?? 6}
-                      onChange={(e) =>
+                  <div>
+                    <FieldLabel>Submission instructions</FieldLabel>
+                    <AutoTextarea
+                      value={draft.assignment?.instructions || ""}
+                      onChange={(val) =>
                         patch({
                           assignment: {
                             ...draft.assignment,
-                            time_budget_hours: Number(e.target.value),
+                            instructions: val,
                           },
                         })
                       }
+                      placeholder="Any specific submission instructions (format, repo link, deadline notes)..."
+                      className="min-h-[60px] text-xs leading-relaxed"
                     />
                   </div>
-                  <div className="space-y-1">
-                    <Label className="text-[11px]">Deadline (days)</Label>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={60}
-                      value={draft.assignment?.deadline_days ?? 7}
-                      onChange={(e) =>
-                        patch({
-                          assignment: {
-                            ...draft.assignment,
-                            deadline_days: Number(e.target.value),
-                          },
-                        })
-                      }
-                    />
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <FieldLabel>Problems</FieldLabel>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={8}
+                        value={draft.assignment?.n_problems ?? 2}
+                        onChange={(e) =>
+                          patch({
+                            assignment: {
+                              ...draft.assignment,
+                              n_problems: Number(e.target.value),
+                            },
+                          })
+                        }
+                      />
+                    </div>
+                    <div>
+                      <FieldLabel>Hours</FieldLabel>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={40}
+                        value={draft.assignment?.time_budget_hours ?? 6}
+                        onChange={(e) =>
+                          patch({
+                            assignment: {
+                              ...draft.assignment,
+                              time_budget_hours: Number(e.target.value),
+                            },
+                          })
+                        }
+                      />
+                    </div>
+                    <div>
+                      <FieldLabel>Deadline (days)</FieldLabel>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={60}
+                        value={draft.assignment?.deadline_days ?? 7}
+                        onChange={(e) =>
+                          patch({
+                            assignment: {
+                              ...draft.assignment,
+                              deadline_days: Number(e.target.value),
+                            },
+                          })
+                        }
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
-          </div>
-        </Section>
+              )}
+            </div>
+          </Section>
         )}
 
         {/* ====== NOTES ====== */}
@@ -790,15 +803,15 @@ export function ArtifactPanel({
           <AutoTextarea
             value={draft.notes || ""}
             onChange={(val) => patch({ notes: val })}
-            className="min-h-[60px] text-xs"
+            className="min-h-[60px] text-xs leading-relaxed"
             placeholder="Internal notes about this role..."
           />
         </Section>
       </div>
 
       {/* Footer */}
-      <footer className="flex shrink-0 items-center justify-between gap-2 border-t border-border/40 px-4 py-3">
-        <span className="text-xs text-muted-foreground">
+      <footer className="flex shrink-0 items-center justify-between gap-2 border-t border-border/50 px-5 py-3">
+        <span className="font-mono text-[10px] text-muted-foreground">
           {dirty ? "Unsaved changes" : applied ? "Applied" : "Saved"}
         </span>
         <div className="flex gap-2">
@@ -814,7 +827,7 @@ export function ArtifactPanel({
             size="sm"
             onClick={handleApply}
             disabled={applying || applied}
-            className="bg-brand-green text-white hover:bg-brand-green/90"
+            className="bg-primary text-primary-foreground hover:bg-primary/90"
           >
             {applying ? (
               <Loader2 className="h-4 w-4 animate-spin" />
