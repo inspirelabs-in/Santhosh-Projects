@@ -68,6 +68,7 @@ export default function DashboardPage() {
             <ChatMessages
               messages={chat.messages}
               isThinking={chat.isThinking}
+              thinkingLabel={chat.thinkingLabel}
               conversationId={chat.conversationId}
               dispatch={(m) => void chat.send(m)}
             />
