@@ -35,9 +35,6 @@ export function Topbar({ title, subtitle, breadcrumbOverrides }: { title: string
         </div>
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        <kbd className="hidden rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground md:inline-block">
-          ⌘K
-        </kbd>
         <AgentLiveIndicator />
         <ThemeToggle />
         <NotificationsBell />

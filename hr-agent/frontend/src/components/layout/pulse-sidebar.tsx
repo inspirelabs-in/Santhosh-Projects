@@ -4,20 +4,20 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  Activity,
-  BarChart3,
+  Bot,
   Briefcase,
   ChevronLeft,
   ChevronRight,
   ClipboardCheck,
-  KeyRound,
   LogOut,
-  MessageCircle,
+  MessageSquare,
   PhoneCall,
   Plus,
   Search,
-  Settings,
+  ShieldCheck,
+  SlidersHorizontal,
   Trash2,
+  TrendingUp,
   Users,
   Video,
 } from "lucide-react";
@@ -56,14 +56,14 @@ function fmtTime(iso: string): string {
   return new Date(iso).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", month: "short", day: "numeric" });
 }
 
-type NavItem = { href: string; label: string; icon: typeof Activity };
+type NavItem = { href: string; label: string; icon: typeof Bot };
 type NavGroup = { section: string; items: NavItem[] };
 
 const NAV_GROUPS: NavGroup[] = [
   {
     section: "workspace",
     items: [
-      { href: "/dashboard", label: "Overview", icon: Activity },
+      { href: "/dashboard", label: "Pulse", icon: Bot },
       { href: "/candidates", label: "Candidates", icon: Users },
       { href: "/roles", label: "Roles", icon: Briefcase },
     ],
@@ -74,22 +74,18 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/voice-screens", label: "Voice", icon: PhoneCall },
       { href: "/assessments", label: "Assessments", icon: ClipboardCheck },
       { href: "/meetings", label: "Meetings", icon: Video },
-      // Panels hidden — meeting/panel scheduling is now chat-driven via Pulse.
-      // { href: "/panels", label: "Panels", icon: UserCheck },
     ],
   },
   {
     section: "intelligence",
     items: [
-      { href: "/analytics", label: "Analytics", icon: BarChart3 },
-      // Supervisor tab hidden.
-      // { href: "/supervisor", label: "Supervisor", icon: Bot },
+      { href: "/analytics", label: "Analytics", icon: TrendingUp },
     ],
   },
   {
     section: "system",
     items: [
-      { href: "/settings", label: "Settings", icon: Settings },
+      { href: "/settings", label: "Settings", icon: SlidersHorizontal },
     ],
   },
 ];
@@ -180,25 +176,25 @@ export function PulseSidebar() {
   }
 
   if (!hydrated) {
-    return <aside className="h-screen w-[268px] shrink-0 border-r border-white/10 bg-brand-blue-deep" />;
+    return <aside className="h-screen w-[268px] shrink-0 border-r border-border bg-card" />;
   }
 
   // ── Collapsed state ──────────────────────────────────────────────────
   if (collapsed) {
     return (
-      <aside className="relative flex h-screen w-[56px] shrink-0 flex-col border-r border-white/10 bg-brand-blue-deep">
+      <aside className="relative flex h-screen w-[56px] shrink-0 flex-col border-r border-border bg-card">
         {confirmDialog}
         <button
           type="button"
           onClick={toggleCollapsed}
-          className="absolute -right-3 top-6 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-white/20 bg-brand-blue-deep text-white/60 shadow-sm hover:bg-white/10 hover:text-white transition-colors"
+          className="absolute -right-3 top-6 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-sm hover:bg-muted hover:text-foreground transition-colors"
           aria-label="Expand sidebar"
           title="Expand"
         >
           <ChevronRight className="h-3.5 w-3.5" />
         </button>
 
-        <div className="flex items-center justify-center border-b border-white/10 px-2 py-3">
+        <div className="flex items-center justify-center border-b border-border px-2 py-3">
           <Logo width={26} kind="icon" />
         </div>
 
@@ -217,7 +213,7 @@ export function PulseSidebar() {
         <nav className="scrollbar-slim flex-1 overflow-y-auto px-1.5 py-1">
           {NAV_GROUPS.map((group) => (
             <div key={group.section} className="mb-2">
-              <div className="mx-auto my-1 h-px w-6 bg-white/10" />
+              <div className="mx-auto my-1 h-px w-6 bg-border" />
               <ul className="space-y-0.5">
                 {group.items.map(({ href, label, icon: Icon }) => {
                   const active =
@@ -232,7 +228,7 @@ export function PulseSidebar() {
                           "flex h-8 w-full items-center justify-center rounded-lg transition-colors",
                           active
                             ? "bg-primary text-white"
-                            : "text-white/60 hover:bg-white/8 hover:text-white/90",
+                            : "text-muted-foreground hover:bg-muted hover:text-foreground",
                         )}
                       >
                         <Icon className="h-4 w-4" />
@@ -245,15 +241,15 @@ export function PulseSidebar() {
           ))}
         </nav>
 
-        <div className="border-t border-white/10">
+        <div className="border-t border-border">
           <AgentStatusBadge collapsed />
         </div>
 
-        <div className="border-t border-white/10 p-1.5">
+        <div className="border-t border-border p-1.5">
           <button
             type="button"
             onClick={signOut}
-            className="flex h-8 w-full items-center justify-center rounded-lg text-white/60 hover:bg-white/8 hover:text-white/90 transition-colors"
+            className="flex h-8 w-full items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
             title="Sign out"
           >
             <LogOut className="h-3.5 w-3.5" />
@@ -265,12 +261,12 @@ export function PulseSidebar() {
 
   // ── Expanded state ───────────────────────────────────────────────────
   return (
-    <aside className="relative flex h-screen w-[268px] shrink-0 flex-col overflow-hidden border-r border-white/10 bg-brand-blue-deep">
+    <aside className="relative flex h-screen w-[268px] shrink-0 flex-col overflow-hidden border-r border-border bg-card">
       {confirmDialog}
       <button
         type="button"
         onClick={toggleCollapsed}
-        className="absolute -right-3 top-6 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-white/20 bg-brand-blue-deep text-white/60 shadow-sm hover:bg-white/10 hover:text-white transition-colors"
+        className="absolute -right-3 top-6 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-sm hover:bg-muted hover:text-foreground transition-colors"
         aria-label="Collapse sidebar"
         title="Collapse"
       >
@@ -278,10 +274,10 @@ export function PulseSidebar() {
       </button>
 
       {/* Brand */}
-      <div className="flex items-center gap-2.5 border-b border-white/10 px-4 py-3">
+      <div className="flex items-center gap-2.5 border-b border-border px-4 py-3">
         <Logo width={26} kind="icon" />
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-bold leading-tight tracking-tight text-white">GrabOn Hiring</div>
+          <div className="text-sm font-bold leading-tight tracking-tight text-foreground">GrabOn Hiring</div>
           <div className="text-[9px] font-medium uppercase tracking-[0.2em] text-primary">
             Pulse
           </div>
@@ -289,10 +285,10 @@ export function PulseSidebar() {
       </div>
 
       {/* Navigation — capped so the chat list always keeps room on short screens */}
-      <nav className="scrollbar-slim max-h-[40vh] shrink-0 overflow-y-auto border-b border-white/10 px-2 py-2">
+      <nav className="scrollbar-slim max-h-[40vh] shrink-0 overflow-y-auto border-b border-border px-2 py-2">
         {NAV_GROUPS.map((group, gi) => (
           <div key={group.section} className={gi > 0 ? "mt-3" : ""}>
-            <div className="px-2 pb-1 font-mono text-[10px] uppercase tracking-widest text-white/30">
+            <div className="px-2 pb-1 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
               {group.section}
             </div>
             <ul className="space-y-px">
@@ -308,7 +304,7 @@ export function PulseSidebar() {
                         "flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium transition-colors",
                         active
                           ? "bg-primary text-white"
-                          : "text-white/60 hover:bg-white/8 hover:text-white/90",
+                          : "text-muted-foreground hover:bg-muted hover:text-foreground",
                       )}
                     >
                       <Icon className="h-4 w-4 shrink-0" />
@@ -327,7 +323,7 @@ export function PulseSidebar() {
 
       {/* Chat header + new chat button */}
       <div className="flex items-center justify-between px-3 pt-3 pb-1">
-        <div className="font-mono text-[10px] uppercase tracking-widest text-white/30">
+        <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
           Chats
         </div>
         <Button
@@ -344,12 +340,12 @@ export function PulseSidebar() {
       {/* Search */}
       <div className="px-3 pb-2">
         <div className="relative">
-          <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-white/40" />
+          <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search chats"
-            className="w-full rounded-lg border border-white/15 bg-white/8 py-1 pl-7 pr-2 text-[11px] text-white outline-none placeholder:text-white/40 focus:border-primary/60 focus:ring-2 focus:ring-primary/20"
+            className="w-full rounded-lg border border-border bg-background py-1 pl-7 pr-2 text-[11px] text-foreground outline-none placeholder:text-muted-foreground focus:border-primary/60 focus:ring-2 focus:ring-primary/20"
           />
         </div>
       </div>
@@ -361,7 +357,7 @@ export function PulseSidebar() {
           if (items.length === 0) return null;
           return (
             <section key={b} className="mb-1">
-              <div className="px-2 pb-0.5 pt-2 font-mono text-[10px] uppercase tracking-widest text-white/30">
+              <div className="px-2 pb-0.5 pt-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
                 {BUCKET_LABEL[b]}
               </div>
               <ul className="space-y-px">
@@ -372,20 +368,20 @@ export function PulseSidebar() {
                       className={cn(
                         "group flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] transition-colors",
                         chat.conversationId === c.id && isDashboard
-                          ? "bg-white/10 text-white"
-                          : "hover:bg-white/8 text-white/70",
+                          ? "bg-muted text-foreground"
+                          : "hover:bg-muted text-muted-foreground hover:text-foreground",
                       )}
                     >
-                      <MessageCircle
+                      <MessageSquare
                         className={cn(
                           "h-3.5 w-3.5 shrink-0",
                           chat.conversationId === c.id && isDashboard
                             ? "text-primary"
-                            : "text-white/40",
+                            : "text-muted-foreground",
                         )}
                       />
                       <span className="flex-1 truncate">{c.title || "Untitled"}</span>
-                      <span className="text-[9px] tabular-nums text-white/30">
+                      <span className="text-[9px] tabular-nums text-muted-foreground">
                         {fmtTime(c.updated_at)}
                       </span>
                       <button
@@ -398,7 +394,7 @@ export function PulseSidebar() {
                         aria-label="Delete chat"
                         title="Delete chat"
                       >
-                        <Trash2 className="h-3 w-3 text-white/40 hover:text-destructive" />
+                        <Trash2 className="h-3 w-3 text-muted-foreground hover:text-destructive" />
                       </button>
                     </button>
                   </li>
@@ -409,22 +405,22 @@ export function PulseSidebar() {
         })}
 
         {Object.values(groups).every((g) => g.length === 0) && (
-          <p className="px-3 py-6 text-center text-xs text-white/40">
+          <p className="px-3 py-6 text-center text-xs text-muted-foreground">
             {q ? "No matches." : "No chats yet — start one above."}
           </p>
         )}
       </div>
 
       {/* Footer */}
-      <div className="border-t border-white/10 px-3 py-2">
-        <div className="flex items-center justify-between text-[11px] text-white/50">
+      <div className="border-t border-border px-3 py-2">
+        <div className="flex items-center justify-between text-[11px] text-muted-foreground">
           <div className="flex items-center gap-1.5">
-            <KeyRound className="h-3 w-3" />
+            <ShieldCheck className="h-3 w-3 text-primary" />
             <span className="font-medium">Admin</span>
           </div>
           <button
             onClick={signOut}
-            className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-white/50 hover:bg-white/8 hover:text-white/90 transition-colors"
+            className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
             type="button"
           >
             <LogOut className="h-3 w-3" />
