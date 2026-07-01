@@ -33,10 +33,24 @@
 
   {{ ui.highlight_box("<strong>Deadline:</strong> please submit by <strong>" ~ deadline_at ~ "</strong> (" ~ deadline_days ~ " days from today).", accent="primary") }}
 
+  {% if pi_cognitive_link or pi_personality_link %}
+  <p style="margin:28px 0 8px 0;font-family:{{ brand.font_stack }};font-size:13px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:{{ brand.primary }};">
+    PI Assessments (complete before submitting)
+  </p>
+  <p style="margin:0 0 12px 0;font-family:{{ brand.font_stack }};font-size:14px;line-height:1.6;color:{{ brand.ink }};">
+    Please complete the following assessments as part of your application. They take about 10–12 minutes in total and help us understand how you work best.
+  </p>
+  {% if pi_cognitive_link %}
+  {{ ui.cta_button(pi_cognitive_link, "Cognitive assessment →", accent="info") }}
+  {% endif %}
+  {% if pi_personality_link %}
+  {{ ui.cta_button(pi_personality_link, "Behavioural assessment →", accent="info") }}
+  {% endif %}
+  {% endif %}
+
   {{ ui.cta_button(upload_url, "Submit assignment", accent="primary") }}
   {{ ui.fallback_link(upload_url) }}
 
-  {{ ui.reference_line(application_id) }}
   {{ ui.signoff() }}
 {{ ui.card_close() }}
 {% include "_footer.html.j2" %}
