@@ -26,23 +26,23 @@ provider, scaling policy, and failure domain.
                 │  CMD:                        │
                 │    uvicorn src.api.main:app  │
                 │    --host 0.0.0.0 --port 8000│
-                │  Depends on: PG, Redis, R2   │
-                └──────────┬───────────────────┘
-                           │
-          ┌────────────────┼──────────────────────┐
-          ▼                ▼                      ▼
-   Managed PG        Managed Redis          Cloudflare R2
-   (Neon free)       (Upstash free)         (free 10GB)
-   pgvector req'd    Required by Arq        S3-compatible
-                    for job queue           Stores: resumes,
-                                            recordings, consent
+                 │  Depends on: PG, Redis, S3    │
+                 └──────────┬───────────────────┘
+                            │
+           ┌────────────────┼──────────────────────┐
+           ▼                ▼                      ▼
+    Managed PG        Managed Redis          Backblaze B2
+    (Neon free)       (Upstash free)         (free 10GB)
+    pgvector req'd    Required by Arq        S3-compatible
+           Stores: resumes,
+                                             recordings, consent
           ┌────────────────┴──────────────────────┐
           ▼                                       ▼
    Arq Worker (same image)                  External APIs (no hosting)
    Dockerfile: same as backend              ├── ElevenLabs (voice calls)
    CMD: arq src.workers.main.WorkerSettings ├── Resend / SendGrid (email)
    Runs: 15 job types + 7 cron jobs        ├── Langfuse (LLM tracing)
-   Depends on: PG, Redis, R2 (same env)    ├── Google Gemini (audio eval)
+    Depends on: PG, Redis, S3 (same env)    ├── Google Gemini (audio eval)
                                            ├── Google Meet API (calendar)
                                            └── Microsoft Graph (email)
 ```
@@ -125,28 +125,31 @@ hr-agent/
 
 ---
 
-## 3. Cloudflare R2 (free)
+## 3. Backblaze B2 (free, no payment details)
 
-**Sign up:** https://dash.cloudflare.com
+S3-compatible object storage. No credit card required for the free tier.
+
+**Sign up:** https://www.backblaze.com/cloud-storage
 
 ### Step-by-step
 
-1. Go to **R2** → **Create bucket** → name it `hiring-agent-resumes`
-2. Go to **R2** → **Manage R2 API Tokens** → **Create API Token**
-3. Give it **Admin Read/Write** permission
-4. Save the credentials:
+1. Create a **Backblaze B2** account (email + password only — no payment info)
+2. Go to **Buckets** → **Create a Bucket** → name it `hiring-agent-resumes`, set to **Private**
+3. Create a second bucket → name it `hiring-agent-consent`, set to **Private**
+4. Go to **App Keys** → **Generate New Master Application Key** (or a limited key scoped to both buckets)
+5. Save the credentials:
 
    ```
-   R2_ACCESS_KEY_ID=<40-char access key>
-   R2_SECRET_ACCESS_KEY=<40-char secret key>
-   R2_ENDPOINT_URL=https://<account-id>.r2.cloudflarestorage.com
-   R2_BUCKET_NAME=hiring-agent-resumes
+   R2_ACCESS_KEY_ID=<keyID>                 # Backblaze calls this keyID
+   R2_SECRET_ACCESS_KEY=<applicationKey>    # Backblaze calls this applicationKey
+   R2_ENDPOINT_URL=https://s3.us-west-004.backblazeb2.com
+   R2_BUCKET_RESUMES=hiring-agent-resumes
+   R2_BUCKET_CONSENT=hiring-agent-consent
    ```
 
-   The account ID is in the R2 dashboard URL:
-   `https://dash.cloudflare.com/?to=/:account-id/r2`
+   The endpoint URL depends on your region (`us-west-004`, `eu-central-003`, etc. — visible in the B2 dashboard).
 
-5. Free tier: 10 GB storage, 1 million operations/month
+6. Free tier: 10 GB storage, 2500 transactions/day (ample for this workload)
 
 ---
 
@@ -199,8 +202,9 @@ If you don't have a registry, Render can build from your git repo directly
    REDIS_URL=rediss://...
    R2_ACCESS_KEY_ID=...
    R2_SECRET_ACCESS_KEY=...
-   R2_ENDPOINT_URL=https://<account-id>.r2.cloudflarestorage.com
-   R2_BUCKET_NAME=hiring-agent-resumes
+   R2_ENDPOINT_URL=https://s3.<region>.backblazeb2.com
+   R2_BUCKET_RESUMES=hiring-agent-resumes
+   R2_BUCKET_CONSENT=hiring-agent-consent
    RUN_MIGRATIONS=1
    SECRET_KEY=<any random 32+ char string>
    ```
@@ -261,7 +265,7 @@ Same Docker image as the backend API, different start command.
    - **Start Command:** `arq src.workers.main.WorkerSettings`
 
 3. **Copy ALL env vars from the Backend API** — identical set. The worker
-   connects to the same PostgreSQL, Redis, and R2.
+   connects to the same PostgreSQL, Redis, and Backblaze B2.
 
 4. **What the worker does (15 job types):**
 
@@ -340,7 +344,7 @@ Same Docker image as the backend API, different start command.
 |---------|---------------------------|----------|
 | **Temporal Server** | Removed from compose | Dead code. Pipeline runs on FastAPI BackgroundTasks + Arq.
 | **Emotion Service** | `emotion-service/` | Voice eval falls back to text-only gpt-4o-mini when emotion service is unavailable. Emotion service is optional, not required.
-| **MinIO** | `minio` + `minio-init` | Replaced by Cloudflare R2 (S3-compatible, but managed).
+| **MinIO** | `minio` + `minio-init` | Replaced by Backblaze B2 (S3-compatible, no payment details needed).
 | **MailHog** | `mailhog` | Dev only. Production uses Resend / SendGrid / Microsoft Graph.
 | **Postgres container** | `postgres` | Use managed Neon/Supabase — they handle backups, patching, HA.
 | **Redis container** | `redis` | Use managed Upstash/Redis Cloud — serverless, no ops.
@@ -385,10 +389,11 @@ is not set, the default is used.
 | `DATABASE_URL` | `database_url` | `postgresql+asyncpg://user:pass@ep-xxx.neon.tech/db` | Neon dashboard |
 | `DATABASE_URL_SYNC` | `database_url_sync` | `postgresql://user:pass@ep-xxx.neon.tech/db` | Same, sync driver |
 | `REDIS_URL` | `redis_url` | `rediss://default:pass@us1-xxx.upstash.io:6379` | Upstash dashboard |
-| `R2_ACCESS_KEY_ID` | `r2_access_key_id` | `<40-char string>` | Cloudflare R2 API tokens |
-| `R2_SECRET_ACCESS_KEY` | `r2_secret_access_key` | `<40-char string>` | Cloudflare R2 API tokens |
-| `R2_ENDPOINT_URL` | `r2_endpoint_url` | `https://<acc>.r2.cloudflarestorage.com` | Cloudflare R2 dashboard |
-| `R2_BUCKET_NAME` | `r2_bucket_name` | `hiring-agent-resumes` | Your bucket name |
+| `R2_ACCESS_KEY_ID` | `r2_access_key_id` | `<40-char string>` | Backblaze B2 App Key ID |
+| `R2_SECRET_ACCESS_KEY` | `r2_secret_access_key` | `<40-char string>` | Backblaze B2 Application Key |
+| `R2_ENDPOINT_URL` | `r2_endpoint_url` | `https://s3.us-west-004.backblazeb2.com` | Backblaze B2 S3 endpoint (region-dependent) |
+| `R2_BUCKET_RESUMES` | `r2_bucket_resumes` | `hiring-agent-resumes` | B2 bucket for resume PDFs, recordings, transcripts |
+| `R2_BUCKET_CONSENT` | `r2_bucket_consent` | `hiring-agent-consent` | B2 bucket for consent artifacts |
 | `RUN_MIGRATIONS` | — | `1` | Set to `1` to run alembic on boot |
 | `SECRET_KEY` | `secret_key` | `<random 32+ chars>` | Generate via `openssl rand -hex 32` |
 
@@ -427,7 +432,7 @@ PostgreSQL ──→ Neon                   (free, auto-pause when idle)
 Redis     ──→ Upstash                 (free, serverless, pay-per-req)
 Backend   ──→ Render Web Service      (free, cold starts after idle)
 Worker    ──→ Render Background Worker(free, same)
-Storage   ──→ Cloudflare R2           (free 10GB)
+Storage   ──→ Backblaze B2           (free 10GB)
 Monitoring ──→ Sentry free tier       (5k events/month)
 LLM trace  ──→ Langfuse cloud         (free 50k obs/month)
 Voice      ──→ ElevenLabs dev tier    (limited minutes)
@@ -466,7 +471,7 @@ because Render keeps it alive while jobs are running.
 ```bash
 # 1. Set up Neon Postgres → copy connection strings
 # 2. Set up Upstash Redis → copy REDIS_URL
-# 3. Set up Cloudflare R2 → generate API keys, create bucket
+# 3. Set up Backblaze B2 → generate App Key, create bucket
 # 4. Set up Resend → generate API key, verify domain
 # 5. Set up ElevenLabs → create agent, get IDs
 # 6. Set up Langfuse → get public + secret keys
@@ -598,7 +603,7 @@ redis-cli -u $REDIS_URL ZREVRANGE arq:hiring-agent:failed 0 10
 | Neon | PostgreSQL | 0.5GB, 100 compute hours | $0 |
 | Upstash | Redis | 256MB, 10k reqs/day | $0 |
 | Render | Backend API + Worker | 512MB RAM each, 750hrs/month | $0 |
-| Cloudflare R2 | Object storage | 10GB, 1M ops/month | $0 |
+| Backblaze B2 | Object storage | 10GB, 2500 tx/day | $0 |
 | Resend | Transactional email | 100 emails/day | $0 |
 | ElevenLabs | Voice calls | 10 min/month (dev tier) | $0 |
 | Langfuse | LLM tracing | 50k observations/month | $0 |
