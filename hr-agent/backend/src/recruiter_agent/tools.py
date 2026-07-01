@@ -49,6 +49,37 @@ def _stage_label(s: str | None) -> str:
     return (s or "applied").replace("_", " ")
 
 
+async def _rejection_reasons_map(
+    session: Any, application_ids: list[UUID]
+) -> dict[UUID, str]:
+    """Fetch rejection category from audit log for the given application IDs."""
+    if not application_ids:
+        return {}
+    rows = (
+        await session.execute(
+            select(AuditLog.application_id, AuditLog.details)
+            .where(
+                AuditLog.application_id.in_(application_ids),
+                AuditLog.action.in_(["rejection_sent", "rejection_send_failed"]),
+            )
+            .order_by(AuditLog.created_at.desc())
+            .distinct(AuditLog.application_id)
+        )
+    ).all()
+    return {r.application_id: (r.details or {}).get("category", "unknown") for r in rows}
+
+
+def _redact_rejected(item: dict, reason: str | None = None) -> dict:
+    """Strip a rejected candidate's entry to bare minimum."""
+    base = {
+        "candidate_name": item.get("candidate_name"),
+        "status": "rejected",
+    }
+    if reason:
+        base["reason"] = reason
+    return base
+
+
 # ---------------------------------------------------------------------------
 # list_candidates
 # ---------------------------------------------------------------------------
@@ -84,8 +115,24 @@ async def list_candidates(
             q = q.where(Application.created_at >= cutoff)
         rows = (await session.execute(q)).all()
 
-    items = [
-        {
+    rejected_app_ids = [
+        app.id for app, _, _ in rows if app.current_stage == "rejected"
+    ]
+    rejection_reasons = {}
+    if rejected_app_ids:
+        async with session_scope() as s:
+            rejection_reasons = await _rejection_reasons_map(s, rejected_app_ids)
+
+    items = []
+    for app, cand, role in rows:
+        if app.current_stage == "rejected":
+            item = {
+                "application_id": str(app.id),
+                "candidate_name": cand.name,
+            }
+            items.append(_redact_rejected(item, rejection_reasons.get(app.id)))
+            continue
+        items.append({
             "application_id": str(app.id),
             "candidate_name": cand.name,
             "candidate_email": cand.email,
@@ -96,9 +143,7 @@ async def list_candidates(
             "fit_score": app.fit_score,
             "screening_score": app.screening_score,
             "applied_at": app.created_at.isoformat() if app.created_at else None,
-        }
-        for app, cand, role in rows
-    ]
+        })
     return {"items": items, "count": len(items)}
 
 
@@ -1082,6 +1127,7 @@ async def search_talent_pool(
         embed_resp = await litellm.aembedding(
             model=_s.embedding_model or "text-embedding-3-large",
             input=[query[:8000]],
+            dimensions=256,
         )
         query_embedding = embed_resp.data[0]["embedding"]
     except Exception as e:
@@ -1101,7 +1147,7 @@ async def search_talent_pool(
         rows = (await session.execute(q)).all()
 
         candidate_ids = [r[1].id for r in rows]
-        app_map: dict[UUID, str] = {}
+        app_map: dict[UUID, tuple[str, UUID | None]] = {}
         if candidate_ids:
             app_rows = (
                 await session.execute(
@@ -1112,10 +1158,26 @@ async def search_talent_pool(
             ).scalars().all()
             for a in app_rows:
                 if a.candidate_id not in app_map:
-                    app_map[a.candidate_id] = a.current_stage
+                    app_map[a.candidate_id] = (a.current_stage, a.id)
+
+        rejected_app_ids = [
+            aid for stage, aid in app_map.values()
+            if stage == "rejected" and aid is not None
+        ]
+        rejection_reasons = await _rejection_reasons_map(session, rejected_app_ids)
 
     matches = []
     for profile, cand, sim in rows:
+        stage, app_id = app_map.get(cand.id, (None, None))
+
+        if stage == "rejected":
+            item = {
+                "candidate_id": str(cand.id),
+                "candidate_name": cand.name,
+            }
+            matches.append(_redact_rejected(item, rejection_reasons.get(app_id) if app_id else None))
+            continue
+
         pd = profile.parsed_data or {}
         skills = pd.get("skills") or pd.get("top_skills") or []
         if isinstance(skills, str):
@@ -1137,7 +1199,7 @@ async def search_talent_pool(
             "location": pd.get("location") or pd.get("city"),
             "experience_years": float(exp) if exp else None,
             "similarity": round(float(sim), 3),
-            "last_application_stage": app_map.get(cand.id),
+            "last_application_stage": stage,
         })
 
     return {"matches": matches, "total": len(matches)}
@@ -1170,8 +1232,25 @@ async def search_candidates(
             .limit(limit)
         )
         rows = (await session.execute(q)).all()
-    items = [
-        {
+
+    rejected_app_ids = [
+        app.id for app, _, _ in rows if app.current_stage == "rejected"
+    ]
+    rejection_reasons = {}
+    if rejected_app_ids:
+        async with session_scope() as s:
+            rejection_reasons = await _rejection_reasons_map(s, rejected_app_ids)
+
+    items = []
+    for app, cand, role in rows:
+        if app.current_stage == "rejected":
+            item = {
+                "application_id": str(app.id),
+                "candidate_name": cand.name,
+            }
+            items.append(_redact_rejected(item, rejection_reasons.get(app.id)))
+            continue
+        items.append({
             "application_id": str(app.id),
             "candidate_name": cand.name,
             "candidate_email": cand.email,
@@ -1179,9 +1258,7 @@ async def search_candidates(
             "stage": app.current_stage,
             "stage_label": _stage_label(app.current_stage),
             "fit_score": app.fit_score,
-        }
-        for app, cand, role in rows
-    ]
+        })
     return {"items": items, "count": len(items)}
 
 
@@ -1387,6 +1464,8 @@ async def get_role(
             "assignment_deadline_days": role.assignment_deadline_days,
             "has_problem_doc": bool(role.assignment_problem_doc_key),
             "assignment_problem_filename": role.assignment_problem_filename,
+            "pi_cognitive_link": role.pi_cognitive_link,
+            "pi_personality_link": role.pi_personality_link,
             "evaluation_spec": role.evaluation_spec,
         }
 

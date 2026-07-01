@@ -8,6 +8,7 @@ rationale never reaches the candidate.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -30,6 +31,30 @@ def _get_company_name_for_rejection() -> str:
         return get_settings().voice_agent_company_name
     except Exception:
         return "the company"
+
+
+# A trailing closer line ("Best regards," etc.) plus everything after it.
+_SIGNOFF_RE = re.compile(
+    r"\n[ \t]*(?:warm(?:est)?\s+regards|kind\s+regards|best\s+regards|"
+    r"best\s+wishes|all\s+the\s+best|regards|sincerely|warmly|cheers|best)"
+    r"[ \t]*,?[ \t]*(?:\n[\s\S]*)?$",
+    re.IGNORECASE,
+)
+# A trailing placeholder line ("[your name]", "[Your Name], GrabOn", ...).
+_PLACEHOLDER_RE = re.compile(r"\n[ \t]*[-—]?[ \t]*\[[^\]]*\][^\n]*$", re.IGNORECASE)
+
+
+def _strip_trailing_signoff(body: str) -> str:
+    """Remove any greeting/sign-off the model tacked on.
+
+    The email template appends the canonical "Best regards, GrabOn Team"
+    sign-off, so a model-authored one -- often with a "[your name]"
+    placeholder -- would double up. Strip it defensively regardless of which
+    prompt (code fallback or the Langfuse-hosted copy) produced the body.
+    """
+    cleaned = _SIGNOFF_RE.sub("", body)
+    cleaned = _PLACEHOLDER_RE.sub("", cleaned).rstrip()
+    return cleaned or body
 from src.models.candidate import ApplicationStatus, CandidateStatus
 from src.models.llm_outputs import RejectionDraft
 from src.services.rejection_reasons import pick_category, render_template
@@ -111,8 +136,10 @@ async def run_rejection(payload: RejectionInput) -> RejectionResult:
     )
     draft = llm_result.parsed
 
-    # Render body_html from body text (preserve paragraphs).
-    paragraphs = [p for p in draft.body.strip().split("\n\n") if p.strip()]
+    # Render body_html from body text (preserve paragraphs). Strip any
+    # greeting/sign-off the model added -- the template adds its own.
+    body_text = _strip_trailing_signoff(draft.body.strip())
+    paragraphs = [p for p in body_text.split("\n\n") if p.strip()]
     body_html = "\n".join(f"<p>{p}</p>" for p in paragraphs)
 
     sent = False
