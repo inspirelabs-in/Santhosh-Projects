@@ -29,6 +29,8 @@ import {
   CheckCircle2,
   Calendar,
   User,
+  XCircle,
+  X,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -39,7 +41,6 @@ import { StatusTag, type Stage } from "@/components/status-tag";
 import { SkeletonLines } from "@/components/skeleton";
 import { swrFetcher, api } from "@/lib/api";
 import { ActivityTimeline } from "@/components/candidate-detail/activity-timeline";
-import { PipelineStepper } from "@/components/candidate-detail/pipeline-stepper";
 import { AdminReviewPanel } from "@/components/admin-review-panel";
 import type { StageViewEntry, CriterionScore, DimensionScore, FitAssessment } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -48,7 +49,92 @@ import { cn } from "@/lib/utils";
 /*  Tab definitions                                                    */
 /* ------------------------------------------------------------------ */
 
-const TABS = ["Overview", "Screening", "Assignment", "Voice", "Interviews", "Timeline"] as const;
+/* ------------------------------------------------------------------ */
+/*  Connected-dot pipeline timeline (replaces PipelineStepper)        */
+/* ------------------------------------------------------------------ */
+
+function CandidatePipelineTimeline({ stages }: { stages: StageViewEntry[] }) {
+  const enabled = [...stages].filter((s) => s.is_enabled).sort((a, b) => a.position - b.position);
+  if (enabled.length === 0) return null;
+
+  return (
+    <div className="overflow-x-auto pb-1">
+      <div className="flex min-w-max items-start">
+        {enabled.map((s, i) => {
+          const isLast = i === enabled.length - 1;
+          const isDone = s.processing_status === "processed" && s.verdict === "pass";
+          const isFail = s.verdict === "fail";
+          const isReview = s.verdict === "needs_review";
+          const isOngoing = s.verdict === "on_going";
+          const isProcessing = s.processing_status === "processing";
+          const isCurrent = s.is_current;
+          const isPending = !isDone && !isFail && !isReview && !isOngoing && !isProcessing && !isCurrent;
+
+          const circleClass = cn(
+            "flex h-9 w-9 items-center justify-center rounded-full border-2 font-mono text-xs font-bold tabular-nums transition-colors",
+            isDone    && "border-emerald-400 bg-emerald-50 text-emerald-700",
+            isFail    && "border-red-400 bg-red-50 text-red-700",
+            isReview  && "border-amber-400 bg-amber-50 text-amber-700",
+            isOngoing && "border-blue-400 bg-blue-50 text-blue-700",
+            isProcessing && "border-amber-400 bg-amber-50 text-amber-600",
+            isCurrent && !isDone && !isFail && !isReview && !isOngoing && !isProcessing &&
+              "border-primary bg-primary/10 text-primary ring-2 ring-primary/20 ring-offset-1",
+            isPending && "border-border bg-card text-muted-foreground/50",
+          );
+
+          const lineClass = cn(
+            "mt-[18px] h-0.5 w-8 shrink-0 rounded-full",
+            isDone    ? "bg-emerald-300" :
+            isFail    ? "bg-red-300" :
+            isReview  ? "bg-amber-300" :
+            isOngoing || isProcessing || isCurrent ? "bg-primary/30" :
+            "bg-border",
+          );
+
+          const verdictLabel =
+            isDone    ? "pass" :
+            isFail    ? "fail" :
+            isReview  ? "review" :
+            isOngoing ? "in progress" :
+            isProcessing ? "processing" :
+            null;
+
+          const verdictClass = cn(
+            "mt-1 text-[9px] font-semibold uppercase tracking-wide",
+            isDone    && "text-emerald-600",
+            isFail    && "text-red-600",
+            isReview  && "text-amber-600",
+            (isOngoing || isProcessing) && "text-blue-600",
+          );
+
+          return (
+            <div key={s.stage_key} className="flex items-start">
+              <div className="flex w-24 flex-col items-center px-1 text-center">
+                <div className={circleClass}>{i + 1}</div>
+                <span className={cn(
+                  "mt-2 text-[10px] font-medium capitalize leading-tight",
+                  (isCurrent || isOngoing) && "font-semibold text-foreground",
+                  isDone && "text-muted-foreground",
+                  isPending && "text-muted-foreground/50",
+                  isFail && "text-red-600",
+                  isReview && "text-amber-600",
+                )}>
+                  {s.label}
+                </span>
+                {verdictLabel && (
+                  <span className={verdictClass}>{verdictLabel}</span>
+                )}
+              </div>
+              {!isLast && <div className={lineClass} />}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+const TABS = ["Overview", "Fit Score", "Assignment", "Voice", "Interviews", "Timeline"] as const;
 type TabName = (typeof TABS)[number];
 
 /* ------------------------------------------------------------------ */
@@ -310,9 +396,10 @@ function RejectionReasonBanner({ audit, voiceEvaluation }: { audit: any[]; voice
   if (!rejection) return null;
 
   const details = rejection.details ?? {};
-  const reason = details.reason || details.rejection_reason || details.category || details.summary || null;
+  const reason = details.reason_template || details.reason || details.rejection_reason || details.summary || null;
   const tier = details.fit_tier || details.tier;
   const score = details.fit_score ?? details.score;
+  const categoryLabel = details.category === "hr_reject" ? "Manual HR rejection" : details.category;
 
   const voiceRationale = voiceEvaluation?.verdict === "clear_reject" ? voiceEvaluation.verdict_rationale : null;
   const voiceRedFlags = voiceEvaluation?.verdict === "clear_reject" ? (voiceEvaluation.red_flags ?? []) : [];
@@ -340,7 +427,10 @@ function RejectionReasonBanner({ audit, voiceEvaluation }: { audit: any[]; voice
       {!reason && !voiceRationale && tier && (
         <p className="text-sm">Auto-rejected: Fit tier &quot;{tier}&quot;{score != null ? ` (score: ${score})` : ""}</p>
       )}
-      {!reason && !voiceRationale && !tier && <p className="text-sm text-muted-foreground">No detailed reason recorded.</p>}
+      {!reason && !voiceRationale && !tier && categoryLabel && (
+        <p className="text-sm">{categoryLabel}</p>
+      )}
+      {!reason && !voiceRationale && !tier && !categoryLabel && <p className="text-sm text-muted-foreground">No detailed reason recorded.</p>}
     </div>
   );
 }
@@ -612,7 +702,7 @@ function ProceedToNextRound({
 /*  Tab: Overview                                                     */
 /* ------------------------------------------------------------------ */
 
-function OverviewTab({ data }: { data: any }) {
+function OverviewTab({ data, applicationId, mutate }: { data: any; applicationId: string; mutate: () => void }) {
   const cand = data.candidate ?? {};
   const profile = data.profile ?? {};
   const role = data.role ?? {};
@@ -635,7 +725,21 @@ function OverviewTab({ data }: { data: any }) {
   const hasProfile = profile && Object.keys(profile).length > 2;
 
   return (
-    <div className="grid gap-5 lg:grid-cols-3">
+    <div className="space-y-5">
+      {/* Pending HR action (self-gates — renders only when a review is due). The
+          Overview is the universal action surface, so HR always lands on it. */}
+      <AdminReviewPanel
+        applicationId={applicationId}
+        currentStage={data.current_stage}
+        stageStatus={data.stage_status}
+        stageView={data.stage_view as StageViewEntry[] | null | undefined}
+        meetingReports={data.meeting_reports}
+        adminReview={data.admin_review}
+        surface="any"
+        onChanged={mutate}
+      />
+
+      <div className="grid gap-5 lg:grid-cols-3">
       {/* Left column: profile card + about */}
       <div className="lg:col-span-2 space-y-5">
         {/* Profile card */}
@@ -859,6 +963,145 @@ function OverviewTab({ data }: { data: any }) {
           </Card>
         )}
       </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Tab: Fit Score                                                    */
+/* ------------------------------------------------------------------ */
+
+function FitScoreTab({ data, applicationId, mutate }: { data: any; applicationId: string; mutate: () => void }) {
+  const breakdown = data.fit_breakdown as FitAssessment | null | undefined;
+  const fitScore = data.fit_score;
+  const fitTier = data.fit_tier;
+  const hasFitStage = pipelineHasStageType(data.stage_view as StageViewEntry[] | null | undefined, "fit");
+  const hasFitData = breakdown != null || fitScore != null;
+
+  const scoreColor =
+    fitTier === "green" ? "text-emerald-600" :
+    fitTier === "red" ? "text-red-500" :
+    "text-amber-500";
+
+  // A borderline (AMBER) fit candidate parks at the fit stage — surface the
+  // pass/reject action here too, not just on Overview.
+  const reviewPanel = (
+    <AdminReviewPanel
+      applicationId={applicationId}
+      currentStage={data.current_stage}
+      stageStatus={data.stage_status}
+      stageView={data.stage_view as StageViewEntry[] | null | undefined}
+      meetingReports={data.meeting_reports}
+      adminReview={data.admin_review}
+      surface="fit"
+      onChanged={mutate}
+    />
+  );
+
+  if (!hasFitStage) {
+    return (
+      <div className="py-16 text-center text-muted-foreground">
+        <Scale className="mx-auto mb-3 h-8 w-8 opacity-40" />
+        <p className="text-sm">Fit scoring is not configured for this role.</p>
+      </div>
+    );
+  }
+
+  if (!hasFitData) {
+    return (
+      <div className="space-y-5">
+        {reviewPanel}
+        <div className="py-16 text-center text-muted-foreground">
+          <Scale className="mx-auto mb-3 h-8 w-8 opacity-40" />
+          <p className="text-sm">No fit assessment has been computed yet.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      {reviewPanel}
+      {/* Score header */}
+      <Card>
+        <CardContent className="flex items-center gap-5 p-5">
+          {fitScore != null && (
+            <div className="text-center">
+              <div className={cn("text-5xl font-bold tabular-nums leading-none", scoreColor)}>{fitScore}</div>
+              <p className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">/ 100</p>
+            </div>
+          )}
+          <div className="min-w-0 flex-1 space-y-2">
+            <TierBadge tier={fitTier} />
+            {breakdown?.summary && (
+              <p className="text-sm leading-relaxed text-muted-foreground">{breakdown.summary}</p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Full criteria breakdown */}
+      <Card>
+        <CardContent className="p-5">
+          <h3 className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Criteria Breakdown</h3>
+          <FitBreakdownContent breakdown={breakdown} />
+        </CardContent>
+      </Card>
+
+      {/* Strengths & red flags */}
+      {((breakdown?.green_flags?.length ?? 0) > 0 || (breakdown?.red_flags?.length ?? 0) > 0) && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {(breakdown?.green_flags?.length ?? 0) > 0 && (
+            <Card>
+              <CardContent className="p-4">
+                <h4 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-emerald-600 mb-3">
+                  <ThumbsUp className="h-3.5 w-3.5" /> Strengths
+                </h4>
+                <ul className="space-y-1.5">
+                  {breakdown!.green_flags!.map((f: string, i: number) => (
+                    <li key={i} className="flex items-start gap-2 text-sm">
+                      <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" /> {f}
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
+          {(breakdown?.red_flags?.length ?? 0) > 0 && (
+            <Card>
+              <CardContent className="p-4">
+                <h4 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-destructive mb-3">
+                  <ThumbsDown className="h-3.5 w-3.5" /> Red Flags
+                </h4>
+                <ul className="space-y-1.5">
+                  {breakdown!.red_flags!.map((f: string, i: number) => (
+                    <li key={i} className="flex items-start gap-2 text-sm">
+                      <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-destructive" /> {f}
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+
+      {/* Knock-outs */}
+      {(breakdown?.knock_outs?.length ?? 0) > 0 && (
+        <Card className="border-destructive/30">
+          <CardContent className="p-4">
+            <h4 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-destructive mb-3">
+              <AlertTriangle className="h-3.5 w-3.5" /> Knock-outs
+            </h4>
+            <ul className="space-y-1">
+              {breakdown!.knock_outs!.map((f: string, i: number) => (
+                <li key={i} className="text-sm text-destructive">{f}</li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
@@ -994,7 +1237,7 @@ function ScreeningTab({ data }: { data: any }) {
 /*  Tab: Assignment                                                   */
 /* ------------------------------------------------------------------ */
 
-function AssignmentTab({ data }: { data: any }) {
+function AssignmentTab({ data, applicationId, mutate }: { data: any; applicationId: string; mutate: () => void }) {
   const submission = data.assignment_submission;
   const role = data.role ?? {};
   const breakdown = data.fit_breakdown as FitAssessment | null | undefined;
@@ -1002,11 +1245,27 @@ function AssignmentTab({ data }: { data: any }) {
   const hasAssignment = pipelineHasStageType(data.stage_view as StageViewEntry[] | null | undefined, "assignment");
   const reached = reachedStageType(data.stage_view as StageViewEntry[] | null | undefined, "assignment");
 
+  const reviewPanel = (
+    <AdminReviewPanel
+      applicationId={applicationId}
+      currentStage={data.current_stage}
+      stageStatus={data.stage_status}
+      stageView={data.stage_view as StageViewEntry[] | null | undefined}
+      meetingReports={data.meeting_reports}
+      adminReview={data.admin_review}
+      surface="assessment"
+      onChanged={mutate}
+    />
+  );
+
   if (!hasAssignment || (!reached && !submission)) {
     return (
-      <div className="py-16 text-center text-muted-foreground">
-        <ClipboardCheck className="mx-auto mb-3 h-8 w-8 opacity-40" />
-        <p className="text-sm">Assignment stage not reached yet.</p>
+      <div className="space-y-5">
+        {reviewPanel}
+        <div className="py-16 text-center text-muted-foreground">
+          <ClipboardCheck className="mx-auto mb-3 h-8 w-8 opacity-40" />
+          <p className="text-sm">Assignment stage not reached yet.</p>
+        </div>
       </div>
     );
   }
@@ -1035,6 +1294,7 @@ function AssignmentTab({ data }: { data: any }) {
 
   return (
     <div className="space-y-5">
+      {reviewPanel}
       {/* Deadline banner (pending only) */}
       {role?.assignment_deadline_days && !submission && (
         <div className={cn(
@@ -1305,7 +1565,7 @@ function AssignmentTab({ data }: { data: any }) {
 /*  Tab: Voice                                                        */
 /* ------------------------------------------------------------------ */
 
-function VoiceTab({ data }: { data: any }) {
+function VoiceTab({ data, applicationId, mutate }: { data: any; applicationId: string; mutate: () => void }) {
   const voice = data.voice_evaluation;
   const hasVoiceStage = pipelineHasStageType(data.stage_view as StageViewEntry[] | null | undefined, "voice_screen");
 
@@ -1322,8 +1582,12 @@ function VoiceTab({ data }: { data: any }) {
   }
 
   const verdict = voice.verdict as string | undefined;
-  const isPass = verdict === "clear_pass";
-  const isHrReview = verdict === "needs_hr_review";
+  // Backend stores verdict=null when routing by score ("score_routed"). Fall back
+  // to the numeric score so null doesn't erroneously display as "Rejected".
+  const voiceScore = voice.overall_score as number | null | undefined;
+  const isPass = verdict === "clear_pass" || (verdict == null && (voiceScore ?? 0) >= 70);
+  const isHrReview = verdict === "needs_hr_review" || (verdict == null && (voiceScore ?? 0) >= 55 && (voiceScore ?? 0) < 70);
+  const isReject = verdict === "clear_reject" || (verdict == null && (voiceScore ?? 0) < 55);
   const transcript: any[] = voice.transcript ?? [];
   const questions: any[] = voice.questions ?? [];
   const perQ: any[] = voice.per_question ?? [];
@@ -1338,6 +1602,18 @@ function VoiceTab({ data }: { data: any }) {
 
   return (
     <div className="space-y-5">
+      {/* Pending HR action for the voice stage (self-gates). */}
+      <AdminReviewPanel
+        applicationId={applicationId}
+        currentStage={data.current_stage}
+        stageStatus={data.stage_status}
+        stageView={data.stage_view as StageViewEntry[] | null | undefined}
+        meetingReports={data.meeting_reports}
+        adminReview={data.admin_review}
+        surface="voice"
+        onChanged={mutate}
+      />
+
       {/* Verdict banner */}
       {voice.verdict_rationale && (
         <div className={cn(
@@ -1346,11 +1622,19 @@ function VoiceTab({ data }: { data: any }) {
             ? "border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/20"
             : isHrReview
             ? "border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/20"
-            : "border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/20"
+            : isReject
+            ? "border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/20"
+            : "border-border bg-muted/30"
         )}>
           <div className="flex items-center gap-2 text-sm font-semibold mb-2">
-            {isPass ? <ThumbsUp className="h-4 w-4 text-emerald-600" /> : isHrReview ? <AlertTriangle className="h-4 w-4 text-amber-600" /> : <ThumbsDown className="h-4 w-4 text-red-600" />}
-            {isPass ? "Selected" : isHrReview ? "Escalated to HR Review" : "Rejected"}
+            {isPass
+              ? <ThumbsUp className="h-4 w-4 text-emerald-600" />
+              : isHrReview
+              ? <AlertTriangle className="h-4 w-4 text-amber-600" />
+              : isReject
+              ? <ThumbsDown className="h-4 w-4 text-red-600" />
+              : <CheckCircle2 className="h-4 w-4 text-muted-foreground" />}
+            {isPass ? "Selected" : isHrReview ? "Escalated to HR Review" : isReject ? "Rejected" : "Evaluated"}
             {voice.overall_score != null && <span className="ml-auto font-mono text-lg font-bold">{voice.overall_score}<span className="text-xs font-normal">/100</span></span>}
           </div>
           <p className="text-sm">{voice.verdict_rationale}</p>
@@ -1690,7 +1974,8 @@ function InterviewsTab({
         </div>
       )}
 
-      {/* Admin review panel */}
+      {/* Admin review panel — interview-round approvals only (voice/assessment/
+          borderline reviews surface on their own tabs + Overview). */}
       <AdminReviewPanel
         applicationId={applicationId}
         currentStage={data.current_stage}
@@ -1698,6 +1983,7 @@ function InterviewsTab({
         stageView={stageView}
         meetingReports={data.meeting_reports}
         adminReview={data.admin_review}
+        surface="interview"
         onChanged={mutate}
       />
     </div>
@@ -1835,6 +2121,11 @@ export default function CandidateDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<TabName>("Overview");
+  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
+  const [rejectLoading, setRejectLoading] = useState(false);
+  const [rejectError, setRejectError] = useState<string | null>(null);
+  const [rejectDone, setRejectDone] = useState(false);
 
   const { data, error, isLoading, mutate } = useSWR<any>(
     id ? `/dashboard/v1/candidates/${id}` : null,
@@ -1869,7 +2160,7 @@ export default function CandidateDetailPage() {
   const cand = data.candidate ?? {};
   const profile = data.profile ?? {};
   const role = data.role ?? {};
-  const isRejected = data.current_stage === "rejected";
+  const isRejected = data.current_stage === "rejected" || data.current_stage_key === "rejected";
   const isInvalidIntake = !!data.intake_error;
 
   return (
@@ -1893,7 +2184,7 @@ export default function CandidateDetailPage() {
                 {cand.email}{role.title ? ` · ${role.title}` : ""}
               </p>
             </div>
-            <StatusTag stage={data.current_stage as Stage} />
+            <StatusTag stageKey={data.current_stage_key ?? data.current_stage} />
             {data.fit_score != null && <TierBadge tier={data.fit_tier} score={data.fit_score} />}
             {data.resume_download_url && (
               <a
@@ -1905,14 +2196,23 @@ export default function CandidateDetailPage() {
                 <Download className="h-3.5 w-3.5" /> Resume
               </a>
             )}
+            {!isRejected && (
+              <button
+                type="button"
+                onClick={() => { setShowRejectModal(true); setRejectError(null); setRejectDone(false); setRejectReason(""); }}
+                className="shrink-0 inline-flex items-center gap-1.5 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-100 transition"
+              >
+                <XCircle className="h-3.5 w-3.5" /> Reject
+              </button>
+            )}
           </div>
         </div>
 
         <div className="mx-auto max-w-5xl px-6">
-          {/* Pipeline stepper — always visible */}
+          {/* Pipeline timeline — always visible */}
           {!isInvalidIntake && data.stage_view?.length > 0 && (
-            <div className="py-4 border-b border-border/50">
-              <PipelineStepper stages={data.stage_view as StageViewEntry[]} />
+            <div className="py-5 border-b border-border/50">
+              <CandidatePipelineTimeline stages={data.stage_view as StageViewEntry[]} />
             </div>
           )}
 
@@ -1955,10 +2255,10 @@ export default function CandidateDetailPage() {
 
           {/* Tab content */}
           <div className="py-5">
-            {activeTab === "Overview" && <OverviewTab data={data} />}
-            {activeTab === "Screening" && <ScreeningTab data={data} />}
-            {activeTab === "Assignment" && <AssignmentTab data={data} />}
-            {activeTab === "Voice" && <VoiceTab data={data} />}
+            {activeTab === "Overview" && <OverviewTab data={data} applicationId={id} mutate={() => mutate()} />}
+            {activeTab === "Fit Score" && <FitScoreTab data={data} applicationId={id} mutate={() => mutate()} />}
+            {activeTab === "Assignment" && <AssignmentTab data={data} applicationId={id} mutate={() => mutate()} />}
+            {activeTab === "Voice" && <VoiceTab data={data} applicationId={id} mutate={() => mutate()} />}
             {activeTab === "Interviews" && (
               <InterviewsTab data={data} applicationId={id} mutate={() => mutate()} />
             )}
@@ -1966,6 +2266,104 @@ export default function CandidateDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* ── Manual Reject Modal ── */}
+      {showRejectModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowRejectModal(false); }}
+        >
+          <div className="relative mx-4 w-full max-w-md rounded-2xl border border-border bg-background shadow-2xl">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-border px-5 py-4">
+              <div>
+                <h2 className="text-sm font-semibold text-foreground">Reject candidate</h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">{cand.name} · {role.title}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowRejectModal(false)}
+                className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground transition"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {rejectDone ? (
+              /* Success state */
+              <div className="flex flex-col items-center gap-3 px-5 py-8 text-center">
+                <CheckCircle2 className="h-10 w-10 text-emerald-500" />
+                <p className="text-sm font-medium">Candidate rejected</p>
+                <p className="text-xs text-muted-foreground">A personalised rejection email has been sent to {cand.email}.</p>
+                <button
+                  type="button"
+                  onClick={() => setShowRejectModal(false)}
+                  className="mt-2 rounded-md border border-border px-4 py-1.5 text-xs font-medium hover:bg-muted transition"
+                >
+                  Close
+                </button>
+              </div>
+            ) : (
+              /* Form state */
+              <div className="px-5 py-4 space-y-4">
+                <div>
+                  <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+                    Reason for rejection
+                  </label>
+                  <textarea
+                    value={rejectReason}
+                    onChange={(e) => setRejectReason(e.target.value)}
+                    rows={4}
+                    placeholder="e.g. Compensation expectations don't align, overqualified for the role, location mismatch…"
+                    className="mt-2 w-full resize-none rounded-lg border border-border bg-background px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary/40 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  />
+                  <p className="mt-1.5 text-[10px] text-muted-foreground/70">
+                    This reason is used by the AI to personalise the rejection email. The candidate will not see this text verbatim.
+                  </p>
+                </div>
+
+                {rejectError && (
+                  <p className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-600">{rejectError}</p>
+                )}
+
+                <div className="flex items-center justify-end gap-2 border-t border-border pt-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowRejectModal(false)}
+                    className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={rejectLoading || !rejectReason.trim()}
+                    onClick={async () => {
+                      setRejectLoading(true);
+                      setRejectError(null);
+                      try {
+                        await api.post(`/dashboard/v1/candidates/${id}/reject`, {
+                          category: "hr_reject",
+                          reason_template: rejectReason.trim(),
+                        });
+                        setRejectDone(true);
+                        await mutate();
+                      } catch (e: any) {
+                        setRejectError(e?.message ?? "Rejection failed. Please try again.");
+                      } finally {
+                        setRejectLoading(false);
+                      }
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50 transition"
+                  >
+                    {rejectLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <XCircle className="h-3.5 w-3.5" />}
+                    Reject &amp; send email
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

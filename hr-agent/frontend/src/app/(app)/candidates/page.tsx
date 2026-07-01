@@ -6,7 +6,6 @@ import useSWR from "swr";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Search,
-  RefreshCw,
   GitCompare,
   X,
   Check,
@@ -29,8 +28,6 @@ import { Pagination } from "@/components/pagination";
 import { Avatar } from "@/components/ui/avatar";
 import { QuickViewPanel } from "@/components/candidates/quick-view-panel";
 import { CandidateContextMenu } from "@/components/candidates/candidate-context-menu";
-import { CsvExportButton } from "@/components/candidates/csv-export";
-import { ExportMenu } from "@/components/export-menu";
 
 interface Candidate {
   application_id: string;
@@ -107,7 +104,7 @@ export default function CandidatesPage() {
   query.set("limit", String(limit));
   query.set("offset", String(offset));
 
-  const { data: page, isLoading, isValidating, mutate } = useSWR<CandidatePage>(
+  const { data: page, isLoading, mutate } = useSWR<CandidatePage>(
     `/dashboard/v1/candidates?${query.toString()}`,
     swrFetcher,
     { refreshInterval: 15000, keepPreviousData: true },
@@ -120,13 +117,6 @@ export default function CandidatesPage() {
     return items.filter((c) => (c.current_stage_key || c.current_stage) === stage);
   }, [page?.items, stage]);
   const total = page?.total ?? 0;
-  const [refreshing, setRefreshing] = useState(false);
-  const refreshingNow = refreshing || isValidating;
-  async function handleRefresh() {
-    setRefreshing(true);
-    try { await mutate(); } finally { setRefreshing(false); }
-  }
-
   const visibleIds = useMemo(
     () => (data ?? []).map((c) => c.application_id),
     [data],
@@ -213,29 +203,6 @@ export default function CandidatesPage() {
                   <Users className="h-3.5 w-3.5" />
                   {total} candidates
                 </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <CsvExportButton data={data ?? []} />
-                <ExportMenu
-                  options={[
-                    {
-                      label: "All candidates (CSV)",
-                      path: `/export/candidates?format=csv&since_days=90${stage !== "all" ? `&status=${stage}` : ""}`,
-                      filename: "candidates-export.csv",
-                      icon: "spreadsheet",
-                    },
-                    {
-                      label: "Pipeline summary (CSV)",
-                      path: "/export/pipeline-summary",
-                      filename: "pipeline-summary.csv",
-                      icon: "spreadsheet",
-                    },
-                  ]}
-                />
-                <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshingNow}>
-                  <RefreshCw className={cn("mr-1.5 h-3.5 w-3.5", refreshingNow && "animate-spin")} />
-                  {refreshingNow ? "Refreshing" : "Refresh"}
-                </Button>
               </div>
             </div>
 
