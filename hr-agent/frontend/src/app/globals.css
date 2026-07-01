@@ -135,6 +135,9 @@
   }
   .scrollbar-slim { scrollbar-width: thin; }
 
+  .scrollbar-none::-webkit-scrollbar { display: none; }
+  .scrollbar-none { scrollbar-width: none; }
+
   /* Headings: Nunito Sans tightened. GrabOn brand uses one family across
      display + body, so we tighten letter-spacing for hierarchy instead. */
   h1, h2, h3, h4, h5, h6 {

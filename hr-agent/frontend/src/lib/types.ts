@@ -199,6 +199,8 @@ export interface Role {
   assignment_deadline_days: number;
   assignment_problem_doc_filename?: string | null;
   has_problem_doc?: boolean;
+  pi_cognitive_link?: string | null;
+  pi_personality_link?: string | null;
   pipeline_template: string[] | null;
   /** Real pipeline source of truth (role_pipeline_stages), ordered by position. */
   pipeline?: RolePipelineStageEntry[];
@@ -246,6 +248,7 @@ export interface UiSettings {
   data_retention_days_talent_pool: number;
   dpo_contact_email: string;
   auto_approve_green_tier: boolean;
+  pi_tests_enabled: boolean;
   enable_whatsapp: boolean;
   enable_sms_reminders: boolean;
   channel_configured: Record<string, boolean>;
