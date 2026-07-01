@@ -10,6 +10,27 @@ import type { StageViewEntry } from "@/lib/types";
 
 type Stage = string;
 
+/**
+ * Where the review panel is being rendered. Overview ("any") is the universal
+ * action surface and shows whatever review is pending; each stage tab passes
+ * its own surface so it only renders the review that belongs to that stage.
+ */
+export type ReviewSurface = "any" | "overview" | "fit" | "voice" | "assessment" | "interview";
+
+function stageTypeToSurface(stageType: string | undefined): ReviewSurface {
+  switch (stageType) {
+    case "voice_screen":
+      return "voice";
+    case "assignment":
+      return "assessment";
+    case "fit":
+      return "fit";
+    default:
+      // fit/screening-style stages have no dedicated tab → Overview only.
+      return "overview";
+  }
+}
+
 interface ScoreRationale {
   overall?: string;
   technical?: string;
@@ -49,15 +70,22 @@ interface Props {
     hr?: MeetingReport | null;
   };
   adminReview?: Record<string, RoundReview> | null;
+  /** Which surface this instance is rendered on. Defaults to "any" (Overview). */
+  surface?: ReviewSurface;
   onChanged: () => void;
 }
 
-export function AdminReviewPanel({ applicationId, currentStage, stageStatus, stageView, meetingReports, adminReview, onChanged }: Props) {
+export function AdminReviewPanel({ applicationId, currentStage, stageStatus, stageView, meetingReports, adminReview, surface = "any", onChanged }: Props) {
   const [busy, setBusy] = useState(false);
   const [notes, setNotes] = useState("");
   const [piLink, setPiLink] = useState("");
   const [piPersona, setPiPersona] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
+
+  // Overview ("any") renders whatever review is pending; a stage tab only renders
+  // the review that belongs to it, so the same panel can live in both places
+  // without a borderline-fit form leaking onto, say, the Voice tab.
+  const matches = (target: ReviewSurface) => surface === "any" || surface === target;
 
   // If a decision was already recorded for the matching round, suppress the
   // panel even if the stage somehow regressed -- prevents double-decision.
@@ -65,7 +93,7 @@ export function AdminReviewPanel({ applicationId, currentStage, stageStatus, sta
   // ceo's human-facing name is the Management Round (stage_key stays "ceo").
   const roundDisplay = (r: string) =>
     r === "ceo" ? "Management" : r[0].toUpperCase() + r.slice(1);
-  if (stageRound && adminReview?.[stageRound]?.decision) {
+  if (stageRound && adminReview?.[stageRound]?.decision && matches(stageRound === "assessment" ? "assessment" : "interview")) {
     return (
       <div className="rounded-xl border border-border bg-muted/40 p-4 text-sm">
         <div className="font-semibold">{roundDisplay(stageRound)} round decided</div>
@@ -81,7 +109,7 @@ export function AdminReviewPanel({ applicationId, currentStage, stageStatus, sta
   // interview) can land in `needs_review`, which PARKS the candidate and records
   // verdict="needs_review" on that stage. HR confirms pass (advance) or reject.
   const reviewStage = (stageView ?? []).find((s) => s.verdict === "needs_review");
-  if (reviewStage && stageStatus === "parked") {
+  if (reviewStage && stageStatus === "parked" && matches(stageTypeToSurface(reviewStage.stage_type))) {
     return (
       <Panel title={`${reviewStage.label || reviewStage.stage_key} — borderline, needs review`}>
         <p className="text-sm text-muted-foreground">
@@ -115,7 +143,7 @@ export function AdminReviewPanel({ applicationId, currentStage, stageStatus, sta
     );
   }
 
-  if (currentStage === "needs_hr_review") {
+  if (currentStage === "needs_hr_review" && matches("voice")) {
     return (
       <Panel title="Voice screen — HR review needed">
         <p className="text-sm text-muted-foreground">
@@ -145,7 +173,7 @@ export function AdminReviewPanel({ applicationId, currentStage, stageStatus, sta
     );
   }
 
-  if (currentStage === "assessment_pending_review" || currentStage === "assessment_completed") {
+  if ((currentStage === "assessment_pending_review" || currentStage === "assessment_completed") && matches("assessment")) {
     return (
       <Panel title="Assessment review needed">
         <p className="text-sm text-muted-foreground">
@@ -200,7 +228,7 @@ export function AdminReviewPanel({ applicationId, currentStage, stageStatus, sta
     );
   }
 
-  if (currentStage === "technical_pending_approval" || currentStage === "technical_evaluated") {
+  if ((currentStage === "technical_pending_approval" || currentStage === "technical_evaluated") && matches("interview")) {
     return (
       <Panel title="Technical round complete — needs approval">
         <MeetingReportCard report={meetingReports?.technical} />
@@ -228,7 +256,7 @@ export function AdminReviewPanel({ applicationId, currentStage, stageStatus, sta
     );
   }
 
-  if (currentStage === "ceo_pending_approval") {
+  if (currentStage === "ceo_pending_approval" && matches("interview")) {
     return (
       <Panel title="Management round complete — needs approval">
         <MeetingReportCard report={meetingReports?.ceo} />
@@ -256,7 +284,7 @@ export function AdminReviewPanel({ applicationId, currentStage, stageStatus, sta
     );
   }
 
-  if (currentStage === "hr_evaluated" || currentStage === "hr_meeting_completed") {
+  if ((currentStage === "hr_evaluated" || currentStage === "hr_meeting_completed") && matches("interview")) {
     return (
       <Panel title="HR discussion complete — finalize">
         <MeetingReportCard report={meetingReports?.hr} />

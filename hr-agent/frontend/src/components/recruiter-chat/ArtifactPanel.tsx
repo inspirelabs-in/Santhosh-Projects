@@ -6,8 +6,9 @@ import {
   ChevronDown,
   ChevronUp,
   FileText,
-  GripVertical,
   Loader2,
+  Maximize2,
+  Minimize2,
   Plus,
   Trash2,
   X,
@@ -93,6 +94,10 @@ const STAGE_TYPE_LABELS: Record<string, string> = {
 const linesToArr = (s: string): string[] => s.split("\n");
 const arrToLines = (a?: string[]): string => (a || []).join("\n");
 
+/** Docked (collapsed) width of the panel, in px. The chat surface reserves this
+ *  much right-padding so the docked panel never covers the conversation. */
+export const ARTIFACT_PANEL_WIDTH = 460;
+
 /* ------------------------------------------------------------------ */
 /* Collapsible section — divider + heading, no box wrapping            */
 /* ------------------------------------------------------------------ */
@@ -146,11 +151,15 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
 /* ------------------------------------------------------------------ */
 export function ArtifactPanel({
   artifact,
+  expanded,
+  onToggleExpand,
   onClose,
   onSave,
   onApply,
 }: {
   artifact: ArtifactData;
+  expanded: boolean;
+  onToggleExpand: () => void;
   onClose: () => void;
   onSave: (content: Record<string, unknown>) => Promise<void>;
   onApply: () => Promise<{ ok: boolean; role_url?: string; status?: string } | null>;
@@ -161,10 +170,17 @@ export function ArtifactPanel({
   const [applying, setApplying] = useState(false);
   const [applyStatus, setApplyStatus] = useState<string | null>(null);
 
-  // Resize state
-  const panelRef = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(520);
-  const [resizing, setResizing] = useState(false);
+  // Enter/exit slide animation. `shown` flips to true one frame after mount so
+  // the panel slides in from the right; closing reverses it before unmount.
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    const r = requestAnimationFrame(() => setShown(true));
+    return () => cancelAnimationFrame(r);
+  }, []);
+  const handleClose = useCallback(() => {
+    setShown(false);
+    window.setTimeout(onClose, 260);
+  }, [onClose]);
 
   useEffect(() => {
     setDraft((artifact.content as Draft) || {});
@@ -300,46 +316,17 @@ export function ArtifactPanel({
         s.is_enabled !== false,
     );
 
-  /* -- Drag-to-resize -- */
-  const onMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      setResizing(true);
-      const startX = e.clientX;
-      const startW = width;
-      const onMove = (ev: MouseEvent) => {
-        setWidth(Math.max(400, Math.min(900, startW + startX - ev.clientX)));
-      };
-      const onUp = () => {
-        setResizing(false);
-        document.removeEventListener("mousemove", onMove);
-        document.removeEventListener("mouseup", onUp);
-      };
-      document.addEventListener("mousemove", onMove);
-      document.addEventListener("mouseup", onUp);
-    },
-    [width],
-  );
-
   return (
     <aside
-      ref={panelRef}
-      className="relative flex h-full shrink-0 flex-col border-l border-border/50 bg-card"
-      style={{ width }}
+      className={cn(
+        "absolute right-0 top-0 bottom-0 z-30 flex flex-col border-l border-border/60 bg-card shadow-2xl",
+        "transition-[transform,width,opacity] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] will-change-transform",
+        shown ? "translate-x-0 opacity-100" : "translate-x-full opacity-0",
+      )}
+      style={{ width: expanded ? "100%" : ARTIFACT_PANEL_WIDTH }}
     >
-      {/* Resize handle */}
-      <div
-        onMouseDown={onMouseDown}
-        className={cn(
-          "group/handle absolute left-0 top-0 z-10 flex h-full w-1.5 cursor-col-resize items-center justify-center hover:bg-primary/20",
-          resizing && "bg-primary/30",
-        )}
-      >
-        <GripVertical className="h-4 w-4 text-muted-foreground/40 opacity-0 group-hover/handle:opacity-100" />
-      </div>
-
-      {/* Header */}
-      <header className="flex shrink-0 items-center justify-between border-b border-border/50 px-5 py-3">
+      {/* Header / action bar */}
+      <header className="flex shrink-0 items-center justify-between border-b border-border/50 bg-muted/30 px-5 py-3">
         <div className="flex items-center gap-2.5">
           <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10">
             <FileText className="h-3.5 w-3.5 text-primary" />
@@ -351,13 +338,32 @@ export function ArtifactPanel({
             </p>
           </div>
         </div>
-        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose} aria-label="Close panel">
-          <X className="h-3.5 w-3.5" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={onToggleExpand}
+            title={expanded ? "Collapse to sidebar" : "Expand to full width"}
+            aria-label={expanded ? "Collapse panel" : "Expand panel"}
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition duration-150 hover:bg-muted hover:text-foreground hover:scale-105 active:scale-95"
+          >
+            {expanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+          </button>
+          <button
+            type="button"
+            onClick={handleClose}
+            aria-label="Close panel"
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition duration-150 hover:bg-muted hover:text-foreground hover:scale-105 active:scale-95"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </header>
 
       {/* Scrollable body */}
-      <div className="flex-1 overflow-y-auto px-5 py-2">
+      <div className={cn("flex-1 overflow-y-auto py-2", expanded ? "px-8" : "px-5")}>
+        {/* In expanded mode, constrain content to a readable column so wide
+            textareas don't stretch edge-to-edge. */}
+        <div className={cn(expanded && "mx-auto max-w-3xl")}>
 
         {/* ====== BASICS ====== */}
         <Section title="Basics" defaultOpen={true}>
@@ -807,38 +813,41 @@ export function ArtifactPanel({
             placeholder="Internal notes about this role..."
           />
         </Section>
+        </div>
       </div>
 
-      {/* Footer */}
-      <footer className="flex shrink-0 items-center justify-between gap-2 border-t border-border/50 px-5 py-3">
-        <span className="font-mono text-[10px] text-muted-foreground">
-          {dirty ? "Unsaved changes" : applied ? "Applied" : "Saved"}
-        </span>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleSave}
-            disabled={!dirty || saving}
-          >
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
-          </Button>
-          <Button
-            size="sm"
-            onClick={handleApply}
-            disabled={applying || applied}
-            className="bg-primary text-primary-foreground hover:bg-primary/90"
-          >
-            {applying ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : applied ? (
-              <>
-                <Check className="h-4 w-4" /> Applied
-              </>
-            ) : (
-              "Apply"
-            )}
-          </Button>
+      {/* Footer — sticky action bar */}
+      <footer className={cn("shrink-0 border-t border-border/50 bg-muted/30 py-3", expanded ? "px-8" : "px-5")}>
+        <div className={cn("flex items-center justify-between gap-2", expanded && "mx-auto max-w-3xl")}>
+          <span className="font-mono text-[10px] text-muted-foreground">
+            {dirty ? "Unsaved changes" : applied ? "Applied" : "Saved"}
+          </span>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSave}
+              disabled={!dirty || saving}
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleApply}
+              disabled={applying || applied}
+              className="bg-primary text-primary-foreground hover:bg-primary/90"
+            >
+              {applying ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : applied ? (
+                <>
+                  <Check className="h-4 w-4" /> Applied
+                </>
+              ) : (
+                "Apply"
+              )}
+            </Button>
+          </div>
         </div>
       </footer>
     </aside>
