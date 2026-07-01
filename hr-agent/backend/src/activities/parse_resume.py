@@ -282,6 +282,7 @@ async def run_parse_resume(payload: ParseResumeInput) -> ParseResumeResult:
                 embed_resp = await litellm.aembedding(
                     model=_settings.embedding_model or "text-embedding-3-large",
                     input=[embed_text[:8000]],
+                    dimensions=256,
                 )
                 embedding = embed_resp.data[0]["embedding"]
         except Exception:

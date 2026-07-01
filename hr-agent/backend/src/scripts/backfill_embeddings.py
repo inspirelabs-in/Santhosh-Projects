@@ -82,7 +82,7 @@ async def backfill(batch_size: int = 50, dry_run: bool = False) -> int:
                 break
 
             try:
-                resp = await litellm.aembedding(model=model, input=texts)
+                resp = await litellm.aembedding(model=model, input=texts, dimensions=256)
                 for i, item in enumerate(resp.data):
                     embedding = item["embedding"]
                     row = next(r for r in rows if r.id == row_ids[i])

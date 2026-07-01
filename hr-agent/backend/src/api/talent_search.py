@@ -1,6 +1,6 @@
 """Semantic talent pool search powered by pgvector embeddings.
 
-Leverages the existing candidate_profiles.embedding column (1536-dim,
+Leverages the existing candidate_profiles.embedding column (256-dim,
 IVFFlat-indexed) to find similar candidates by natural language query
 or by reference to an existing candidate profile.
 
@@ -87,6 +87,7 @@ async def _embed_text(text_input: str) -> list[float]:
         response = await litellm.aembedding(
             model=_settings.embedding_model or "text-embedding-3-large",
             input=[text_input],
+            dimensions=256,
         )
         return response.data[0]["embedding"]
     except Exception as e:

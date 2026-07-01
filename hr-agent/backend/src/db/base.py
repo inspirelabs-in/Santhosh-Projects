@@ -105,6 +105,9 @@ class Role(Base):
     assignment_deadline_days: Mapped[int] = mapped_column(Integer, default=7, server_default="7")
     assignment_problem_doc_key: Mapped[str | None] = mapped_column(String(500))
     assignment_problem_filename: Mapped[str | None] = mapped_column(String(255))
+    # PI assessment links — optional per-role; only injected into assignment email when pi_tests_enabled flag is on
+    pi_cognitive_link: Mapped[str | None] = mapped_column(Text)
+    pi_personality_link: Mapped[str | None] = mapped_column(Text)
     # Screening modality: voice is the only supported channel.
     screening_modality: Mapped[str] = mapped_column(
         String(16), default="voice", server_default="voice", index=True
@@ -189,7 +192,7 @@ class CandidateProfileRow(Base):
     raw_resume_r2_key: Mapped[str | None] = mapped_column(String(500))
     parsed_data: Mapped[dict] = mapped_column(JSONB, nullable=False)
     extraction_confidence: Mapped[dict | None] = mapped_column(JSONB)
-    embedding: Mapped[list[float] | None] = mapped_column(Vector(1536))
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(256))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     candidate: Mapped[Candidate] = relationship(back_populates="profiles")
