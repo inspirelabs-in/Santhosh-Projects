@@ -1024,6 +1024,15 @@ FIELDS: list[ConfigField] = [
         default=False,
     ),
     ConfigField(
+        key="PI_TESTS_ENABLED",
+        settings_attr="pi_tests_enabled",
+        group="Feature Flags",
+        label="Enable PI assessments",
+        help="When on, PI cognitive and personality test links set per-role are included in assignment emails.",
+        type="bool",
+        default=False,
+    ),
+    ConfigField(
         key="ENABLE_CEO_DASHBOARD",
         settings_attr="enable_ceo_dashboard",
         group="Feature Flags",

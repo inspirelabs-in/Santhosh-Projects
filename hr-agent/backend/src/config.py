@@ -298,6 +298,7 @@ class Settings(BaseSettings):
     enable_assessment_round: bool = False
     enable_meeting_analysis: bool = False
     enable_ceo_dashboard: bool = False
+    pi_tests_enabled: bool = False  # When True, assignment emails include PI cognitive + personality test links if set on the role
 
     # Evidence & provenance layer (Phase 1). When enabled, pipeline activities
     # write EvidenceRecord + DecisionRecord rows alongside audit_log entries.
