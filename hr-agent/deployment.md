@@ -89,7 +89,7 @@ hr-agent/
 
    ```
    DATABASE_URL=postgresql+asyncpg://user:pass@ep-xxx.us-east-2.aws.neon.tech/hiring-agent?sslmode=require
-   DATABASE_URL_SYNC=postgresql://user:pass@ep-xxx.us-east-2.aws.neon.tech/hiring-agent?sslmode=require
+   DATABASE_URL_SYNC=postgresql+psycopg://user:pass@ep-xxx.us-east-2.aws.neon.tech/hiring-agent?sslmode=require
    ```
 
    Note: `DATABASE_URL` uses `asyncpg` driver (for FastAPI).
@@ -198,7 +198,7 @@ If you don't have a registry, Render can build from your git repo directly
 
    ```
    DATABASE_URL=postgresql+asyncpg://...
-   DATABASE_URL_SYNC=postgresql://...
+   DATABASE_URL_SYNC=postgresql+psycopg://...
    REDIS_URL=rediss://...
    R2_ACCESS_KEY_ID=...
    R2_SECRET_ACCESS_KEY=...
@@ -387,7 +387,7 @@ is not set, the default is used.
 | Env var | Config field | Example | Source |
 |---------|-------------|---------|--------|
 | `DATABASE_URL` | `database_url` | `postgresql+asyncpg://user:pass@ep-xxx.neon.tech/db` | Neon dashboard |
-| `DATABASE_URL_SYNC` | `database_url_sync` | `postgresql://user:pass@ep-xxx.neon.tech/db` | Same, sync driver |
+| `DATABASE_URL_SYNC` | `database_url_sync` | `postgresql+psycopg://user:pass@ep-xxx.neon.tech/db` | Same, sync driver |
 | `REDIS_URL` | `redis_url` | `rediss://default:pass@us1-xxx.upstash.io:6379` | Upstash dashboard |
 | `R2_ACCESS_KEY_ID` | `r2_access_key_id` | `<40-char string>` | Backblaze B2 App Key ID |
 | `R2_SECRET_ACCESS_KEY` | `r2_secret_access_key` | `<40-char string>` | Backblaze B2 Application Key |
