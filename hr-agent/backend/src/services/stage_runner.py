@@ -42,9 +42,23 @@ from uuid import UUID
 from src.db.base import Application, Role
 from src.db.connection import session_scope
 from src.db.repositories import v1_application as app_repo
+from src.models.candidate import ApplicationStatus
 from src.models.pipeline import StageVerdict
 
 logger = logging.getLogger(__name__)
+
+# Terminal states — a finished candidate must never be advanced, parked, or
+# re-notified. The reject/withdraw action owns the transition INTO these states
+# (via _auto_reject_with_email); this guard just stops any later event
+# (e.g. a re-delivered meeting-analysis webhook) from resurrecting them.
+# "hired" has no ApplicationStatus member — it lives only as a cursor sentinel.
+_TERMINAL_STATUSES = frozenset({ApplicationStatus.REJECTED, ApplicationStatus.WITHDRAWN})
+_TERMINAL_CURSORS = frozenset({"rejected", "hired"})
+
+
+def _is_terminal(app: Application) -> bool:
+    """True when the application is already rejected/withdrawn/hired."""
+    return app.status in _TERMINAL_STATUSES or (app.current_stage_key or "") in _TERMINAL_CURSORS
 
 
 async def _get_stage_threshold(application_id: UUID, stage_key: str) -> int | None:
@@ -177,6 +191,19 @@ async def advance_candidate(
     Returns a short decision string (mirrors auto_progress): "advanced:<...>",
     "rejected:<stage>", "held:<stage>", "skipped:<reason>".
     """
+    # Terminal guard: never advance/park a finished candidate. A late event
+    # (re-delivered webhook, retry) must not resurrect a rejected/hired app.
+    async with session_scope() as session:
+        app = await session.get(Application, application_id)
+        if app is None:
+            return "skipped:missing"
+        if _is_terminal(app):
+            logger.info(
+                "advance_candidate skipped: %s already terminal (status=%s cursor=%s)",
+                application_id, app.status, app.current_stage_key,
+            )
+            return f"skipped:terminal:{app.current_stage_key or app.status}"
+
     # If a raw 0-100 score is supplied, the shared router decides the verdict
     # (pass/needs_review/reject) -- one consistent rule for every stage. The
     # prompt never sees the threshold; routing lives here.
@@ -379,6 +406,16 @@ async def _park_for_review(
     async with session_scope() as session:
         app = await session.get(Application, application_id, with_for_update=True)
         if app is None:
+            return
+        # Atomic terminal guard under the row lock: if the candidate was rejected
+        # (or hired) between the caller's read and this write, do NOT re-park or
+        # re-emit needs_review events. This is the race-proof stop for the
+        # "rejected candidate keeps bouncing back to needs_hr_review" bug.
+        if _is_terminal(app):
+            logger.info(
+                "_park_for_review skipped: %s already terminal (status=%s cursor=%s)",
+                application_id, app.status, app.current_stage_key,
+            )
             return
         if completed_stage_key:
             app.current_stage_key = completed_stage_key

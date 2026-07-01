@@ -48,7 +48,7 @@ class StageAction(StrEnum):
     """What the engine decided to do next. The IO layer (auto_progress) maps each
     to a concrete dispatch or a park-and-notify."""
 
-    FIRE_SCREENING = "fire_screening"
+    # FIRE_SCREENING = "fire_screening"  # DEPRECATED: StageType.SCREENING removed; voice screen is the mandated screen.
     FIRE_VOICE_SCREEN = "fire_voice_screen"
     FIRE_ASSIGNMENT = "fire_assignment"
     FIRE_OFFER = "fire_offer"
@@ -62,7 +62,7 @@ class StageAction(StrEnum):
 
 # Stage types the engine can execute itself, mapped to their fire action.
 _FIRE_ACTIONS: dict[str, StageAction] = {
-    StageType.SCREENING.value: StageAction.FIRE_SCREENING,
+    # StageType.SCREENING removed — written screening deprecated; legacy rows hit the unknown-type → skip fallthrough.
     StageType.VOICE_SCREEN.value: StageAction.FIRE_VOICE_SCREEN,
     StageType.ASSIGNMENT.value: StageAction.FIRE_ASSIGNMENT,
     StageType.OFFER.value: StageAction.FIRE_OFFER,

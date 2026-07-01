@@ -174,7 +174,6 @@ async def _execute_plan(application_id: UUID, plan: Plan, *, role_id: UUID) -> s
     if plan.action in (
         StageAction.FIRE_VOICE_SCREEN,
         StageAction.FIRE_ASSIGNMENT,
-        StageAction.FIRE_SCREENING,
         StageAction.FIRE_OFFER,
     ):
         async with session_scope() as session:
@@ -187,8 +186,6 @@ async def _execute_plan(application_id: UUID, plan: Plan, *, role_id: UUID) -> s
         return await _fire_voice_screen(application_id)
     if plan.action == StageAction.FIRE_ASSIGNMENT:
         return await _fire_assessment(application_id)
-    if plan.action == StageAction.FIRE_SCREENING:
-        return await _fire_screening(application_id)
     if plan.action == StageAction.FIRE_OFFER:
         return await _fire_offer(application_id)
 
