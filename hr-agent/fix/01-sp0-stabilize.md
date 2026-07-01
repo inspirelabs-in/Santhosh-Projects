@@ -1,7 +1,5 @@
 # SP0 — Stabilize (crashes + auto-lane trust)
 
-> **STATUS (2026-06-22): BACKEND DONE.** CRASH-1/2/3/4 fixed; P-2 (voice rejection email), P-3 (offer->HIRED) done; supervisor retired ([SCRAPE]). Only **P-1** (stage-set-before-side-effect, 3 dispatchers) remains -- and it becomes structural once the generic stage-runner lands (see `10-generic-stage-runner.md`).
-
 > **Goal:** stop the bleeding on the *current* schema, before any rebuild.
 > Two buckets: (A) confirmed crashes that throw in production, and (B) the
 > "auto-lane trust" fixes — because in the new design everything up to assessment

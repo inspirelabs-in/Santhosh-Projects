@@ -1,7 +1,5 @@
 # Pulse Agent — context, memory, and the framework question
 
-> **STATUS (2026-06-22): DEFERRED.** Pulse agent work is post-backend.
-
 > The recruiter chat ("Pulse") is the **only** live agent in the product. This doc
 > captures: (1) what it actually does today, (2) the industry-standard way to
 > handle context/memory, (3) a drop-in replacement for the crude part, and (4) the

@@ -1,7 +1,5 @@
 # SP2 — Data Foundation (the keystone)
 
-> **STATUS (2026-06-22): BACKEND FOUNDATION DONE.** org schema + `org_id` keys, `role_pipeline_stages` (template), the single writer `set_stage()` (dual-writes `current_stage_key`/`stage_status`), durable `domain_events` backbone, and the expand migrations all shipped. The **progression flip** (make `role_pipeline_stages` the runtime source of truth) is the remaining piece -- specced in `10-generic-stage-runner.md`.
-
 > The aggressive schema rebuild. Three things, one migration:
 > **(1)** an org-scoped, normalized core; **(2)** one canonical state machine
 > driven by **per-role pipeline templates**; **(3)** the durable **event → derived

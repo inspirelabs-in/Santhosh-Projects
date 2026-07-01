@@ -1,18 +1,5 @@
 # HR Agent — Revamp Plan (`/fix`)
 
-> **STATUS (2026-06-22): most of the backend spine is SHIPPED.** SP0 (crashes +
-> auto-lane trust), SP2 foundation (org schema, `role_pipeline_stages`, single
-> stage writer, durable `domain_events`), EVAL (persona + per-role generated
-> evaluation specs + rubric-driven scoring), and 09 Stage 1 (dual-write, events,
-> local-prompt scoring, `[SCRAPE]` marks) are done. Also done this round: voice
-> webhook idempotency (V-C1/2/3, V-M5), inbound-email funnel + threading (NB-12),
-> approval-gate backdoor killed (NB-1/2). **The one remaining backbone piece is
-> the generic stage-runner (09 Stage 2): make `role_pipeline_stages` the runtime
-> source of truth so ANY configured pipeline runs generically. Full spec:
-> [`10-generic-stage-runner.md`](10-generic-stage-runner.md).** Frontend (SP3/SP4)
-> + auth (SP1) remain deferred per owner. See per-doc STATUS banners + the
-> `architecture.md` Progress Tracker for the granular list.
-
 > Architecture + implementation plan for turning the current vibecoded HR Agent
 > into a coherent, experience-first hiring platform.
 > Authored from the forensic audit in `architecture.md`, the schema in `data.md`,

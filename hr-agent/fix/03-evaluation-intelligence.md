@@ -1,7 +1,5 @@
 # EVAL — Evaluation Intelligence (persona → generated role specs → rubric-driven scoring)
 
-> **STATUS (2026-06-22): BACKEND DONE.** Company persona + per-role `evaluation_spec`/`company_context` generated at JD time; every scoring prompt (fit/screening/voice/assignment/meeting) reads the role spec via `scoring_context.scoring_prompt_vars()`. Hardcoded GrabOn weights removed.
-
 > **The core issue:** scoring criteria are static and wrong-by-default. Judging a
 > **coupon editor** on "builder > spectator mindset" is a category error — that
 > mindset doesn't belong to that role. Dimensions, weights, and "what to look
