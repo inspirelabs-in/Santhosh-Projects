@@ -93,6 +93,9 @@ async def send_assignment_email(
                 role_id,
             )
 
+        pi_cognitive_link = role.pi_cognitive_link if _settings.pi_tests_enabled else None
+        pi_personality_link = role.pi_personality_link if _settings.pi_tests_enabled else None
+
         result = await send_email(
             to=candidate.email,
             template="assignment_invite",
@@ -106,6 +109,8 @@ async def send_assignment_email(
                 "upload_url": upload_url,
                 "problem_doc_filename": attached_filename,
                 "application_id": str(application_id),
+                "pi_cognitive_link": pi_cognitive_link,
+                "pi_personality_link": pi_personality_link,
             },
             tags={"type": "assignment_invite", "application_id": str(application_id)},
             attachments=attachments,

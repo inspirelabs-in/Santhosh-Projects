@@ -59,6 +59,18 @@ async def analyze_meeting(*, meeting_session_id: UUID) -> MeetingAnalysis:
         if not meeting.transcript_r2_key:
             raise ValueError("transcript not yet stored")
 
+        # Idempotency guard: the Recall.ai bot webhook can fire this more than
+        # once (provider retries, separate recording/transcript-ready events).
+        # If this session was already analyzed, return the stored result WITHOUT
+        # re-running the LLM or re-driving the stage — re-driving is what
+        # repeatedly bounced already-rejected candidates back to needs_hr_review.
+        if meeting.report:
+            logger.info(
+                "meeting %s already analyzed; returning stored analysis (idempotent skip)",
+                meeting_session_id,
+            )
+            return MeetingAnalysis.model_validate(meeting.report)
+
         application = await session.get(Application, meeting.application_id)
         if application is None:
             raise ValueError("application missing")

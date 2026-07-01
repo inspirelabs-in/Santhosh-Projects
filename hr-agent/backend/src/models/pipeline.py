@@ -28,7 +28,7 @@ class StageType(StrEnum):
     PARSE = "parse"
     EMAIL_FILTER = "email_filter"  # deterministic inbound-mail funnel as a real stage
     FIT = "fit"
-    SCREENING = "screening"  # resume / written screening — removable per role
+    # SCREENING = "screening"  # DEPRECATED: written/text screening removed; voice screen is the mandated screen. Kept as a comment so legacy rows still resolve via the unknown-type → skip fallthrough in plan_transition.
     VOICE_SCREEN = "voice_screen"
     ASSIGNMENT = "assignment"
     # ASSESSMENT_REVIEW = "assessment_review"  # DEPRECATED: folded into the assignment stage (which now parks for review on submit). Kept so legacy pipelines/rows still resolve; no longer seeded into new roles.
