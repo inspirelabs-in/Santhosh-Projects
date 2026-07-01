@@ -4,7 +4,6 @@ import useSWR from "swr";
 import { Topbar } from "@/components/layout/topbar";
 import { swrFetcher } from "@/lib/api";
 import { SkeletonLines } from "@/components/skeleton";
-import { ExportMenu } from "@/components/export-menu";
 import {
   BarChart,
   Bar,
@@ -12,8 +11,6 @@ import {
   YAxis,
   Tooltip,
   ResponsiveContainer,
-  PieChart,
-  Pie,
   Cell,
   AreaChart,
   Area,
@@ -29,20 +26,34 @@ interface Stats {
 }
 
 const STAGE_ORDER = [
-  "intake", "screening", "voice_screen",
-  "assignment", "tech_interview", "ceo_interview", "hr_review", "hired",
+  "intake",
+  "screening",
+  "voice_screen",
+  "assignment",
+  "tech_interview",
+  "ceo_interview",
+  "hr_review",
+  "hired",
+  "rejected",
 ];
 
-const COLORS = [
-  "hsl(85 100% 33%)",    // primary green
-  "hsl(208 86% 54%)",    // bright blue
-  "hsl(33 87% 59%)",     // warning
-  "hsl(64 73% 53%)",     // accent
-  "hsl(216 45% 45%)",    // blue dark
-  "hsl(0 78% 57%)",      // destructive
-  "hsl(218 25% 35%)",    // muted fg
-  "hsl(85 70% 50%)",     // light green
-];
+const STAGE_LABEL: Record<string, string> = {
+  intake:        "Intake",
+  screening:     "Screening",
+  voice_screen:  "Voice",
+  assignment:    "Assignment",
+  tech_interview:"Technical",
+  ceo_interview: "CEO",
+  hr_review:     "HR",
+  hired:         "Hired",
+  rejected:      "Rejected",
+};
+
+function barColor(stageKey: string): string {
+  if (stageKey === "rejected") return "hsl(0 78% 57%)";
+  if (stageKey === "hired")    return "hsl(85 100% 33%)";
+  return "hsl(208 86% 54%)";
+}
 
 export default function AnalyticsPage() {
   const { data, isLoading } = useSWR<Stats>(
@@ -51,22 +62,25 @@ export default function AnalyticsPage() {
     { refreshInterval: 30000 },
   );
 
-  const funnelData = STAGE_ORDER.map((s) => ({
-    stage: s.replace(/_/g, " "),
-    count: data?.stage_counts?.[s] ?? 0,
-  }));
-
-  const sourceData = Object.entries(data?.source_counts ?? {}).map(([name, value]) => ({
-    name,
-    value,
+  const funnelData = STAGE_ORDER.map((key) => ({
+    key,
+    stage: STAGE_LABEL[key] ?? key,
+    count: data?.stage_counts?.[key] ?? 0,
   }));
 
   const trendData = Object.entries(data?.recent_per_day ?? {})
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, count]) => ({
-      date: new Date(date).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", month: "short", day: "numeric" }),
+      date: new Date(date).toLocaleDateString("en-IN", {
+        timeZone: "Asia/Kolkata",
+        month: "short",
+        day: "numeric",
+      }),
       count,
     }));
+
+  const rejected = data?.stage_counts?.["rejected"] ?? 0;
+  const hired    = data?.stage_counts?.["hired"]    ?? 0;
 
   return (
     <>
@@ -81,50 +95,36 @@ export default function AnalyticsPage() {
             </div>
           ) : (
             <>
-              <div className="mb-4 flex justify-end">
-                <ExportMenu
-                  options={[
-                    {
-                      label: "Pipeline summary (CSV)",
-                      path: "/export/pipeline-summary",
-                      filename: "pipeline-summary.csv",
-                      icon: "spreadsheet",
-                    },
-                  ]}
-                />
-              </div>
               {/* KPI cards */}
-              <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-                <KpiCard label="Total candidates" value={data?.total_candidates ?? 0} />
-                <KpiCard label="Active roles" value={data?.active_roles ?? 0} />
-                <KpiCard label="Total roles" value={data?.total_roles ?? 0} />
-                <KpiCard
-                  label="Hired"
-                  value={data?.stage_counts?.["hired"] ?? 0}
-                  accent
-                />
+              <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
+                <KpiCard label="Total candidates" value={data.total_candidates} />
+                <KpiCard label="Active roles"     value={data.active_roles} />
+                <KpiCard label="Total roles"      value={data.total_roles} />
+                <KpiCard label="Hired"            value={hired}    accent="green" />
+                <KpiCard label="Rejected"         value={rejected} accent="red" />
               </div>
 
               {/* Pipeline funnel */}
-              <div className="mt-8 rounded-xl border border-border bg-card p-5 shadow-card">
-                <h2 className="text-base font-bold tracking-tight">Pipeline funnel</h2>
+              <div className="mt-6 rounded-xl border border-border bg-card p-5 shadow-card">
+                <h2 className="text-[15px] font-bold tracking-tight">Pipeline funnel</h2>
                 <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">
-                  Candidates at each stage
+                  Candidates at each stage — including rejections
                 </p>
-                <div className="mt-4 h-64" style={{ minHeight: 200, minWidth: 200 }}>
+                <div className="mt-5 h-64">
                   <ResponsiveContainer width="100%" height="100%" debounce={1}>
-                    <BarChart data={funnelData} margin={{ left: 0, right: 16 }}>
+                    <BarChart data={funnelData} margin={{ left: 0, right: 8, bottom: 0 }}>
                       <XAxis
                         dataKey="stage"
-                        tick={{ fontSize: 10, fill: "hsl(218 25% 35%)" }}
+                        tick={{ fontSize: 10, fill: "hsl(218 25% 45%)" }}
                         tickLine={false}
                         axisLine={false}
                       />
                       <YAxis
-                        tick={{ fontSize: 10, fill: "hsl(218 25% 35%)" }}
+                        tick={{ fontSize: 10, fill: "hsl(218 25% 45%)" }}
                         tickLine={false}
                         axisLine={false}
                         allowDecimals={false}
+                        width={28}
                       />
                       <Tooltip
                         contentStyle={{
@@ -132,77 +132,71 @@ export default function AnalyticsPage() {
                           border: "1px solid hsl(218 18% 88%)",
                           fontSize: 12,
                         }}
+                        cursor={{ fill: "hsl(218 18% 96%)" }}
                       />
-                      <Bar dataKey="count" fill="hsl(85 100% 33%)" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                        {funnelData.map((entry) => (
+                          <Cell key={entry.key} fill={barColor(entry.key)} />
+                        ))}
+                      </Bar>
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
+                <div className="mt-3 flex items-center gap-4 font-mono text-[10px] text-muted-foreground">
+                  <span className="flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full bg-blue-500" /> Active stages
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full bg-emerald-500" /> Hired
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full bg-destructive" /> Rejected
+                  </span>
+                </div>
               </div>
 
-              <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2">
-                {/* Source mix */}
-                {sourceData.length > 0 && (
-                  <div className="rounded-xl border border-border bg-card p-5 shadow-card">
-                    <h2 className="text-base font-bold tracking-tight">Source mix</h2>
-                    <div className="mt-4 h-52" style={{ minHeight: 180, minWidth: 200 }}>
-                      <ResponsiveContainer width="100%" height="100%" debounce={1}>
-                        <PieChart>
-                          <Pie
-                            data={sourceData}
-                            dataKey="value"
-                            nameKey="name"
-                            cx="50%"
-                            cy="50%"
-                            outerRadius={80}
-                            label={(props: any) =>
-                              `${props.name ?? ""} ${((props.percent ?? 0) * 100).toFixed(0)}%`
-                            }
-                            labelLine={false}
-                          >
-                            {sourceData.map((_, i) => (
-                              <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                            ))}
-                          </Pie>
-                          <Tooltip />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    </div>
+              {/* Daily applications trend */}
+              {trendData.length > 0 && (
+                <div className="mt-6 rounded-xl border border-border bg-card p-5 shadow-card">
+                  <h2 className="text-[15px] font-bold tracking-tight">Daily applications</h2>
+                  <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">
+                    New candidates per day
+                  </p>
+                  <div className="mt-5 h-52">
+                    <ResponsiveContainer width="100%" height="100%" debounce={1}>
+                      <AreaChart data={trendData}>
+                        <XAxis
+                          dataKey="date"
+                          tick={{ fontSize: 10, fill: "hsl(218 25% 45%)" }}
+                          tickLine={false}
+                          axisLine={false}
+                        />
+                        <YAxis
+                          tick={{ fontSize: 10, fill: "hsl(218 25% 45%)" }}
+                          tickLine={false}
+                          axisLine={false}
+                          allowDecimals={false}
+                          width={28}
+                        />
+                        <Tooltip
+                          contentStyle={{
+                            borderRadius: 8,
+                            border: "1px solid hsl(218 18% 88%)",
+                            fontSize: 12,
+                          }}
+                        />
+                        <Area
+                          type="monotone"
+                          dataKey="count"
+                          fill="hsl(208 86% 54% / 0.12)"
+                          stroke="hsl(208 86% 54%)"
+                          strokeWidth={2}
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
                   </div>
-                )}
-
-                {/* Daily trend */}
-                {trendData.length > 0 && (
-                  <div className="rounded-xl border border-border bg-card p-5 shadow-card">
-                    <h2 className="text-base font-bold tracking-tight">Daily applications</h2>
-                    <div className="mt-4 h-52" style={{ minHeight: 180, minWidth: 200 }}>
-                      <ResponsiveContainer width="100%" height="100%" debounce={1}>
-                        <AreaChart data={trendData}>
-                          <XAxis
-                            dataKey="date"
-                            tick={{ fontSize: 10, fill: "hsl(218 25% 35%)" }}
-                            tickLine={false}
-                            axisLine={false}
-                          />
-                          <YAxis
-                            tick={{ fontSize: 10, fill: "hsl(218 25% 35%)" }}
-                            tickLine={false}
-                            axisLine={false}
-                            allowDecimals={false}
-                          />
-                          <Tooltip />
-                          <Area
-                            type="monotone"
-                            dataKey="count"
-                            fill="hsl(208 86% 54% / 0.15)"
-                            stroke="hsl(208 86% 54%)"
-                            strokeWidth={2}
-                          />
-                        </AreaChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-                )}
-              </div>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -211,13 +205,26 @@ export default function AnalyticsPage() {
   );
 }
 
-function KpiCard({ label, value, accent }: { label: string; value: number; accent?: boolean }) {
+function KpiCard({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: number;
+  accent?: "green" | "red";
+}) {
+  const valClass =
+    accent === "green" ? "text-emerald-600" :
+    accent === "red"   ? "text-destructive"  :
+    "text-foreground";
+
   return (
-    <div className="card-lift rounded-xl border border-border bg-card p-4 shadow-card">
+    <div className="rounded-xl border border-border bg-card px-4 py-4 shadow-card">
       <div className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
         {label}
       </div>
-      <div className={`mt-1 font-data text-3xl font-bold tabular-nums ${accent ? "text-primary" : ""}`}>
+      <div className={`mt-1.5 font-data text-3xl font-bold tabular-nums leading-none ${valClass}`}>
         {value.toLocaleString()}
       </div>
     </div>
