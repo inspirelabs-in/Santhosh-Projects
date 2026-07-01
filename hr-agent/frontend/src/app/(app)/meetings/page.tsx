@@ -9,8 +9,6 @@ import {
   Plus,
   ArrowRight,
   Search,
-  RefreshCw,
-  Download,
   ChevronRight,
   ExternalLink,
   Sparkles,
@@ -257,56 +255,6 @@ export default function MeetingsPage() {
       });
   }, [data, tab, search, roundFilter, statusFilter]);
 
-  function exportCsv() {
-    const rows = [
-      [
-        "meeting_session_id",
-        "application_id",
-        "candidate",
-        "role",
-        "round",
-        "bot_status",
-        "verdict",
-        "overall_score",
-        "scheduled_at",
-        "started_at",
-        "duration_sec",
-        "transcript_url",
-      ],
-      ...filtered.map((r) => [
-        r.meeting_session_id,
-        r.application_id,
-        r.candidate_name ?? "",
-        r.role_title ?? "",
-        r.round,
-        r.bot_status,
-        r.verdict ?? "",
-        r.overall_score?.toString() ?? "",
-        r.scheduled_at ?? "",
-        r.started_at ?? "",
-        r.duration_sec?.toString() ?? "",
-        r.transcript_url ?? "",
-      ]),
-    ];
-    const csv = rows
-      .map((row) =>
-        row
-          .map((c) => {
-            const s = String(c ?? "");
-            return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-          })
-          .join(","),
-      )
-      .join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `meetings-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
   return (
     <>
       <Topbar title="Meetings" subtitle="Teams technical + CEO interviews" />
@@ -405,18 +353,6 @@ export default function MeetingsPage() {
             </SelectContent>
           </Select>
 
-          <Button variant="outline" size="sm" className="h-8" onClick={() => mutate()}>
-            <RefreshCw className="mr-1 h-3.5 w-3.5" /> Refresh
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8"
-            onClick={exportCsv}
-            disabled={filtered.length === 0}
-          >
-            <Download className="mr-1 h-3.5 w-3.5" /> CSV
-          </Button>
           <Button
             variant="outline"
             size="sm"

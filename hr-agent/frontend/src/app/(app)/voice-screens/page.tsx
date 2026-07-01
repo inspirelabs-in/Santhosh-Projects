@@ -195,12 +195,6 @@ export default function VoiceCallsPage() {
                 onClick={() => setStatusFilter(k)}
               />
             ))}
-            <button
-              onClick={() => mutate()}
-              className="ml-auto inline-flex items-center gap-1 rounded-md border border-border bg-card px-3 py-1 font-mono text-[11px] uppercase tracking-[0.12em] hover:bg-muted transition"
-            >
-              <RotateCw className="h-3 w-3" /> Refresh
-            </button>
           </div>
         </div>
 

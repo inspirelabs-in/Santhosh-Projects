@@ -5,7 +5,6 @@ import useSWR from "swr";
 import { ArrowLeft, Check, Loader2, Plus, Save, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { Topbar } from "@/components/layout/topbar";
-import { SectionRail, type SectionRailItem } from "@/components/layout/section-rail";
 import { api, swrFetcher } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -34,7 +33,7 @@ interface HiringPersona {
 /* ------------------------------------------------------------------ */
 
 const inlineArea =
-  "w-full resize-none rounded-md bg-transparent px-3 py-2.5 text-sm leading-relaxed transition hover:bg-muted/40 focus:bg-muted/50 focus:outline-none focus:ring-1 focus:ring-border placeholder:text-muted-foreground/40";
+  "w-full resize-none rounded-md bg-transparent px-3 py-2.5 text-sm leading-relaxed transition hover:bg-muted/40 focus:bg-muted/50 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 placeholder:text-muted-foreground/40";
 
 function Field({
   label,
@@ -168,7 +167,7 @@ function SignalColumn({
 /*  Sections                                                           */
 /* ------------------------------------------------------------------ */
 
-const SECTIONS: SectionRailItem[] = [
+const SECTIONS: Array<{ id: string; label: string }> = [
   { id: "general", label: "General" },
   { id: "mission", label: "Mission & Context" },
   { id: "values", label: "Values" },
@@ -245,19 +244,32 @@ export default function OrgSettingsPage() {
     [name],
   );
 
-  /* Rail hints — counts so the recruiter sees how filled-in each section is. */
-  const rail: SectionRailItem[] = SECTIONS.map((s) => {
-    if (s.id === "values" && persona.values.length) return { ...s, hint: String(persona.values.length) };
-    if (s.id === "signals") {
-      const n = persona.what_good_looks_like.length + persona.anti_patterns.length;
-      return n ? { ...s, hint: String(n) } : s;
-    }
-    return s;
-  });
-
   return (
     <>
       <Topbar title="Organization Settings" subtitle="hiring persona · mission · culture" />
+
+      {/* Horizontal tab bar — below Topbar */}
+      <div className="border-b border-border bg-background">
+        <div className="mx-auto max-w-5xl px-8">
+          <div className="flex items-center gap-1.5 py-2.5">
+            {SECTIONS.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => setActive(s.id)}
+                className={cn(
+                  "rounded-lg border px-3.5 py-1.5 text-sm font-medium transition-colors",
+                  active === s.id
+                    ? "border-primary bg-primary/5 text-primary"
+                    : "border-border bg-background text-muted-foreground hover:border-primary/40 hover:bg-muted/50 hover:text-foreground",
+                )}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
 
       <div className="flex-1 overflow-auto pb-24">
         <div className="mx-auto max-w-5xl px-8 py-8">
@@ -270,16 +282,21 @@ export default function OrgSettingsPage() {
             Back to settings
           </Link>
 
-          {/* Identity hero */}
-          <div className="mt-6 mb-10 flex items-center gap-4">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary">
-              <span className="font-display text-sm font-bold text-white">{initials}</span>
+          {/* Identity card */}
+          <div className="mt-6 mb-8 flex items-center gap-4 rounded-xl border border-border bg-card px-5 py-4 shadow-sm">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-border bg-muted">
+              <span className="font-mono text-sm font-bold text-foreground">{initials}</span>
             </div>
             <div className="min-w-0">
-              <h1 className="truncate font-display text-2xl font-semibold leading-tight tracking-tight">
+              <h1 className="truncate text-base font-semibold leading-tight text-foreground">
                 {name || "Organization profile"}
               </h1>
-              {org?.slug && <p className="mt-0.5 font-mono text-xs text-muted-foreground">{org.slug}</p>}
+              {org?.slug && (
+                <p className="mt-0.5 font-mono text-xs text-muted-foreground">
+                  /{org.slug}
+                  <span className="ml-2 text-[10px] text-muted-foreground/50">read-only identifier</span>
+                </p>
+              )}
             </div>
           </div>
 
@@ -292,19 +309,14 @@ export default function OrgSettingsPage() {
           ) : !org ? (
             <p className="text-sm italic text-muted-foreground">Could not load org data</p>
           ) : (
-            <div className="flex items-start gap-12">
-              {/* Left — section rail */}
-              <SectionRail items={rail} active={active} onSelect={setActive} className="hidden md:block" />
-
-              {/* Right — one section at a time */}
-              <div className="min-h-[420px] min-w-0 flex-1">
-                {/* Section heading */}
-                <div className="mb-7">
-                  <h2 className="text-base font-semibold tracking-tight">
-                    {SECTIONS.find((s) => s.id === active)?.label}
-                  </h2>
-                  <p className="mt-1 text-sm text-muted-foreground">{SECTION_BLURB[active]}</p>
-                </div>
+            <div className="min-h-[420px] min-w-0">
+              {/* Section heading */}
+              <div className="mb-7">
+                <h2 className="text-base font-semibold tracking-tight">
+                  {SECTIONS.find((s) => s.id === active)?.label}
+                </h2>
+                <p className="mt-1 text-sm text-muted-foreground">{SECTION_BLURB[active]}</p>
+              </div>
 
                 {/* General */}
                 {active === "general" && (
@@ -321,7 +333,12 @@ export default function OrgSettingsPage() {
                       />
                     </Field>
                     <Field label="Slug" hint="read-only">
-                      <p className="px-3 py-2.5 font-mono text-sm text-muted-foreground">{org.slug}</p>
+                      <div className="rounded-md border border-border/60 bg-muted/30 px-3 py-2.5">
+                        <p className="font-mono text-sm text-muted-foreground">{org.slug}</p>
+                        <p className="mt-1 font-mono text-[10px] text-muted-foreground/50">
+                          Used in API paths and email routing. Format: lowercase-hyphenated. Cannot be changed after setup.
+                        </p>
+                      </div>
                     </Field>
                   </div>
                 )}
@@ -420,7 +437,6 @@ export default function OrgSettingsPage() {
                     </Field>
                   </div>
                 )}
-              </div>
             </div>
           )}
         </div>
