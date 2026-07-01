@@ -138,9 +138,9 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 _cors_origin_regex = (
-    r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
+    r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$|^https://[a-z0-9-]+\.vercel\.app$"
     if _settings.app_env == "production"
-    else r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$|^https://[a-z0-9-]+\.ngrok-free\.(dev|app)$|^https://[a-z0-9-]+\.ngrok\.io$"
+    else r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$|^https://[a-z0-9-]+\.ngrok-free\.(dev|app)$|^https://[a-z0-9-]+\.ngrok\.io$|^https://[a-z0-9-]+\.vercel\.app$"
 )
 
 app.add_middleware(
