@@ -27,7 +27,7 @@ param(
 $ErrorActionPreference = "Continue"
 $Root        = "C:\Users\JyothiKumar\Desktop\work\santosh-projects\Santhosh-Projects\hr-agent"
 $LogDir      = "C:\v\hr-logs"
-$NgrokDomain = "chili-congested-brethren.ngrok-free.dev"
+$NgrokDomain = "unlearned-helping-tinsel.ngrok-free.dev"
 $ApiUrl      = "https://$NgrokDomain"
 $BackendPort = 8001
 $FrontendPort = 3100

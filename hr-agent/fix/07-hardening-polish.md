@@ -1,5 +1,7 @@
 # SP5–7 — Hardening & Polish
 
+> **STATUS (2026-06-22): PARTIAL / LOW.** Voice idempotency guard (processing_status CAS, V-C1/2/3, V-M5) shipped. Remaining: Langfuse resilience, CEO-brief guards, design polish -- all LOW, tracked in `architecture.md` Progress Tracker.
+
 > **STATUS: LAST.** Outlines to flesh out after the foundation, surface, and
 > evaluation work land. Grouped by area. Each item carries its audit ID.
 

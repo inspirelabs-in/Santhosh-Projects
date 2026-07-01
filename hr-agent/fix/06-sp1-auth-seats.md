@@ -1,5 +1,7 @@
 # SP1 — Identity & Seats (Firebase Google login)
 
+> **STATUS (2026-06-22): DEFERRED.** `users`/`organizations` schema exists (unused); auth stays key-match for now, per plan.
+
 > **STATUS: DEFERRED.** The existing key-match auth stays for now. Build the
 > backend workflow this weekend on top of it; come back to real auth after.
 > This doc captures the design so it's ready when you reach it.

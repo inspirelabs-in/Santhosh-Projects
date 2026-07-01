@@ -1,5 +1,7 @@
 # SP3 — The Operational Surface (Split Inbox + Pulse)
 
+> **STATUS (2026-06-22): DEFERRED (frontend).** The durable event backbone this surface reads (`domain_events`, `requires_action`) is shipped; the Inbox/Pulse UI is intentionally deferred per owner until the backend flow is finalized.
+
 > Home becomes a **split view**: a glanceable, AI-ranked **action inbox** on the
 > left and **Pulse** (the recruiter agent) on the right. You see what needs you
 > and act in the same screen — from the queue *or* by commanding Pulse. The dummy

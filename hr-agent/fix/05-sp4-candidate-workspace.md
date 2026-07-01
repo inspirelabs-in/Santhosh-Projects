@@ -1,5 +1,7 @@
 # SP4 — Candidate Workspace (hybrid trace + jump-rail)
 
+> **STATUS (2026-06-22): DEFERRED (frontend).** Backend trace data (`domain_events` per application) is live; the workspace UI is deferred.
+
 > `/candidate/[id]` must keep **every trace** but stop being a 60K-char monolith
 > served by one endpoint joining 6+ tables (`NB-9`). The new workspace: a compact
 > sticky header (verdict + stage-gated actions), a **chronological trace stream**
