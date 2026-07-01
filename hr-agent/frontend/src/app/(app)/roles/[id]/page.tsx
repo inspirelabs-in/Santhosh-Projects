@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import useSWR from "swr";
@@ -11,9 +12,7 @@ import {
   FileText,
   Loader2,
   MapPin,
-  Pause,
   Pencil,
-  Play,
   Plus,
   Save,
   Trash2,
@@ -92,7 +91,7 @@ const SECTION_BLURB: Record<Tab, string> = {
 /* ------------------------------------------------------------------ */
 
 const inlineArea =
-  "w-full resize-none rounded-md bg-transparent px-3 py-2.5 text-sm leading-relaxed transition hover:bg-muted/40 focus:bg-muted/50 focus:outline-none focus:ring-1 focus:ring-border placeholder:text-muted-foreground/40";
+  "w-full resize-none rounded-md bg-transparent px-3 py-2.5 text-sm leading-relaxed transition hover:bg-muted/40 focus:bg-muted/50 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 placeholder:text-muted-foreground/40";
 
 function Field({
   label,
@@ -299,6 +298,12 @@ export default function RoleDetailPage() {
     mutate,
   } = useSWR<Role>(id ? `/dashboard/roles/${id}` : null, swrFetcher);
 
+  const { data: candidateData } = useSWR<{
+    items: Array<{ application_id: string; name: string; current_stage: string; fit_score: number | null; fit_tier: string | null }>;
+    total: number;
+  }>(id ? `/dashboard/v1/candidates?role_id=${id}&limit=500` : null, swrFetcher);
+
+
   const [activeTab, setActiveTab] = useState<Tab>("Overview");
 
   const [editingTitle, setEditingTitle] = useState(false);
@@ -314,6 +319,8 @@ export default function RoleDetailPage() {
   const [assignmentBrief, setAssignmentBrief] = useState("");
   const [assignmentInstructions, setAssignmentInstructions] = useState("");
   const [assignmentDeadlineDays, setAssignmentDeadlineDays] = useState<string>("");
+  const [piCognitiveLink, setPiCognitiveLink] = useState("");
+  const [piPersonalityLink, setPiPersonalityLink] = useState("");
   const [jdText, setJdText] = useState("");
   const [detailsDirty, setDetailsDirty] = useState(false);
   const [jdDirty, setJdDirty] = useState(false);
@@ -352,6 +359,8 @@ export default function RoleDetailPage() {
     setAssignmentBrief(role.assignment_brief ?? "");
     setAssignmentInstructions((role as any).assignment_instructions ?? "");
     setAssignmentDeadlineDays((role as any).assignment_deadline_days != null ? String((role as any).assignment_deadline_days) : "");
+    setPiCognitiveLink(role.pi_cognitive_link ?? "");
+    setPiPersonalityLink(role.pi_personality_link ?? "");
     setJdText(role.jd_text ?? "");
 
     const spec = role.evaluation_spec as Record<string, unknown> | undefined;
@@ -434,6 +443,8 @@ export default function RoleDetailPage() {
         assignment_brief: assignmentBrief || null,
         assignment_instructions: assignmentInstructions || null,
         assignment_deadline_days: assignmentDeadlineDays ? Number(assignmentDeadlineDays) : null,
+        pi_cognitive_link: piCognitiveLink || null,
+        pi_personality_link: piPersonalityLink || null,
       });
       setAssignmentDirty(false);
       await mutate();
@@ -580,125 +591,152 @@ export default function RoleDetailPage() {
       />
 
       <div className="scrollbar-slim min-h-0 flex-1 overflow-y-auto">
-        {/* ── Sticky header — slim one-line ── */}
+        {/* ── Slim sticky bar — breadcrumb + status + actions ── */}
         <div className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur-sm">
-          <div className="mx-auto flex max-w-5xl items-center gap-3 px-6 py-3">
+          <div className="mx-auto flex max-w-5xl items-center gap-2.5 px-6 py-2.5">
             <button
               onClick={() => router.back()}
-              className="flex shrink-0 items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+              className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
             >
-              <ArrowLeft className="h-3.5 w-3.5" />
+              <ArrowLeft className="h-3 w-3" />
               Roles
             </button>
-
-            <div className="h-4 w-px shrink-0 bg-border" />
-
-            <div className="min-w-0 flex-1">
-              {isLoading ? (
-                <div className="h-6 w-48 animate-pulse rounded-md bg-muted" />
-              ) : role ? (
-                editingTitle ? (
-                  <div className="flex items-center gap-2">
-                    <Input
-                      value={titleDraft}
-                      onChange={(e) => setTitleDraft(e.target.value)}
-                      className="h-8 max-w-sm text-base font-semibold"
-                      autoFocus
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") saveTitle();
-                        if (e.key === "Escape") {
-                          setEditingTitle(false);
-                          setTitleDraft(role.title);
-                        }
-                      }}
-                    />
-                    <Button size="sm" className="h-7" onClick={saveTitle} disabled={saving || !titleDraft.trim()}>
-                      <Check className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-7"
-                      onClick={() => {
-                        setEditingTitle(false);
-                        setTitleDraft(role.title);
-                      }}
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="flex min-w-0 items-center gap-2">
-                    <h1 className="truncate text-base font-semibold">{role.title}</h1>
-                    <button
-                      onClick={() => setEditingTitle(true)}
-                      className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                )
-              ) : null}
-            </div>
-
+            <div className="h-3.5 w-px shrink-0 bg-border" />
+            <span className="min-w-0 flex-1 truncate text-xs font-medium text-muted-foreground">
+              {role?.title ?? "…"}
+            </span>
             {role && (
-              <Badge variant={STATUS_VARIANT[role.status] ?? "muted"} className="shrink-0">
-                {role.status}
-              </Badge>
+              <span className={cn(
+                "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide",
+                role.status === "open"      && "border-emerald-400 bg-emerald-50 text-emerald-700",
+                role.status === "paused"    && "border-amber-400 bg-amber-50 text-amber-700",
+                role.status === "filled"    && "border-border bg-muted text-muted-foreground",
+                role.status === "cancelled" && "border-red-300 bg-red-50 text-red-600",
+              )}>
+                <span className={cn(
+                  "h-1.5 w-1.5 rounded-full",
+                  role.status === "open"      && "bg-emerald-500",
+                  role.status === "paused"    && "bg-amber-400",
+                  role.status === "filled"    && "bg-muted-foreground",
+                  role.status === "cancelled" && "bg-red-400",
+                )} />
+                {role.status === "open" ? "Active – Open" : role.status}
+              </span>
             )}
-
             {role && (
               <div className="flex shrink-0 items-center gap-1.5">
-                {(role.status as string) === "draft" &&
-                  !!role.assignment_brief &&
-                  !role.has_problem_doc && (
-                    <Button size="sm" className="h-7 text-xs" onClick={publishAssignment} disabled={publishing || saving}>
-                      {publishing ? (
-                        <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
-                      ) : (
-                        <FileText className="mr-1.5 h-3 w-3" />
-                      )}
-                      Publish
-                    </Button>
-                  )}
+                {(role.status as string) === "draft" && !!role.assignment_brief && !role.has_problem_doc && (
+                  <Button size="sm" className="h-7 text-xs" onClick={publishAssignment} disabled={publishing || saving}>
+                    {publishing ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <FileText className="mr-1.5 h-3 w-3" />}
+                    Publish
+                  </Button>
+                )}
                 {role.status === "open" && (
-                  <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => changeStatus("paused")} disabled={saving}>
-                    <Pause className="mr-1 h-3 w-3" /> Pause
+                  <Button variant="outline" size="sm"
+                    className="h-8 rounded-lg border-amber-300 bg-amber-50 px-4 text-xs font-semibold tracking-wide text-amber-800 shadow-sm hover:border-amber-400 hover:bg-amber-100 hover:text-amber-900"
+                    onClick={() => changeStatus("paused")} disabled={saving}>
+                    Pause
                   </Button>
                 )}
                 {role.status === "paused" && (
-                  <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => changeStatus("open")} disabled={saving}>
-                    <Play className="mr-1 h-3 w-3" /> Reopen
+                  <Button variant="outline" size="sm"
+                    className="h-8 rounded-lg border-emerald-300 bg-emerald-50 px-4 text-xs font-semibold tracking-wide text-emerald-800 shadow-sm hover:border-emerald-400 hover:bg-emerald-100 hover:text-emerald-900"
+                    onClick={() => changeStatus("open")} disabled={saving}>
+                    Reopen
                   </Button>
                 )}
                 {(role.status === "open" || role.status === "paused") && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-xs text-destructive hover:bg-destructive/10"
-                    onClick={() => changeStatus("cancelled")}
-                    disabled={saving}
-                  >
-                    <XCircle className="mr-1 h-3 w-3" /> Close
+                  <Button variant="outline" size="sm"
+                    className="h-8 rounded-lg border-red-300 bg-red-50 px-4 text-xs font-semibold tracking-wide text-red-700 shadow-sm hover:border-red-400 hover:bg-red-100 hover:text-red-900"
+                    onClick={() => changeStatus("cancelled")} disabled={saving}>
+                    Close Pipeline
                   </Button>
                 )}
               </div>
             )}
-
             {saveMsg && (
-              <span
-                className={cn(
-                  "shrink-0 rounded px-2 py-0.5 text-xs font-medium",
-                  saveMsg.type === "ok"
-                    ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
-                    : "bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300"
-                )}
-              >
+              <span className={cn(
+                "shrink-0 rounded px-2 py-0.5 text-xs font-medium",
+                saveMsg.type === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700",
+              )}>
                 {saveMsg.text}
               </span>
             )}
           </div>
         </div>
+
+        {/* ── Hero — big title + subtitle + edit ── */}
+        <div className="border-b border-border bg-gradient-to-b from-muted/30 to-transparent">
+          <div className="mx-auto max-w-5xl px-6 py-6">
+            {isLoading ? (
+              <div className="space-y-2.5">
+                <div className="h-8 w-72 animate-pulse rounded-lg bg-muted" />
+                <div className="h-4 w-48 animate-pulse rounded-md bg-muted/70" />
+              </div>
+            ) : role ? (
+              <>
+                {editingTitle ? (
+                  <div className="flex items-center gap-2">
+                    <Input
+                      value={titleDraft}
+                      onChange={(e) => setTitleDraft(e.target.value)}
+                      className="h-10 max-w-md text-xl font-bold"
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") saveTitle();
+                        if (e.key === "Escape") { setEditingTitle(false); setTitleDraft(role.title); }
+                      }}
+                    />
+                    <Button size="sm" onClick={saveTitle} disabled={saving || !titleDraft.trim()}>
+                      <Check className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => { setEditingTitle(false); setTitleDraft(role.title); }}>
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2.5">
+                    <h1 className="text-2xl font-bold tracking-tight text-foreground">{role.title}</h1>
+                    <button
+                      onClick={() => setEditingTitle(true)}
+                      className="shrink-0 rounded-md p-1 text-muted-foreground/50 transition-colors hover:bg-accent hover:text-foreground"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                  </div>
+                )}
+                <p className="mt-1.5 text-sm text-muted-foreground">
+                  Configure evaluation parameters, compensation tracks, and active pipelines.
+                </p>
+              </>
+            ) : null}
+          </div>
+        </div>
+
+        {/* ── Top tab bar ── */}
+        {role && (
+          <div className="border-b border-border bg-background">
+            <div className="mx-auto max-w-5xl px-6">
+              <div className="flex items-center gap-1.5 py-2.5">
+                {TABS.map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    onClick={() => setActiveTab(tab)}
+                    className={cn(
+                      "rounded-lg border px-3.5 py-1.5 text-sm font-medium transition-colors",
+                      activeTab === tab
+                        ? "border-primary bg-primary/5 text-primary"
+                        : "border-border bg-background text-muted-foreground hover:border-primary/40 hover:bg-muted/50 hover:text-foreground",
+                    )}
+                  >
+                    {tab}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ── Content area ── */}
         <div className="mx-auto max-w-5xl px-6 py-8 pb-20">
@@ -715,139 +753,209 @@ export default function RoleDetailPage() {
               </Button>
             </div>
           ) : (
-            <div className="flex items-start gap-12">
-              {/* Left — section rail */}
-              <SectionRail
-                items={RAIL_ITEMS}
-                active={activeTab}
-                onSelect={(id) => setActiveTab(id as Tab)}
-                className="hidden md:block"
-              />
-
-              {/* Right — one section at a time */}
-              <div className="min-w-0 flex-1">
-
-                {/* Section heading block */}
-                <div className="mb-7">
-                  <h2 className="text-base font-semibold tracking-tight">{activeTab}</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">{SECTION_BLURB[activeTab]}</p>
-                </div>
+            <div className="min-w-0">
+                {/* Section blurb */}
+                <p className="mb-6 text-sm text-muted-foreground">{SECTION_BLURB[activeTab]}</p>
 
                 {/* ══════════════════════════════════════════ */}
                 {/* Section: Overview                         */}
                 {/* ══════════════════════════════════════════ */}
                 {activeTab === "Overview" && (
-                  <div className="max-w-2xl space-y-8">
-                    {/* Meta stat row — inline, separated by · */}
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
-                      {(role.ctc_min_lpa != null || role.ctc_max_lpa != null) && (
-                        <span className="font-medium text-foreground">
-                          {role.ctc_min_lpa ?? "?"} – {role.ctc_max_lpa ?? "?"} LPA
-                        </span>
-                      )}
+                  <div className="max-w-2xl space-y-5">
+                    {/* Candidate pipeline stats card */}
+                    {candidateData && candidateData.total > 0 && (() => {
+                      const items = candidateData.items;
+                      const active = items.filter(c => c.current_stage !== "rejected").length;
+                      const rejected = items.filter(c => c.current_stage === "rejected").length;
+                      const stageCounts: Record<string, number> = {};
+                      for (const c of items) {
+                        stageCounts[c.current_stage] = (stageCounts[c.current_stage] ?? 0) + 1;
+                      }
+                      const STAGE_COLOR: Record<string, string> = {
+                        rejected: "bg-red-400", needs_hr_review: "bg-amber-400", hired: "bg-emerald-600",
+                        offer: "bg-emerald-400", assignment_sent: "bg-blue-400", voice_screen: "bg-violet-400",
+                        voice_screen_scheduled: "bg-violet-400", tech_interview: "bg-indigo-400",
+                        screening: "bg-sky-400", intake: "bg-slate-300",
+                      };
+                      const STAGE_LABEL_MAP: Record<string, string> = {
+                        rejected: "Rejected", needs_hr_review: "HR Review", hired: "Hired", offer: "Offer",
+                        assignment_sent: "Assignment", voice_screen: "Voice", voice_screen_scheduled: "Voice",
+                        tech_interview: "Interview", screening: "Screening", intake: "Intake",
+                      };
+                      const sorted = Object.entries(stageCounts).sort((a, b) => b[1] - a[1]);
+                      return (
+                        <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
+                          <div className="flex items-center justify-between mb-3">
+                            <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">Candidates</p>
+                            <Link href={`/candidates?role_id=${id}`} className="text-[11px] text-primary hover:underline font-medium">View all →</Link>
+                          </div>
+                          {/* Stats row — always one line */}
+                          <div className="flex items-baseline gap-5 mb-3">
+                            <div>
+                              <span className="text-3xl font-bold tabular-nums">{candidateData.total}</span>
+                              <span className="ml-1 text-xs text-muted-foreground">total</span>
+                            </div>
+                            <span className="text-emerald-600 font-semibold tabular-nums text-sm">{active} active</span>
+                            {rejected > 0 && (
+                              <span className="text-red-500 font-semibold tabular-nums text-sm">{rejected} rejected</span>
+                            )}
+                          </div>
+                          {/* Pipeline strip — horizontal scroll, never wraps */}
+                          <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
+                            {sorted.map(([stage, count]) => (
+                              <span key={stage} className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border/60 bg-muted/30 px-2.5 py-0.5 text-[11px]">
+                                <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", STAGE_COLOR[stage] ?? "bg-slate-400")} />
+                                <span className="text-muted-foreground">{STAGE_LABEL_MAP[stage] ?? stage.replace(/_/g, " ")}</span>
+                                <span className="font-bold tabular-nums text-foreground">{count}</span>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Quick stat chips — location, work mode, notice, created */}
+                    <div className="flex flex-wrap gap-2">
                       {role.location && (
-                        <span className="inline-flex items-center gap-1">
-                          <MapPin className="h-3 w-3 shrink-0" />
-                          {role.location}
+                        <span className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted/30 px-3 py-1 text-xs">
+                          <MapPin className="h-3 w-3 shrink-0 text-muted-foreground" />
+                          <span className="text-muted-foreground">Location:</span>
+                          <span className="font-semibold text-foreground">{role.location}</span>
                         </span>
                       )}
-                      {role.remote_policy && <span className="capitalize">{role.remote_policy}</span>}
-                      {role.max_notice_days != null && (
-                        <span>Notice cap: {role.max_notice_days}d</span>
+                      {role.remote_policy && (
+                        <span className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted/30 px-3 py-1 text-xs">
+                          <span className="text-muted-foreground">Work Mode:</span>
+                          <span className="font-semibold capitalize text-foreground">{role.remote_policy}</span>
+                        </span>
                       )}
-                      <span className="text-muted-foreground/50">·</span>
-                      <span>Created {fmtDate(role.created_at)}</span>
+                      {role.max_notice_days != null && (
+                        <span className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted/30 px-3 py-1 text-xs">
+                          <span className="text-muted-foreground">Notice:</span>
+                          <span className="font-semibold text-foreground">{role.max_notice_days}d cap</span>
+                        </span>
+                      )}
+                      <span className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted/30 px-3 py-1 text-xs text-muted-foreground">
+                        Created {fmtDate(role.created_at)}
+                      </span>
+                      {(role as any).candidate_count != null && (
+                        <span className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-primary/5 px-3 py-1 font-mono text-xs font-semibold text-primary">
+                          {(role as any).candidate_count} candidates
+                        </span>
+                      )}
                     </div>
 
-                    {/* Editable fields */}
-                    <div className="space-y-6">
-                      {/* CTC row */}
-                      <div className="grid grid-cols-2 gap-4">
-                        <Field label="CTC min (LPA)">
-                          <input
-                            type="number"
-                            step="0.5"
-                            value={ctcMin}
-                            onChange={(e) => { setCtcMin(e.target.value); setDetailsDirty(true); }}
-                            placeholder="8"
-                            className={inlineArea}
-                          />
-                        </Field>
-                        <Field label="CTC max (LPA)">
-                          <input
-                            type="number"
-                            step="0.5"
-                            value={ctcMax}
-                            onChange={(e) => { setCtcMax(e.target.value); setDetailsDirty(true); }}
-                            placeholder="15"
-                            className={inlineArea}
-                          />
-                        </Field>
+                    {/* Compensation card */}
+                    <div className="rounded-xl border border-border bg-card shadow-sm">
+                      <div className="flex items-center gap-2 border-b border-border/60 px-5 py-3.5">
+                        <span className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">Compensation Structure</span>
+                        {ctcMin && ctcMax && (
+                          <span className="ml-auto text-sm font-semibold text-primary tabular-nums">
+                            {ctcMin} – {ctcMax} LPA
+                          </span>
+                        )}
                       </div>
-
-                      <Field label="Location">
-                        <input
-                          value={location}
-                          onChange={(e) => { setLocation(e.target.value); setDetailsDirty(true); }}
-                          placeholder="e.g. Hyderabad"
-                          className={inlineArea}
-                        />
-                      </Field>
-
-                      <Field label="Work mode">
-                        <Select
-                          value={remotePolicy}
-                          onValueChange={(v) => { setRemotePolicy(v); setDetailsDirty(true); }}
-                        >
-                          <SelectTrigger className="mt-0 h-9 text-sm hover:bg-muted/40">
-                            <SelectValue placeholder="Select" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="onsite">Onsite</SelectItem>
-                            <SelectItem value="hybrid">Hybrid</SelectItem>
-                            <SelectItem value="remote">Remote</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </Field>
-
-                      <Field label="Max notice period (days)">
-                        <input
-                          type="number"
-                          value={noticeCap}
-                          onChange={(e) => { setNoticeCap(e.target.value); setDetailsDirty(true); }}
-                          placeholder="60"
-                          className={cn(inlineArea, "max-w-[120px]")}
-                        />
-                      </Field>
-
-                      <Field label="Screening modality" hint="read-only">
-                        <p className="px-3 py-2.5 text-sm text-muted-foreground">
-                          {(() => {
-                            const m = (role?.screening_modality || "").trim();
-                            if (!m || m === "none") return "No screening";
-                            return `${m.charAt(0).toUpperCase()}${m.slice(1)} screen`;
-                          })()}
-                        </p>
-                      </Field>
+                      <div className="grid grid-cols-2 gap-0 divide-x divide-border/60">
+                        <div className="p-4">
+                          <Field label="Min CTC (LPA)">
+                            <input
+                              type="number"
+                              step="0.5"
+                              value={ctcMin}
+                              onChange={(e) => { setCtcMin(e.target.value); setDetailsDirty(true); }}
+                              placeholder="8"
+                              className={inlineArea}
+                            />
+                          </Field>
+                        </div>
+                        <div className="p-4">
+                          <Field label="Max CTC (LPA)">
+                            <input
+                              type="number"
+                              step="0.5"
+                              value={ctcMax}
+                              onChange={(e) => { setCtcMax(e.target.value); setDetailsDirty(true); }}
+                              placeholder="15"
+                              className={inlineArea}
+                            />
+                          </Field>
+                        </div>
+                      </div>
+                      {ctcMin && ctcMax && (
+                        <div className="border-t border-border/60 px-5 py-3">
+                          <div className="mb-1.5 flex items-center justify-between text-[11px] text-muted-foreground">
+                            <span>Track Range</span>
+                            <span className="font-medium text-foreground">{ctcMin} – {ctcMax} LPA</span>
+                          </div>
+                          <div className="h-1.5 w-full rounded-full bg-muted">
+                            <div className="h-1.5 rounded-full bg-gradient-to-r from-primary/70 to-primary" style={{ width: "100%" }} />
+                          </div>
+                        </div>
+                      )}
                     </div>
 
-                    {/* Save / quick-status actions */}
-                    <div className="flex items-center gap-3 border-t border-border/40 pt-5">
+                    {/* Location & work setup card */}
+                    <div className="rounded-xl border border-border bg-card shadow-sm">
+                      <div className="border-b border-border/60 px-5 py-3.5">
+                        <span className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">Work Setup</span>
+                      </div>
+                      <div className="p-4">
+                        <div className="space-y-4">
+                          <Field label="Location">
+                            <input
+                              value={location}
+                              onChange={(e) => { setLocation(e.target.value); setDetailsDirty(true); }}
+                              placeholder="e.g. Hyderabad"
+                              className={inlineArea}
+                            />
+                          </Field>
+                          <Field label="Work mode">
+                            <Select
+                              value={remotePolicy}
+                              onValueChange={(v) => { setRemotePolicy(v); setDetailsDirty(true); }}
+                            >
+                              <SelectTrigger className="mt-0 h-9 text-sm hover:bg-muted/40">
+                                <SelectValue placeholder="Select" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="onsite">Onsite</SelectItem>
+                                <SelectItem value="hybrid">Hybrid</SelectItem>
+                                <SelectItem value="remote">Remote</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </Field>
+                          <Field label="Max notice period (days)">
+                            <input
+                              type="number"
+                              value={noticeCap}
+                              onChange={(e) => { setNoticeCap(e.target.value); setDetailsDirty(true); }}
+                              placeholder="60"
+                              className={cn(inlineArea, "max-w-[120px]")}
+                            />
+                          </Field>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Screening modality — read-only info chip */}
+                    <div className="flex items-center gap-3 rounded-lg border border-border/60 bg-muted/20 px-4 py-2.5">
+                      <span className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">Screening</span>
+                      <span className="text-sm text-foreground">
+                        {(() => {
+                          const m = (role?.screening_modality || "").trim();
+                          if (!m || m === "none") return "No screening configured";
+                          return `${m.charAt(0).toUpperCase()}${m.slice(1)} screen`;
+                        })()}
+                      </span>
+                    </div>
+
+                    {/* Save / actions row */}
+                    <div className="flex items-center gap-3 border-t border-border/40 pt-4">
                       {detailsDirty && (
                         <Button size="sm" className="h-8 text-xs" onClick={saveDetails} disabled={saving}>
                           {saving ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <Save className="mr-1.5 h-3 w-3" />}
                           Save details
                         </Button>
-                      )}
-                      {(role as any).assignment_deadline && (
-                        <span className="text-xs text-muted-foreground">
-                          Assignment deadline: {fmtDate((role as any).assignment_deadline)}
-                        </span>
-                      )}
-                      {(role as any).candidate_count != null && (
-                        <span className="font-mono text-xs tabular-nums text-muted-foreground">
-                          {(role as any).candidate_count} candidates
-                        </span>
                       )}
                       {role.has_problem_doc && (
                         <button
@@ -1419,6 +1527,35 @@ export default function RoleDetailPage() {
                         />
                         <span className="text-sm text-muted-foreground">days from invite</span>
                       </div>
+
+                      <div className="space-y-4 border-t border-border/40 pt-5">
+                          <div>
+                            <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+                              PI Assessments
+                            </span>
+                            <p className="mt-0.5 text-xs text-muted-foreground/60">
+                              Links are included in the assignment email when PI tests are enabled org-wide. Both are optional.
+                            </p>
+                          </div>
+                          <Field label="Cognitive test URL">
+                            <input
+                              type="url"
+                              value={piCognitiveLink}
+                              onChange={(e) => { setPiCognitiveLink(e.target.value); setAssignmentDirty(true); }}
+                              placeholder="https://app.predictiveindex.com/..."
+                              className="w-full rounded-md bg-transparent px-3 py-2 text-sm transition hover:bg-muted/40 focus:bg-muted/50 focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground/40"
+                            />
+                          </Field>
+                          <Field label="Behavioural test URL">
+                            <input
+                              type="url"
+                              value={piPersonalityLink}
+                              onChange={(e) => { setPiPersonalityLink(e.target.value); setAssignmentDirty(true); }}
+                              placeholder="https://app.predictiveindex.com/..."
+                              className="w-full rounded-md bg-transparent px-3 py-2 text-sm transition hover:bg-muted/40 focus:bg-muted/50 focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground/40"
+                            />
+                          </Field>
+                        </div>
                     </div>
 
                     {assignmentDirty && (
@@ -1527,7 +1664,6 @@ export default function RoleDetailPage() {
                   </div>
                 )}
               </div>
-            </div>
           )}
         </div>
       </div>

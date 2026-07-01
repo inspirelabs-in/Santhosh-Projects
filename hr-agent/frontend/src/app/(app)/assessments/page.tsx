@@ -9,9 +9,7 @@ import {
   Search,
   Plus,
   Loader2,
-  Download,
   ChevronRight,
-  RefreshCw,
 } from "lucide-react";
 
 import { Topbar } from "@/components/layout/topbar";
@@ -137,101 +135,21 @@ export default function AssessmentsPage() {
     });
   }, [data, tab, search, statusFilter, kindFilter, bandFilter]);
 
-  function exportCsv() {
-    const rows = [
-      [
-        "assessment_id",
-        "application_id",
-        "candidate",
-        "role",
-        "kind",
-        "provider",
-        "status",
-        "fit_band",
-        "percentile",
-        "normalized_score",
-        "invite_sent_at",
-        "completed_at",
-        "created_at",
-      ],
-      ...filtered.map((r) => [
-        r.assessment_id,
-        r.application_id,
-        r.candidate_name ?? "",
-        r.role_title ?? "",
-        r.kind ?? "",
-        r.provider,
-        r.status,
-        r.fit_band ?? "",
-        r.percentile?.toString() ?? "",
-        r.normalized_score?.toString() ?? "",
-        r.invite_sent_at ?? "",
-        r.completed_at ?? "",
-        r.created_at,
-      ]),
-    ];
-    const csv = rows
-      .map((row) =>
-        row
-          .map((c) => {
-            const s = String(c ?? "");
-            return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-          })
-          .join(","),
-      )
-      .join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `assessments-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  const bandTotal = stats.bands.green + stats.bands.amber + stats.bands.red || 1;
-
   return (
     <>
       <Topbar title="Assessments" subtitle="Take-home Assignments" />
       <div className="flex-1 overflow-auto px-8 py-6 pb-24 space-y-5">
 
-        {/* KPI Strip — single horizontal card */}
-        <div className="flex items-stretch bg-card rounded-xl shadow-card overflow-hidden">
-          <KpiItem label="Total" value={stats.total} last={false} />
-          <KpiItem label="Active" value={stats.active} accent="blue" last={false} />
-          <KpiItem label="Completed" value={stats.completed} accent="green" last={false} />
-          <KpiItem
-            label="Avg Percentile"
+        {/* KPI cards */}
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <StatCard label="Total" value={stats.total} />
+          <StatCard label="Active" value={stats.active} accent="blue" />
+          <StatCard label="Completed" value={stats.completed} accent="green" />
+          <StatCard
+            label="Avg Score"
             value={stats.avgPct != null ? `${stats.avgPct}%` : "—"}
             accent="purple"
-            last={false}
           />
-          {/* Band mix — inline bar */}
-          <div className="flex-1 px-5 py-4 border-l border-border">
-            <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground mb-2">
-              Band Mix
-            </p>
-            <div className="flex h-2 w-full overflow-hidden rounded-full bg-muted">
-              <div
-                className="bg-emerald-500 transition-all"
-                style={{ width: `${(stats.bands.green / bandTotal) * 100}%` }}
-              />
-              <div
-                className="bg-amber-400 transition-all"
-                style={{ width: `${(stats.bands.amber / bandTotal) * 100}%` }}
-              />
-              <div
-                className="bg-destructive transition-all"
-                style={{ width: `${(stats.bands.red / bandTotal) * 100}%` }}
-              />
-            </div>
-            <div className="mt-1.5 flex gap-3 font-mono text-[10px] text-muted-foreground">
-              <span className="text-emerald-600">G {stats.bands.green}</span>
-              <span className="text-amber-600">A {stats.bands.amber}</span>
-              <span className="text-destructive">R {stats.bands.red}</span>
-            </div>
-          </div>
         </div>
 
         {/* Toolbar */}
@@ -311,18 +229,6 @@ export default function AssessmentsPage() {
             </SelectContent>
           </Select>
 
-          <Button variant="outline" size="sm" className="h-8" onClick={() => mutate()}>
-            <RefreshCw className="mr-1 h-3.5 w-3.5" /> Refresh
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8"
-            onClick={exportCsv}
-            disabled={filtered.length === 0}
-          >
-            <Download className="mr-1 h-3.5 w-3.5" /> CSV
-          </Button>
           <Button size="sm" className="h-8" onClick={() => setShowDispatch(true)}>
             <Plus className="mr-1 h-3.5 w-3.5" /> Dispatch
           </Button>
@@ -580,18 +486,16 @@ export default function AssessmentsPage() {
 }
 
 /* -------------------------------------------------------------------------- */
-/* KpiItem — single stat in the horizontal strip                               */
+/* StatCard — standalone KPI card                                              */
 /* -------------------------------------------------------------------------- */
-function KpiItem({
+function StatCard({
   label,
   value,
   accent,
-  last,
 }: {
   label: string;
   value: number | string;
   accent?: "blue" | "green" | "purple" | "amber";
-  last: boolean;
 }) {
   const valClass =
     accent === "blue"
@@ -605,13 +509,11 @@ function KpiItem({
       : "text-foreground";
 
   return (
-    <div
-      className={`flex flex-col justify-center px-5 py-4 ${last ? "" : "border-r border-border"}`}
-    >
-      <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground whitespace-nowrap">
+    <div className="rounded-xl border border-border bg-card px-5 py-4 shadow-card">
+      <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
         {label}
       </p>
-      <p className={`mt-0.5 text-2xl font-extrabold tabular-nums leading-none ${valClass}`}>
+      <p className={`mt-1 text-3xl font-extrabold tabular-nums leading-none ${valClass}`}>
         {value}
       </p>
     </div>
