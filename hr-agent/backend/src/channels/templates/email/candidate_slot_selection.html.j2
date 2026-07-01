@@ -16,7 +16,7 @@
   {{ ui.cta_button(select_url, "Choose Your Time Slot") }}
   {{ ui.fallback_link(select_url) }}
   {{ ui.paragraph("This link expires in 5 days. A Google Meet link and calendar invite will be sent once you confirm.") }}
-  {{ ui.signoff(name=company_name or "GrabOn Hiring Agent") }}
+  {{ ui.signoff() }}
 {{ ui.card_close() }}
 {% include "_footer.html.j2" %}
 {{ ui.page_close() }}
