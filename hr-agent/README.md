@@ -80,7 +80,7 @@ intake → parse → fit_score → screening → voice_screen → assignment
 
 ```
 backend/src/
-├── activities/          Temporal activity functions (one per pipeline stage)
+├── activities/          Pipeline stage functions (Arq job handlers)
 │   ├── classify.py      Deterministic email classification
 │   ├── fit_score.py     Tier-based candidate-vs-JD scoring
 │   ├── intake.py        Application intake with dedup
@@ -204,7 +204,7 @@ These files exist for backward compatibility during the V1→V2 migration and re
 | Layer | Tech |
 |-------|------|
 | Backend | Python 3.12+, FastAPI, SQLAlchemy async, Pydantic v2 |
-| Orchestration | Temporal (workflows) + Arq (background jobs) |
+| Orchestration | Arq (Redis-backed background job queue) |
 | LLM | LiteLLM (Claude 3.5 Sonnet via Anthropic, GPT-4o / GPT-4o-mini via OpenAI) |
 | Tracing | Langfuse (prompt versioning + trace observability) |
 | Voice | ElevenLabs ConvAI, Gemini 2.0 Flash (audio evaluation) |
