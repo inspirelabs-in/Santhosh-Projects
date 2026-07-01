@@ -1,9 +1,31 @@
 "use client";
 
 import useSWR from "swr";
-import { Bot, Loader2 } from "lucide-react";
 import { swrFetcher } from "@/lib/api";
 import { cn } from "@/lib/utils";
+
+/** Minimal relevancy-scan glyph: 4 bars that rise/settle in sequence while the
+ *  agent is evaluating applications, and sit flat + muted when idle. */
+function RelevancyBars({ active, className }: { active: boolean; className?: string }) {
+  return (
+    <span className={cn("flex h-3.5 items-end gap-[2px]", className)} aria-hidden>
+      {[0, 1, 2, 3].map((i) => (
+        <span
+          key={i}
+          className={cn(
+            "w-[2px] rounded-full",
+            active ? "relv-bar-anim bg-primary" : "bg-muted-foreground/40",
+          )}
+          style={
+            active
+              ? { height: "100%", animationDelay: `${i * 140}ms` }
+              : { height: "100%", transform: "scaleY(0.32)", transformOrigin: "bottom" }
+          }
+        />
+      ))}
+    </span>
+  );
+}
 
 interface AgentEvent {
   id: number;
@@ -43,16 +65,12 @@ export function AgentStatusBadge({ collapsed = false }: { collapsed?: boolean })
 
   if (collapsed) {
     return (
-      <div className="flex items-center justify-center px-2 py-2" title={isActive ? `Agent active — ${recentAgentActions.length} recent actions` : "Agent idle"}>
+      <div className="flex items-center justify-center px-2 py-2" title={isActive ? `Agent active, ${recentAgentActions.length} recent actions` : "Agent idle"}>
         <div className={cn(
           "flex h-8 w-8 items-center justify-center rounded-lg transition-colors",
           isActive ? "bg-primary/10" : "bg-muted/50",
         )}>
-          {isActive ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-          ) : (
-            <Bot className="h-3.5 w-3.5 text-muted-foreground" />
-          )}
+          <RelevancyBars active={isActive} />
         </div>
       </div>
     );
@@ -62,13 +80,9 @@ export function AgentStatusBadge({ collapsed = false }: { collapsed?: boolean })
     <div className="flex items-center gap-2 px-3 py-2">
       <div className={cn(
         "flex h-6 w-6 shrink-0 items-center justify-center rounded-md",
-        isActive ? "bg-primary/10 agent-pulse" : "bg-muted/50",
+        isActive ? "bg-primary/10" : "bg-muted/50",
       )}>
-        {isActive ? (
-          <Loader2 className="h-3 w-3 animate-spin text-primary" />
-        ) : (
-          <Bot className="h-3 w-3 text-muted-foreground" />
-        )}
+        <RelevancyBars active={isActive} className="h-3" />
       </div>
       <div className="min-w-0 flex-1">
         <div className="text-[10px] font-medium leading-tight">
@@ -80,12 +94,6 @@ export function AgentStatusBadge({ collapsed = false }: { collapsed?: boolean })
             : "Waiting for applications"}
         </div>
       </div>
-      {isActive && (
-        <span className="relative flex h-1.5 w-1.5 shrink-0">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
-          <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-primary" />
-        </span>
-      )}
     </div>
   );
 }
