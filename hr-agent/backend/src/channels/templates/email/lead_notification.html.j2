@@ -1,0 +1,22 @@
+{%- import "_macros.html.j2" as ui with context -%}
+{%- set subject = "New enquiry from the hiring site" -%}
+{{ ui.page_open() }}
+{% include "_header.html.j2" %}
+{{ ui.card_open() }}
+  {{ ui.eyebrow("New enquiry") }}
+  {{ ui.hero_title("Someone wants to talk.") }}
+  {{ ui.paragraph("A visitor left their details on the GrabOn Hiring Pulse site. Reply directly to reach them.") }}
+
+  {{ ui.highlight_box("<strong>Email:</strong> " ~ (lead_email | e), accent="primary") }}
+
+  {% if lead_message %}
+    <p style="margin:18px 0 8px 0;font-family:{{ brand.font_stack }};font-size:13px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:{{ brand.muted_text }};">
+      Message
+    </p>
+    {{ ui.paragraph(lead_message) }}
+  {% endif %}
+
+  {{ ui.signoff() }}
+{{ ui.card_close() }}
+{% include "_footer.html.j2" %}
+{{ ui.page_close() }}
