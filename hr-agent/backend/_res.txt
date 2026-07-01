@@ -1,0 +1,143 @@
+============================= test session starts =============================
+platform win32 -- Python 3.12.10, pytest-9.1.1, pluggy-1.6.0
+rootdir: C:\Users\JyothiKumar\Desktop\work\santosh-projects\Santhosh-Projects\hr-agent\backend
+configfile: pyproject.toml
+plugins: anyio-4.13.0
+collected 111 items / 11 errors
+
+=================================== ERRORS ====================================
+____________ ERROR collecting tests/unit/test_agent_graph_logic.py ____________
+ImportError while importing test module 'C:\Users\JyothiKumar\Desktop\work\santosh-projects\Santhosh-Projects\hr-agent\backend\tests\unit\test_agent_graph_logic.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+..\..\..\..\..\..\AppData\Local\Programs\Python\Python312\Lib\importlib\__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\unit\test_agent_graph_logic.py:23: in <module>
+    from src.agent.graph import (
+E   ModuleNotFoundError: No module named 'src.agent.graph'
+_______________ ERROR collecting tests/unit/test_agent_walk.py ________________
+ImportError while importing test module 'C:\Users\JyothiKumar\Desktop\work\santosh-projects\Santhosh-Projects\hr-agent\backend\tests\unit\test_agent_walk.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+..\..\..\..\..\..\AppData\Local\Programs\Python\Python312\Lib\importlib\__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\unit\test_agent_walk.py:20: in <module>
+    from src.agent.graph import (
+E   ModuleNotFoundError: No module named 'src.agent.graph'
+_______________ ERROR collecting tests/unit/test_chat_token.py ________________
+ImportError while importing test module 'C:\Users\JyothiKumar\Desktop\work\santosh-projects\Santhosh-Projects\hr-agent\backend\tests\unit\test_chat_token.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+..\..\..\..\..\..\AppData\Local\Programs\Python\Python312\Lib\importlib\__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\unit\test_chat_token.py:16: in <module>
+    from src.services.screening_url import (
+src\services\screening_url.py:14: in <module>
+    from jose import JWTError, jwt
+E   ModuleNotFoundError: No module named 'jose'
+_____________ ERROR collecting tests/unit/test_fit_score_logic.py _____________
+ImportError while importing test module 'C:\Users\JyothiKumar\Desktop\work\santosh-projects\Santhosh-Projects\hr-agent\backend\tests\unit\test_fit_score_logic.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+..\..\..\..\..\..\AppData\Local\Programs\Python\Python312\Lib\importlib\__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\unit\test_fit_score_logic.py:14: in <module>
+    from src.activities.fit_score import _compute_hard_knockouts, _determine_tier
+src\activities\fit_score.py:25: in <module>
+    from temporalio import activity
+E   ModuleNotFoundError: No module named 'temporalio'
+_____________ ERROR collecting tests/unit/test_intake_activity.py _____________
+ImportError while importing test module 'C:\Users\JyothiKumar\Desktop\work\santosh-projects\Santhosh-Projects\hr-agent\backend\tests\unit\test_intake_activity.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+..\..\..\..\..\..\AppData\Local\Programs\Python\Python312\Lib\importlib\__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\unit\test_intake_activity.py:14: in <module>
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+E   ModuleNotFoundError: No module named 'sqlalchemy'
+__________ ERROR collecting tests/unit/test_parse_resume_activity.py __________
+ImportError while importing test module 'C:\Users\JyothiKumar\Desktop\work\santosh-projects\Santhosh-Projects\hr-agent\backend\tests\unit\test_parse_resume_activity.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+..\..\..\..\..\..\AppData\Local\Programs\Python\Python312\Lib\importlib\__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\unit\test_parse_resume_activity.py:16: in <module>
+    from sqlalchemy import select
+E   ModuleNotFoundError: No module named 'sqlalchemy'
+_______________ ERROR collecting tests/unit/test_pulse_rbac.py ________________
+ImportError while importing test module 'C:\Users\JyothiKumar\Desktop\work\santosh-projects\Santhosh-Projects\hr-agent\backend\tests\unit\test_pulse_rbac.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+..\..\..\..\..\..\AppData\Local\Programs\Python\Python312\Lib\importlib\__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\unit\test_pulse_rbac.py:7: in <module>
+    from src.recruiter_agent.rbac import (
+src\recruiter_agent\__init__.py:17: in <module>
+    from src.recruiter_agent.runner import run_recruiter_turn
+src\recruiter_agent\runner.py:51: in <module>
+    import litellm
+E   ModuleNotFoundError: No module named 'litellm'
+_______________ ERROR collecting tests/unit/test_rate_limit.py ________________
+'asyncio' not found in `markers` configuration option
+__________ ERROR collecting tests/unit/test_score_responses_logic.py __________
+ImportError while importing test module 'C:\Users\JyothiKumar\Desktop\work\santosh-projects\Santhosh-Projects\hr-agent\backend\tests\unit\test_score_responses_logic.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+..\..\..\..\..\..\AppData\Local\Programs\Python\Python312\Lib\importlib\__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\unit\test_score_responses_logic.py:11: in <module>
+    from src.activities.score_responses import _check_knockouts, _scored_question_score
+src\activities\score_responses.py:19: in <module>
+    from sqlalchemy import select
+E   ModuleNotFoundError: No module named 'sqlalchemy'
+________ ERROR collecting tests/unit/test_screening_answer_helpers.py _________
+ImportError while importing test module 'C:\Users\JyothiKumar\Desktop\work\santosh-projects\Santhosh-Projects\hr-agent\backend\tests\unit\test_screening_answer_helpers.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+..\..\..\..\..\..\AppData\Local\Programs\Python\Python312\Lib\importlib\__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\unit\test_screening_answer_helpers.py:13: in <module>
+    from src.db.repositories.screening_answer import is_complete
+E   ModuleNotFoundError: No module named 'src.db.repositories.screening_answer'
+______________ ERROR collecting tests/unit/test_screening_url.py ______________
+ImportError while importing test module 'C:\Users\JyothiKumar\Desktop\work\santosh-projects\Santhosh-Projects\hr-agent\backend\tests\unit\test_screening_url.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+..\..\..\..\..\..\AppData\Local\Programs\Python\Python312\Lib\importlib\__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\unit\test_screening_url.py:10: in <module>
+    from src.services.screening_url import (
+src\services\screening_url.py:14: in <module>
+    from jose import JWTError, jwt
+E   ModuleNotFoundError: No module named 'jose'
+============================== warnings summary ===============================
+..\..\..\..\..\..\AppData\Local\Programs\Python\Python312\Lib\site-packages\_pytest\config\__init__.py:1464
+  C:\Users\JyothiKumar\AppData\Local\Programs\Python\Python312\Lib\site-packages\_pytest\config\__init__.py:1464: PytestConfigWarning: Unknown config option: asyncio_mode
+  
+    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+ERROR tests/unit/test_agent_graph_logic.py
+ERROR tests/unit/test_agent_walk.py
+ERROR tests/unit/test_chat_token.py
+ERROR tests/unit/test_fit_score_logic.py
+ERROR tests/unit/test_intake_activity.py
+ERROR tests/unit/test_parse_resume_activity.py
+ERROR tests/unit/test_pulse_rbac.py
+ERROR tests/unit/test_rate_limit.py - Failed: 'asyncio' not found in `markers...
+ERROR tests/unit/test_score_responses_logic.py
+ERROR tests/unit/test_screening_answer_helpers.py
+ERROR tests/unit/test_screening_url.py
+!!!!!!!!!!!!!!!!!! Interrupted: 11 errors during collection !!!!!!!!!!!!!!!!!!!
+======================== 1 warning, 11 errors in 0.85s ========================
