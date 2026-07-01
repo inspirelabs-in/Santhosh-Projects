@@ -5,7 +5,7 @@ files + pasted links + notes). Output: structured summary and quality flags.
 Does NOT grade the assignment -- final judgment is HR's. Just extracts signal.
 """
 
-ASSIGNMENT_PARSE_VERSION = "v9"  # v9 -- per-dimension criteria_scores and overall_score added
+ASSIGNMENT_PARSE_VERSION = "v11"  # v11 -- allow null score for criteria not assessable from a take-home (excluded from weighted overall)
 ASSIGNMENT_PARSE_V1 = """You are reviewing a candidate's submitted assignment. Your job is to extract signal for the HR reviewer, NOT to grade.
 
 ## Company & role context (role-tuned, generated at JD time)
@@ -17,11 +17,17 @@ When assessing quality signals, weigh THESE dimensions (what_good_looks_like / a
 {evaluation_spec_json}
 
 Role: {role_title}
-Assignment Brief (what was asked):
+Assignment Brief (overview):
 {assignment_brief}
+
+Assignment Problems (exact problem statements as delivered to the candidate — use these to check whether the candidate solved what was actually asked):
+{problems_json}
 
 Assignment Instructions (format/constraints):
 {assignment_instructions}
+
+Assignment Evaluation Rubric (scoring criteria generated with the assignment — use this alongside the role criteria above when scoring):
+{assignment_rubric_json}
 
 Candidate Submission:
 - Confirmed project choice (which option from the brief they picked): {project_choice}
@@ -75,11 +81,17 @@ The quality_signals (depth, originality, clarity, technical_rigor) are coarse lo
 - Make highlights and concerns targeted and nuanced -- each names the specific thing, why it matters for THIS role, and which quality signal it supports or pulls down. Avoid generic one-liners ("good code", "needs work").
 - The summary then ties it together: explain the four ratings in plain prose so HR understands the reasoning, not just the labels. Stay neutral; do not assign a grade or pass/fail.
 
-## Role-specific criteria scoring
+## Criteria scoring
 
-The "Role-specific evaluation criteria" section above contains a JSON array of dimensions. For EACH object in that array, score it 0-100 against ONLY its what_good_looks_like (positive signals) and anti_signals (hard disqualifiers; if an anti_signal clearly applies, score <= 30), using the evidence from the submission (repo, transcript, deploy, notes). Echo key/label/weight unchanged. Return one entry per dimension in `criteria_scores` (same order as the array). If the array is empty, return `criteria_scores: []`.
+Use BOTH scoring inputs:
+1. "Role-specific evaluation criteria" (`{evaluation_spec_json}` above) — role-level dimensions with what_good_looks_like / anti_signals / weights.
+2. "Assignment Evaluation Rubric" (`{assignment_rubric_json}` above) — assignment-specific criteria generated with the problem statement; use these to anchor completeness and quality judgements to what was actually asked.
 
-Set `overall_score` to the weighted result over the spec dimensions (each dimension's score * weight, sum divided by total weight of scored dimensions, rounded to integer 0-100). If no spec dimensions are present, base `overall_score` on the quality signals: low=25, medium=55, high=80 as rough anchors, weighted toward the strongest signals for this role.
+For EACH object in the role evaluation criteria array, score it 0-100 against its what_good_looks_like (positive signals) and anti_signals (hard disqualifiers; if an anti_signal clearly applies, score <= 30). Use the assignment rubric to inform whether the candidate's submission actually solved the problems. Echo key/label/weight unchanged. Return one entry per dimension in `criteria_scores` (same order as the role criteria array). If the array is empty, return `criteria_scores: []`.
+
+NOT-APPLICABLE criteria: a take-home assignment cannot evidence every role-level criterion (e.g. live communication, culture fit, interview-only or reference-check signals). For any criterion you genuinely cannot judge from THIS submission, set its `score` to `null`, set `data_status` to `"pending_verification"`, and say briefly in `rationale` why it can't be assessed here. Do NOT invent or lower a score to fill it in — a `null` score is correctly EXCLUDED from the weighted overall, whereas a low score would unfairly drag it down. Still return the entry (same order, weight echoed) so the reviewer sees it was considered. Only assign a real 0-100 score to criteria the assignment can actually evidence.
+
+Set `overall_score` to the weighted result over the role spec dimensions that you actually scored — each scored dimension's score * weight, sum divided by total weight of the SCORED dimensions only (criteria left as `null` are excluded and the remaining weights effectively renormalize), rounded to integer 0-100. If no dimension could be scored, base `overall_score` on the quality signals: low=25, medium=55, high=80 as rough anchors, weighted toward the strongest signals for this role.
 
 Output strict JSON:
 {{
@@ -95,7 +107,7 @@ Output strict JSON:
     "technical_rigor": "low | medium | high"
   }},
   "criteria_scores": [
-    {{"key": "...", "label": "...", "weight": 0, "score": 0, "rationale": "2-3 sentences: what in the submission revealed this dimension, what raised the score (the specific work or evidence), and what held it back. Name the anti_signal if one applied.", "evidence": ["quote or observation"], "data_status": "verified"}}
+    {{"key": "...", "label": "...", "weight": 0, "score": 0, "rationale": "2-3 sentences: what in the submission revealed this dimension, what raised the score (the specific work or evidence), and what held it back. Name the anti_signal if one applied. If not assessable from a take-home, set score to null and explain why here.", "evidence": ["quote or observation"], "data_status": "verified"}}
   ],
   "overall_score": 0,
   "highlights": ["specific strong points -- name WHAT is strong, WHY it matters for this role, and which quality signal it supports"],

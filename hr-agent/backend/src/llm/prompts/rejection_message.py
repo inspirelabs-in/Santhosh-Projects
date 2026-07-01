@@ -57,6 +57,8 @@ Rules:
 
 - Do NOT use corporate buzzwords or template language
 
+- Do NOT add any greeting or sign-off. No "Hi/Dear", no "Best/Best regards", no name, and NEVER a "[your name]" / "[Your Name]" placeholder. The email template adds the greeting and the "Best regards, Org Name" sign-off automatically -- return ONLY the message body.
+
 
 
 Respond with a JSON object in this exact shape:
