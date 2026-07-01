@@ -359,4 +359,68 @@
     from { opacity: 1; transform: translateY(0) scale(1); }
     to   { opacity: 0; transform: translateY(-8px) scale(0.96); }
   }
+
+  /* --- Marketing / landing polish --------------------------------------- */
+  /* Slow drifting blobs for the hero backdrop. */
+  .animate-float { animation: lp-float 9s ease-in-out infinite; }
+  .animate-float-slow { animation: lp-float 15s ease-in-out infinite; }
+  @keyframes lp-float {
+    0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+    50%      { transform: translate3d(0, -22px, 0) scale(1.06); }
+  }
+  /* Connector line that grows in on the pipeline band. */
+  .lp-line-grow { transform-origin: left; animation: lp-line-grow 1.1s cubic-bezier(0.22, 1, 0.36, 1) both; }
+  @keyframes lp-line-grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+  @media (prefers-reduced-motion: reduce) {
+    .animate-float, .animate-float-slow, .lp-line-grow { animation: none; }
+  }
+
+  /* Relevancy scan: sidebar agent bars rise/settle in sequence when the agent
+     is evaluating applications. transform-only (GPU-cheap), origin at base. */
+  .relv-bar-anim {
+    transform-origin: bottom;
+    animation: relv-bar 1.1s ease-in-out infinite;
+  }
+  @keyframes relv-bar {
+    0%, 100% { transform: scaleY(0.35); }
+    50%      { transform: scaleY(1); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .relv-bar-anim { animation: none; transform: scaleY(0.6); }
+  }
+
+  /* --- Funnel screening animation (landing hero) ------------------------ */
+  /* Resumes pour in fast from a wide spread (--x0), converge at the relevancy
+     neck, then SPLIT: kept veer right to the shortlist, rejected veer left and
+     fade. left/top are %-based so it maps onto the funnel at any width. */
+  .lp-funnel-keep { animation: lp-funnel-keep 3.8s cubic-bezier(0.45, 0, 0.3, 1) infinite; }
+  @keyframes lp-funnel-keep {
+    0%   { top: -18%; left: var(--x0); opacity: 0; transform: translateX(-50%) scale(0.8) rotate(-4deg); }
+    14%  { opacity: 1; }
+    46%  { top: 44%; left: 50%; transform: translateX(-50%) scale(1) rotate(0deg); }
+    72%  { top: 74%; left: 76%; opacity: 1; }
+    100% { top: 96%; left: 80%; opacity: 0; transform: translateX(-50%) scale(0.9); }
+  }
+  .lp-funnel-reject { animation: lp-funnel-reject 3.8s cubic-bezier(0.45, 0, 0.3, 1) infinite; }
+  @keyframes lp-funnel-reject {
+    0%   { top: -18%; left: var(--x0); opacity: 0; transform: translateX(-50%) scale(0.8); }
+    14%  { opacity: 0.85; }
+    46%  { top: 44%; left: 50%; opacity: 0.8; transform: translateX(-50%) scale(0.94); }
+    72%  { top: 74%; left: 24%; opacity: 0.4; }
+    100% { top: 96%; left: 20%; opacity: 0; transform: translateX(-50%) scale(0.85); }
+  }
+  /* Check badge reveals as the kept resume clears the neck. */
+  .lp-badge-keep { animation: lp-check 3.8s ease infinite; }
+  @keyframes lp-check {
+    0%, 48% { opacity: 0; transform: scale(0.4); }
+    60%     { opacity: 1; transform: scale(1); }
+    100%    { opacity: 1; }
+  }
+  /* Relevancy pulse at the funnel neck. */
+  .lp-neck-glow { animation: lp-neck 1.8s ease-in-out infinite; }
+  @keyframes lp-neck { 0%, 100% { opacity: 0.25; } 50% { opacity: 0.75; } }
+  @media (prefers-reduced-motion: reduce) {
+    .lp-funnel-keep, .lp-funnel-reject, .lp-badge-keep, .lp-neck-glow { animation: none; }
+    .lp-funnel-reject { opacity: 0; }
+  }
 }
