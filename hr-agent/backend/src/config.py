@@ -119,6 +119,11 @@ class Settings(BaseSettings):
     smtp_password: str | None = None
     smtp_use_tls: bool = False
 
+    # Landing-page lead capture. When set, the public /leads endpoint emails
+    # visitor enquiries here. Unset -> the endpoint returns not-configured and
+    # the site hides the form gracefully.
+    leads_email: str | None = None
+
     # WhatsApp (Meta Cloud)
     whatsapp_access_token: str | None = None
     whatsapp_phone_number_id: str | None = None

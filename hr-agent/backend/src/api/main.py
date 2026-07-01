@@ -23,6 +23,7 @@ from src.api import (
     ceo_dashboard,
     dashboard,
     export,
+    leads,
     recruiter_chat,
     hr_dashboard,
     events as events_router,
@@ -184,6 +185,7 @@ app.include_router(candidate_ranking.router)
 app.include_router(supervisor_api.router)
 app.include_router(policy_rules.router)
 app.include_router(candidate_portal.router)
+app.include_router(leads.router)
 
 
 @app.get("/healthz", summary="Liveness probe")
