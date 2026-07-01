@@ -199,6 +199,10 @@ async def _check_stuck_voice_calls() -> int:
                             "voice_screen_in_progress",
                         )),
                         Application.status.notin_(("rejected", "hired", "withdrawn")),
+                        or_(
+                            Application.current_stage_key.is_(None),
+                            Application.current_stage_key.notin_(("rejected", "hired")),
+                        ),
                     )
                 )
             )
@@ -260,6 +264,12 @@ async def _check_stuck_meetings() -> int:
                             ),
                         ),
                         Application.status.notin_(("rejected", "hired", "withdrawn")),
+                        # V2 terminal cursor: a rejected/hired candidate may not have
+                        # its legacy `status` flipped, so exclude by cursor too.
+                        or_(
+                            Application.current_stage_key.is_(None),
+                            Application.current_stage_key.notin_(("rejected", "hired")),
+                        ),
                     )
                 )
             )
@@ -273,6 +283,14 @@ async def _check_stuck_meetings() -> int:
     for mid, scheduled_at, created_at, round_name, app_id in detached:
         ref_time = scheduled_at or created_at
         hours = (now - ref_time).total_seconds() / 3600
+        # Mark the session timed-out FIRST so a subsequent watchdog pass can't
+        # re-detect the same stuck meeting and re-park/re-notify forever. This is
+        # the loop-breaker: without it, every run re-alerts the same meeting.
+        async with session_scope() as session:
+            row = await session.get(MeetingSession, mid)
+            if row is not None:
+                row.bot_status = "timeout"
+                row.error = f"Bot never reported back after {hours:.1f}h"
         try:
             await webhook_timeout_fallback(
                 app_id,
@@ -303,6 +321,10 @@ async def _check_stuck_assessments() -> int:
                         AssessmentResult.status == "invited",
                         AssessmentResult.created_at < cutoff,
                         Application.status.notin_(("rejected", "hired", "withdrawn")),
+                        or_(
+                            Application.current_stage_key.is_(None),
+                            Application.current_stage_key.notin_(("rejected", "hired")),
+                        ),
                     )
                 )
             )
