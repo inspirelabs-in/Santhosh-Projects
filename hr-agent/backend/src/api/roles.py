@@ -51,6 +51,9 @@ class RoleRead(BaseModel):
     assignment_deadline_days: int
     assignment_problem_doc_filename: str | None
     has_problem_doc: bool
+    # PI assessment links (shown in assignment email when pi_tests_enabled)
+    pi_cognitive_link: str | None = None
+    pi_personality_link: str | None = None
     pipeline_template: list[str] | None
     # Real pipeline source of truth (role_pipeline_stages), ordered by position.
     # Mirrors the stage_view shape rendered on the candidate detail page.
@@ -81,6 +84,9 @@ class RoleWrite(BaseModel):
     pipeline_template: list[str] | None = None
     evaluation_spec: dict[str, Any] | None = None
     company_context: dict[str, Any] | None = None
+    # PI assessment links (optional; only sent in email when pi_tests_enabled org flag is on)
+    pi_cognitive_link: str | None = None
+    pi_personality_link: str | None = None
 
 
 class RolePatch(BaseModel):
@@ -107,6 +113,8 @@ class RolePatch(BaseModel):
     screening_modality: str | None = None
     evaluation_spec: dict[str, Any] | None = None
     company_context: dict[str, Any] | None = None
+    pi_cognitive_link: str | None = None
+    pi_personality_link: str | None = None
 
 
 def _to_read(r: Role, stages: list[Any] | None = None) -> RoleRead:
@@ -129,6 +137,8 @@ def _to_read(r: Role, stages: list[Any] | None = None) -> RoleRead:
         assignment_deadline_days=r.assignment_deadline_days,
         assignment_problem_doc_filename=r.assignment_problem_filename,
         has_problem_doc=bool(r.assignment_problem_doc_key),
+        pi_cognitive_link=r.pi_cognitive_link,
+        pi_personality_link=r.pi_personality_link,
         pipeline_template=r.pipeline_template,
         pipeline=[
             {
@@ -201,6 +211,8 @@ async def create_role(
             pipeline_template=payload.pipeline_template,
             evaluation_spec=payload.evaluation_spec,
             company_context=payload.company_context,
+            pi_cognitive_link=payload.pi_cognitive_link,
+            pi_personality_link=payload.pi_personality_link,
         )
         if payload.pipeline_template:
             from src.services.pipeline_templates import validate_template
@@ -253,6 +265,8 @@ async def update_role(
         role.assignment_brief = payload.assignment_brief
         role.assignment_instructions = payload.assignment_instructions
         role.assignment_deadline_days = payload.assignment_deadline_days
+        role.pi_cognitive_link = payload.pi_cognitive_link
+        role.pi_personality_link = payload.pi_personality_link
         if payload.pipeline_template:
             from src.services.pipeline_templates import validate_template
             errors = validate_template(payload.pipeline_template)

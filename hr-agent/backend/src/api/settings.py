@@ -76,6 +76,7 @@ async def get_ui_settings(
         "data_retention_days_talent_pool": s.data_retention_days_talent_pool,
         "dpo_contact_email": s.dpo_contact_email,
         "auto_approve_green_tier": s.auto_approve_green_tier,
+        "pi_tests_enabled": s.pi_tests_enabled,
         "enable_whatsapp": s.enable_whatsapp,
         "enable_sms_reminders": s.enable_sms_reminders,
         "channel_configured": {

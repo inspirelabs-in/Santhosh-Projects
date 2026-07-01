@@ -927,6 +927,12 @@ async def reject_candidate(
         app.admin_review = merged_admin
 
         await set_stage(session, application_id, PipelineStage.REJECTED, force=True)
+        # Terminal state: set_stage() intentionally skips current_stage_key to avoid
+        # V1/V2 dual-write races, but rejection is terminal so no V2 auto_progress
+        # will ever run again. Write the cursor explicitly so the GET endpoint returns
+        # "rejected" instead of the stale pre-rejection stage key.
+        app.current_stage_key = "rejected"
+        app.stage_status = "rejected"
         await log_audit(
             session,
             application_id=application_id,
@@ -1555,7 +1561,7 @@ async def resolve_needs_review(
         raise HTTPException(status_code=400, detail="decision must be pass|reject")
 
     from src.models.pipeline import StageVerdict
-    from src.services.stage_runner import advance_candidate
+    from src.services.stage_runner import _auto_reject_with_email, advance_candidate
 
     async with session_scope() as session:
         app = await session.get(Application, application_id)
@@ -1571,11 +1577,25 @@ async def resolve_needs_review(
             details={"decision": body.decision, "stage_key": stage_key, "note": body.note},
         )
 
-    verdict = StageVerdict.PASS if body.decision == "pass" else StageVerdict.FAIL
+    # A human's explicit reject must ALWAYS reject + send the rejection email.
+    # We deliberately do NOT route this through advance_candidate(FAIL): that path
+    # re-consults the stage's auto|manual mode and would silently *re-park* a
+    # candidate sitting at a manual-mode stage (voice_screen/assignment/interview),
+    # so HR's "Reject" click would do nothing and no email would go out. The mode
+    # gate only makes sense for an automated FAIL signal; a human already decided.
+    if body.decision == "reject":
+        await _auto_reject_with_email(
+            application_id=application_id,
+            completed_stage_key=stage_key or "review",
+            score=None,
+            threshold=None,
+        )
+        return {"ok": True, "decision": f"rejected:{stage_key or 'review'}"}
+
     decision = await advance_candidate(
         application_id=application_id,
         completed_stage_key=stage_key,
-        verdict=verdict,
+        verdict=StageVerdict.PASS,
         result_ref={"hr_decision": body.decision, "via": "needs_review_resolve"},
     )
     return {"ok": True, "decision": decision}
