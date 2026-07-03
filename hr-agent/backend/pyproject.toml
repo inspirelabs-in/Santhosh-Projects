@@ -14,9 +14,6 @@ dependencies = [
     "python-multipart>=0.0.20",
     "httpx>=0.28.0",
 
-    # Workflow orchestration
-    "temporalio>=1.18.0",
-
     # LLM
     "litellm>=1.83.0",
     "anthropic>=0.100.0",
