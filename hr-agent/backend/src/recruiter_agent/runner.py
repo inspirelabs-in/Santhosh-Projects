@@ -51,6 +51,7 @@ from uuid import UUID
 import litellm
 
 from src.config import get_settings
+from src.constants.digest import WELCOME_DIGEST_TOOL_MARKER
 from src.db.connection import session_scope
 from src.db.repositories import artifact as artifact_repo
 from src.db.repositories import recruiter_chat as repo
@@ -160,8 +161,8 @@ async def _generate_conversation_title(
 
     Returns None on any error so the caller falls back to a heuristic title.
     """
-    snippet_user = (user_message or "").strip()[:400]
-    snippet_assistant = (assistant_reply or "").strip()[:400]
+    snippet_user = (user_message or "").strip()[:1000]
+    snippet_assistant = (assistant_reply or "").strip()[:1000]
     if not snippet_user:
         return None
     try:
@@ -171,16 +172,25 @@ async def _generate_conversation_title(
                 {
                     "role": "system",
                     "content": (
-                        "Summarize the user's intent in 3-5 words for a "
-                        "ChatGPT-style chat-list title. Title Case. No quotes. "
-                        "No trailing punctuation. <= 40 characters."
+                        "You write the sidebar label for a conversation in "
+                        "Pulse, a hiring assistant for recruiters. From the "
+                        "opening exchange, name what the recruiter is trying "
+                        "to accomplish — the role, candidate, metric, or task "
+                        "involved. If they are only exploring what the "
+                        "assistant can do, use a getting-started label such as "
+                        "'Getting Started' or 'Exploring Features'.\n"
+                        "Rules: 3-5 words, Title Case, no surrounding quotes, "
+                        "no trailing punctuation, 40 characters max. The label "
+                        "names the recruiter's goal, never the tool behind it — "
+                        "do not mention any AI, model, assistant, ChatGPT, "
+                        "Claude, GPT, or bot."
                     ),
                 },
                 {
                     "role": "user",
                     "content": (
-                        f"USER: {snippet_user}\nASSISTANT: {snippet_assistant}\n"
-                        "Title:"
+                        f"USER: {snippet_user}\nASSISTANT: {snippet_assistant}\n\n"
+                        "Label:"
                     ),
                 },
             ],
@@ -265,10 +275,22 @@ def _propose_preview(tool_name: str, args: dict[str, Any]) -> str:
             f"Move the {round_lbl + ' ' if round_lbl else ''}interview to "
             f"{a.get('new_scheduled_at')} and re-send updated invites to everyone."
         )
-    if tool_name == "set_panel_member":
-        return f"Assign panel member {a.get('panel_member_id')} to {a.get('round')} round of role {a.get('role_id')}."
     if tool_name == "update_setting":
         return f"Set config '{a.get('key')}' = {a.get('value')}."
+    if tool_name == "update_org_data":
+        patch = a.get("patch") if isinstance(a.get("patch"), dict) else {}
+        verb = "Replace" if a.get("replace_lists") else "Add/update"
+        list_fields = {"values", "what_good_looks_like", "anti_patterns"}
+        parts: list[str] = []
+        for k, v in patch.items():
+            if k in list_fields and isinstance(v, list):
+                parts.append(f"{verb} {len(v)} {k.replace('_', ' ')}")
+            elif isinstance(v, str) and v.strip():
+                parts.append(f"set {k.replace('_', ' ')}")
+        if a.get("org_context_summary"):
+            parts.append("set company summary")
+        detail = "; ".join(parts) if parts else "no changes"
+        return f"Update company profile: {detail}."
     return f"{tool_name}({a})"
 
 
@@ -694,6 +716,13 @@ def _is_synthetic_confirm_user(m: Any) -> bool:
     )
 
 
+def _is_welcome_digest(m: Any) -> bool:
+    """Welcome-back digest message: shown in the UI as an assistant greeting,
+    but folded into the next user turn when building LLM history (a leading
+    assistant message would break provider ordering)."""
+    return getattr(m, "role", None) == "assistant" and getattr(m, "tool_name", None) == WELCOME_DIGEST_TOOL_MARKER
+
+
 async def _build_history_for_llm(
     session, conversation_id: UUID
 ) -> list[dict[str, Any]]:
@@ -746,9 +775,28 @@ async def _build_history_for_llm(
     # Pass 2: emit OpenAI-shaped messages.
     emitted_tc_ids: set[str] = set()
     out: list[dict[str, Any]] = []
+    pending_digest = ""
     for i, m in enumerate(raw):
+        if _is_welcome_digest(m):
+            pending_digest = (m.content or "").strip()
+            continue
+
         if m.role == "user" and m.content:
-            out.append({"role": "user", "content": m.content})
+            content = m.content
+            if pending_digest:
+                # Fold the digest into the user's message ONLY on the turn it
+                # belongs to -- the first user message after the digest, and only
+                # while that's the current (last) turn being answered. This sends
+                # the digest to the model exactly once instead of re-appending it
+                # every future rebuild (which would re-send the digest tokens each
+                # turn for no benefit). Cleared either way so it never folds twice.
+                if i == len(raw) - 1:
+                    content = (
+                        f"{content}\n\n(Context — when you opened Pulse you were shown "
+                        f"this catch-up digest:\n{pending_digest})"
+                    )
+                pending_digest = ""
+            out.append({"role": "user", "content": content})
 
         elif m.role == "assistant":
             clean_tcs: list[dict[str, Any]] = []
