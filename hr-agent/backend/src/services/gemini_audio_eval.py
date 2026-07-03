@@ -19,6 +19,7 @@ import logging
 from uuid import UUID
 
 from src.config import get_settings
+from src.constants.gemini_models import GEMINI_MODELS
 from src.llm.prompt_manager import compile_prompt
 from src.llm.prompts.voice_screen_eval_audio import VOICE_SCREEN_EVAL_AUDIO_V1
 from src.models.v1 import VoiceCallScore
@@ -26,7 +27,7 @@ from src.services.scoring_context import compute_spec_weighted_score, scoring_pr
 
 logger = logging.getLogger(__name__)
 
-_GEMINI_MODEL = "gemini-2.5-flash"
+_GEMINI_MODEL = GEMINI_MODELS["voice_eval"]
 
 
 async def evaluate_voice_call_with_audio(
