@@ -25,6 +25,19 @@ from src.activities.v1_schedule_meeting import schedule_meeting as _schedule_mee
 from src.activities.v1_dispatch_voice_call import dispatch_voice_call as _dispatch_voice_call
 from src.activities.v1_voice_screening import dispatch_voice_screening as _dispatch_voice_screening
 from src.config import get_settings
+from src.constants.external import ELEVENLABS_API_BASE
+from src.constants.timers import (
+    ASSIGNMENT_DEADLINE_REMINDER_WINDOW_HOURS,
+    MEETING_ANALYSIS_STUCK_CUTOFF_MINUTES,
+    MEETING_IN_CALL_STUCK_CUTOFF_HOURS,
+    POLL_DUE_CALLBACKS_HORIZON_SECONDS,
+    PRUNE_OLD_ARTIFACTS_MIN_RETENTION_DAYS,
+    RECONCILE_STUCK_MEETINGS_CRON_MINUTES,
+    RECONCILE_STUCK_VOICE_CALLS_CRON_MINUTES,
+    VOICE_CALL_EVAL_RETRY_CUTOFF_MINUTES,
+    VOICE_CALL_NO_PICKUP_CUTOFF_MINUTES,
+    VOICE_CALL_OVER_RUNTIME_GRACE_SECONDS,
+)
 from src.db.base import VoiceCall
 from src.db.connection import session_scope
 from src.models.v1 import CallKind, VoiceCallStatus
@@ -95,9 +108,8 @@ async def evaluate_voice_call(
 async def dispatch_assessment(
     ctx: dict[str, Any],
     application_id: str,
-) -> list[str]:
-    rows = await _dispatch_assessment(application_id=UUID(application_id))
-    return [str(r) for r in rows]
+) -> None:
+    await _dispatch_assessment(application_id=UUID(application_id))
 
 
 # ---------------------------------------------------------------------------
@@ -217,7 +229,7 @@ async def poll_due_callbacks(ctx: dict[str, Any]) -> int:
         return 0
 
     now = datetime.now(UTC)
-    horizon = now + timedelta(seconds=30)
+    horizon = now + timedelta(seconds=POLL_DUE_CALLBACKS_HORIZON_SECONDS)
     dispatched = 0
 
     async with session_scope() as session:
@@ -284,6 +296,41 @@ async def campaign_dispatch_tick(ctx: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Cron: merged tick — combines poll_due_callbacks + campaign_dispatch_tick
+# into a single cron registration to cut Redis/arq scheduling overhead.
+#
+# Both originals were "every 15s" pollers, staggered ~7s apart only to spread
+# load (poll_due_callbacks at :00/:15/:30/:45, campaign_dispatch_tick at
+# :07/:22/:37/:52). Merged, that stagger is pointless, so this job fires once
+# every 15s (:00/:15/:30/:45) and runs BOTH bodies each tick — preserving each
+# job's original 4x/min frequency. We deliberately do NOT re-check the exact
+# second here: with poll_delay raised to 10s, arq picks a cron up to ~10s after
+# its scheduled second (jobs are enqueued with _defer_until=next_run and only
+# collected on the next poll iteration), so datetime.now().second would rarely
+# match an exact set and would skip the bodies. Each body is wrapped in its own
+# try/except so a failure in one can never block the other.
+# ---------------------------------------------------------------------------
+
+
+async def voice_and_campaign_tick(ctx: dict[str, Any]) -> dict[str, Any]:
+    """Run poll_due_callbacks + campaign_dispatch_tick bodies every tick from a
+    single merged cron registration (each at its original 4x/min frequency)."""
+    result: dict[str, Any] = {}
+
+    try:
+        result["poll_due_callbacks"] = await poll_due_callbacks(ctx)
+    except Exception:
+        logger.exception("voice_and_campaign_tick: poll_due_callbacks failed")
+
+    try:
+        result["campaign_dispatch_tick"] = await campaign_dispatch_tick(ctx)
+    except Exception:
+        logger.exception("voice_and_campaign_tick: campaign_dispatch_tick failed")
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Cron: reconcile stuck voice calls.
 # ---------------------------------------------------------------------------
 
@@ -325,8 +372,10 @@ async def reconcile_stuck_voice_calls(ctx: dict[str, Any]) -> int:
     # started but exceeded the max call duration with no ended_at. Webhook
     # delivery failures are the usual cause.
     now = datetime.now(UTC)
-    no_pickup_cutoff = now - timedelta(minutes=5)
-    over_runtime_cutoff = now - timedelta(seconds=settings.voice_agent_max_call_seconds + 30)
+    no_pickup_cutoff = now - timedelta(minutes=VOICE_CALL_NO_PICKUP_CUTOFF_MINUTES)
+    over_runtime_cutoff = now - timedelta(
+        seconds=settings.voice_agent_max_call_seconds + VOICE_CALL_OVER_RUNTIME_GRACE_SECONDS
+    )
     reconciled = 0
 
     async with session_scope() as session:
@@ -367,7 +416,7 @@ async def reconcile_stuck_voice_calls(ctx: dict[str, Any]) -> int:
         return 0
 
     headers = {"xi-api-key": settings.elevenlabs_api_key}
-    base = "https://api.elevenlabs.io/v1/convai/conversations"
+    base = f"{ELEVENLABS_API_BASE}/convai/conversations"
 
     for voice_call_id, application_id, provider_call_id, questions, attempt_no in targets:
         try:
@@ -527,7 +576,7 @@ async def reconcile_stuck_voice_calls(ctx: dict[str, Any]) -> int:
 
     # Phase 2: pick up calls that completed (transcript saved) but evaluation
     # failed — they sit in voice_screen_completed with no verdict indefinitely.
-    eval_retry_cutoff = now - timedelta(minutes=5)
+    eval_retry_cutoff = now - timedelta(minutes=VOICE_CALL_EVAL_RETRY_CUTOFF_MINUTES)
     async with session_scope() as session:
         from src.db.base import Application as _App
 
@@ -570,7 +619,7 @@ async def assignment_deadline_reminders(ctx: dict[str, Any]) -> int:
     from src.db.repositories.audit import log_audit
 
     now = datetime.now(UTC)
-    reminder_window = timedelta(hours=24)
+    reminder_window = timedelta(hours=ASSIGNMENT_DEADLINE_REMINDER_WINDOW_HOURS)
     reminded = 0
 
     async with session_scope() as session:
@@ -746,7 +795,7 @@ async def prune_old_artifacts(ctx: dict[str, Any]) -> int:
     from src.services.file_storage import delete as delete_blob
 
     settings = get_settings()
-    days = max(1, settings.data_retention_days_default)
+    days = max(PRUNE_OLD_ARTIFACTS_MIN_RETENTION_DAYS, settings.data_retention_days_default)
     cutoff = datetime.now(UTC) - timedelta(days=days)
     deleted = 0
     bucket = settings.r2_bucket_resumes
@@ -821,7 +870,7 @@ async def reconcile_stuck_meetings(ctx: dict[str, Any]) -> int:
     reconciled = 0
 
     # Case 1: transcript done, analysis never ran
-    analysis_cutoff = now - timedelta(minutes=10)
+    analysis_cutoff = now - timedelta(minutes=MEETING_ANALYSIS_STUCK_CUTOFF_MINUTES)
     async with session_scope() as session:
         stuck_analyzed = (
             await session.execute(
@@ -844,7 +893,7 @@ async def reconcile_stuck_meetings(ctx: dict[str, Any]) -> int:
             reconciled += 1
 
     # Case 2: in_call for too long — bot never reported completion
-    in_call_cutoff = now - timedelta(hours=3)
+    in_call_cutoff = now - timedelta(hours=MEETING_IN_CALL_STUCK_CUTOFF_HOURS)
     async with session_scope() as session:
         stuck_in_call = (
             await session.execute(
@@ -880,3 +929,72 @@ async def reconcile_stuck_meetings(ctx: dict[str, Any]) -> int:
         reconciled += 1
 
     return reconciled
+
+
+# ---------------------------------------------------------------------------
+# Cron: merged tick — combines reconcile_stuck_voice_calls +
+# reconcile_stuck_meetings into a single cron registration to cut Redis/arq
+# scheduling overhead.
+#
+# The two original crons fire on disjoint minute-sets (voice reconciler at
+# :03/:18/:33/:48, meeting reconciler at :10/:25/:40/:55, each every 15
+# minutes). To keep each job running at EXACTLY its original cadence under
+# one registration, this merged job is scheduled at the union of both
+# minute-sets, then internally re-checks the current minute against each
+# job's own original set before invoking that job's body. Each body is
+# wrapped in its own try/except so a failure in one can never block the
+# other.
+#
+# run_at_startup: the original voice-call reconciler ran at startup
+# (run_at_startup=True); the meeting reconciler did not. arq's run_at_startup
+# only affects the very first firing after worker boot -- it runs that one
+# job immediately (regardless of minute), then falls back to the normal
+# minute-based schedule for every later run (see arq.worker.run_cron: a cron
+# job with run_at_startup=True gets `next_run = <boot time>` once, then
+# `calculate_next()` takes over exactly like any other cron job).
+#
+# The merged cron below is registered with run_at_startup=True, so arq gives
+# it one immediate boot-time firing (arbitrary minute) followed by firings
+# strictly on the union-of-minutes schedule. A process-local flag tracks
+# "has this worker process fired this cron yet" so the boot-time firing
+# unconditionally runs the voice-call body (mirroring its original
+# run_at_startup=True) regardless of which minute the worker happened to
+# start on, while the meeting reconciler -- which never had run_at_startup --
+# only runs on its own matching minutes.
+# ---------------------------------------------------------------------------
+
+_voice_and_meetings_cron_started = False
+
+
+async def reconcile_stuck_voice_and_meetings(ctx: dict[str, Any]) -> dict[str, Any]:
+    """Run reconcile_stuck_voice_calls + reconcile_stuck_meetings bodies on
+    their original independent cadences from a single merged cron registration."""
+    global _voice_and_meetings_cron_started
+
+    now = datetime.now(UTC)
+    minute = now.minute
+    result: dict[str, Any] = {}
+
+    is_boot_firing = not _voice_and_meetings_cron_started
+    _voice_and_meetings_cron_started = True
+
+    is_voice_minute = minute in RECONCILE_STUCK_VOICE_CALLS_CRON_MINUTES
+    is_meeting_minute = minute in RECONCILE_STUCK_MEETINGS_CRON_MINUTES
+
+    if is_voice_minute or is_boot_firing:
+        try:
+            result["reconcile_stuck_voice_calls"] = await reconcile_stuck_voice_calls(ctx)
+        except Exception:
+            logger.exception(
+                "reconcile_stuck_voice_and_meetings: reconcile_stuck_voice_calls failed"
+            )
+
+    if is_meeting_minute:
+        try:
+            result["reconcile_stuck_meetings"] = await reconcile_stuck_meetings(ctx)
+        except Exception:
+            logger.exception(
+                "reconcile_stuck_voice_and_meetings: reconcile_stuck_meetings failed"
+            )
+
+    return result
