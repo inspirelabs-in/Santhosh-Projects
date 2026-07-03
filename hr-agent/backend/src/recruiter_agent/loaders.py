@@ -58,7 +58,6 @@ TOOL_LOADERS: dict[str, str] = {
     "schedule_interview": "Setting up the interview…",
     "schedule_meeting": "Setting up the meeting…",
     "reschedule_meeting": "Rescheduling…",
-    "set_panel_member": "Updating the panel…",
     "add_panel_member": "Updating the panel…",
     # ---- LinkedIn ----
     "draft_linkedin_post": "Writing the post…",
