@@ -1,8 +1,5 @@
 """Stage 5: Screening invitation + reminders (multi-channel).
 
-One activity per send event so Temporal can retry each independently. The
-sub-workflow in src/workflows/screening.py decides *when* each fires.
-
 Channel matrix (references/pipeline-stages.md):
   - Invite         → email + WhatsApp
   - Day 3 reminder → email + WhatsApp
@@ -15,8 +12,6 @@ import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from uuid import UUID
-
-from temporalio import activity
 
 from src.channels.email import send_email
 from src.channels.sms import send_sms
@@ -178,39 +173,3 @@ async def run_send_screening(payload: ScreeningSendInput) -> ScreeningSendResult
         form_url=form_url,
         failures=failures,
     )
-
-
-# ---------------------------------------------------------------------------
-# Cold-pool park (Day 10 no-response)
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class ParkColdPoolInput:
-    candidate_id: UUID
-    application_id: UUID
-    reason: str = "no_screening_response_10d"
-
-
-@activity.defn(name="park_cold_pool")
-async def park_cold_pool_activity(payload: ParkColdPoolInput) -> None:
-    async with session_scope() as session:
-        candidate = await get_candidate(session, payload.candidate_id)
-        if candidate is not None:
-            candidate.status = CandidateStatus.COLD.value
-        await update_application_status(
-            session, payload.application_id, ApplicationStatus.COLD
-        )
-        await log_audit(
-            session,
-            action="parked_cold_pool",
-            actor="agent",
-            candidate_id=payload.candidate_id,
-            application_id=payload.application_id,
-            details={"reason": payload.reason},
-        )
-
-
-@activity.defn(name="send_screening")
-async def send_screening_activity(payload: ScreeningSendInput) -> ScreeningSendResult:
-    return await run_send_screening(payload)

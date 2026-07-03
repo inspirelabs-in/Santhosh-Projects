@@ -18,8 +18,6 @@ import logging
 from dataclasses import dataclass
 from uuid import UUID
 
-from temporalio import activity
-
 from src.config import get_settings
 from src.db.connection import session_scope
 from src.db.repositories.audit import log_audit
@@ -374,13 +372,3 @@ async def run_parse_resume(payload: ParseResumeInput) -> ParseResumeResult:
             trace_id=result.trace_id,
             needs_hr_review=needs_hr_review,
         )
-
-
-# ---------------------------------------------------------------------------
-# Temporal wrapper
-# ---------------------------------------------------------------------------
-
-
-@activity.defn(name="parse_resume")
-async def parse_resume_activity(payload: ParseResumeInput) -> ParseResumeResult:
-    return await run_parse_resume(payload)
