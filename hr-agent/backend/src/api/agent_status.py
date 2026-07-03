@@ -22,6 +22,7 @@ from pydantic import BaseModel
 from sqlalchemy import desc, select
 
 from src.api.auth import require_viewer
+from src.constants.statuses import ACTIVE_MEETING_SESSION_BOT_STATUSES
 from src.db.base import (
     Application,
     AssessmentResult,
@@ -62,7 +63,7 @@ class AgentSnapshot(BaseModel):
 
 _ACTIVE_VOICE = ["pending", "dialing", "in_progress", "callback_requested"]
 _ACTIVE_ASSESS = ["invited", "in_progress"]
-_ACTIVE_MEET = ["pending", "scheduled", "in_call"]
+_ACTIVE_MEET = ACTIVE_MEETING_SESSION_BOT_STATUSES
 
 
 @router.get("/snapshot", response_model=AgentSnapshot)
