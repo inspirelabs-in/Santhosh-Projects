@@ -1,0 +1,14 @@
+# Normalize line endings. Without this, core.autocrlf=true on Windows checks
+# out shell scripts with CRLF, which breaks their shebang inside Linux
+# containers ("env: 'bash\r': No such file or directory" -> exit 127).
+
+# Default: let Git normalize text files, but never force CRLF.
+* text=auto
+
+# Files that run inside Linux containers MUST stay LF regardless of platform.
+*.sh            text eol=lf
+entrypoint.sh   text eol=lf
+Dockerfile      text eol=lf
+*.Dockerfile    text eol=lf
+Caddyfile       text eol=lf
+supervisord.conf text eol=lf
