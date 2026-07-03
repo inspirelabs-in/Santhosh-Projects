@@ -26,6 +26,20 @@ export interface ToolCall {
   arguments?: Record<string, unknown>;
 }
 
+// An assistant turn is a single bubble made of ordered parts: streamed text
+// segments interleaved with the tool steps that ran mid-turn. Rendering the
+// blocks in order keeps text + tool activity inside one consistent bubble
+// instead of scattering them across separate rows.
+export type TurnBlock =
+  | { kind: "text"; text: string }
+  | {
+      kind: "tool";
+      toolName: string;
+      streaming: boolean;
+      attachments?: Attachment[];
+      preview?: string;
+    };
+
 export interface Attachment {
   kind: string; // candidate-list | role-list | candidate-detail | metrics | stuck-list | audit-list | action-result
   data?: unknown;
@@ -66,6 +80,10 @@ export interface RecruiterMessage {
   toolName?: string | null;
   toolResultPreview?: string;
   attachments?: Attachment[];
+  // Ordered parts of an assistant turn (text + tool steps). When present the
+  // bubble renders these; `content` is kept in sync as a plain-text fallback
+  // for non-turn messages (hydrated history, apply follow-ups).
+  blocks?: TurnBlock[];
   createdAt: number;
 }
 
@@ -137,37 +155,59 @@ function authHeader(): Record<string, string> {
 
 function hydrate(detail: ConversationDetailRaw): RecruiterMessage[] {
   const out: RecruiterMessage[] = [];
+  // The current assistant turn being assembled. A turn spans every assistant
+  // + tool message between two user/system boundaries, so reloaded history
+  // renders as the same single bubble the live stream produces.
+  let turn: RecruiterMessage | null = null;
+  const flush = () => {
+    if (turn && turn.blocks && turn.blocks.length > 0) out.push(turn);
+    turn = null;
+  };
+  const ensure = (seq: number, createdAt: number): RecruiterMessage => {
+    if (!turn) {
+      turn = { id: `srv-${seq}`, role: "assistant", content: "", blocks: [], createdAt };
+    }
+    return turn;
+  };
+
   for (const m of detail.messages) {
-    if (m.role === "user" || m.role === "assistant") {
-      out.push({
-        id: `srv-${m.sequence}`,
-        role: m.role,
-        content: m.content || "",
-        toolCalls: m.tool_calls || undefined,
-        attachments: m.attachments || undefined,
-        createdAt: new Date(m.created_at).getTime(),
-      });
+    const createdAt = new Date(m.created_at).getTime();
+    if (m.role === "assistant") {
+      const t = ensure(m.sequence, createdAt);
+      const text = (m.content || "").trim();
+      if (text) t.blocks!.push({ kind: "text", text: m.content || "" });
+      if (m.tool_calls) t.toolCalls = m.tool_calls;
     } else if (m.role === "tool") {
-      // Role drafts render in the artifact panel, not as an inline tool row.
+      // Role drafts render in the artifact panel, not as an inline tool step.
       if (m.tool_name === "propose_role_draft") continue;
+      const t = ensure(m.sequence, createdAt);
+      t.blocks!.push({
+        kind: "tool",
+        toolName: m.tool_name || "",
+        streaming: false,
+        attachments: m.attachments || undefined,
+      });
+    } else if (m.role === "user") {
+      flush();
       out.push({
         id: `srv-${m.sequence}`,
-        role: "tool",
-        content: "",
-        toolName: m.tool_name,
+        role: "user",
+        content: m.content || "",
         attachments: m.attachments || undefined,
-        createdAt: new Date(m.created_at).getTime(),
+        createdAt,
       });
     } else if (m.role === "system") {
+      flush();
       out.push({
         id: `srv-${m.sequence}`,
         role: "system",
         content: m.content || "",
         attachments: m.attachments || undefined,
-        createdAt: new Date(m.created_at).getTime(),
+        createdAt,
       });
     }
   }
+  flush();
   return out;
 }
 
@@ -190,22 +230,58 @@ export function useRecruiterChat(): UseRecruiterChatReturn {
   const reconnectAttemptRef = useRef(0);
   const activeAssistantIdRef = useRef<string | null>(null);
 
-  const ensureAssistant = useCallback(() => {
+  // Create (or return) the current assistant turn — one bubble that will hold
+  // this turn's text + tool steps. Reused across all events until the turn is
+  // finalized on `done`/`error`.
+  const ensureTurn = useCallback(() => {
     if (activeAssistantIdRef.current) return activeAssistantIdRef.current;
     const id = uid();
     activeAssistantIdRef.current = id;
     setMessages((prev) => [
       ...prev,
-      { id, role: "assistant", content: "", streaming: true, createdAt: Date.now() },
+      { id, role: "assistant", content: "", blocks: [], streaming: true, createdAt: Date.now() },
     ]);
     return id;
   }, []);
 
-  const finalizeAssistant = useCallback(() => {
+  // Mutate the current turn's block list in place.
+  const patchTurn = useCallback(
+    (fn: (blocks: TurnBlock[]) => TurnBlock[]) => {
+      const id = ensureTurn();
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === id ? { ...m, blocks: fn(m.blocks ? [...m.blocks] : []) } : m,
+        ),
+      );
+    },
+    [ensureTurn],
+  );
+
+  const finalizeTurn = useCallback(() => {
     const id = activeAssistantIdRef.current;
-    if (!id) return;
-    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, streaming: false } : m)));
     activeAssistantIdRef.current = null;
+    if (!id) return;
+    setMessages((prev) => {
+      const m = prev.find((x) => x.id === id);
+      if (!m) return prev;
+      // Drop a stray empty bubble (e.g. the thinking placeholder for a turn
+      // that produced no text and no tool steps — a give_choice ask, or a
+      // role-draft that only opened the side panel).
+      const empty =
+        (!m.content || !m.content.trim()) && (!m.blocks || m.blocks.length === 0);
+      if (empty) return prev.filter((x) => x.id !== id);
+      return prev.map((x) =>
+        x.id === id
+          ? {
+              ...x,
+              streaming: false,
+              blocks: (x.blocks || []).map((b) =>
+                b.kind === "tool" ? { ...b, streaming: false } : b,
+              ),
+            }
+          : x,
+      );
+    });
   }, []);
 
   // ---- API helpers ----
@@ -343,6 +419,9 @@ export function useRecruiterChat(): UseRecruiterChatReturn {
           case "thinking":
             setThinkingLabel((payload.label as string) || "");
             setIsThinking(true);
+            // Materialize the turn bubble now so the thinking dots render
+            // inside the same bubble the text/tools will fill.
+            ensureTurn();
             break;
           case "tool_call": {
             // Role-draft writes surface in the artifact panel, not as a tool row.
@@ -353,6 +432,10 @@ export function useRecruiterChat(): UseRecruiterChatReturn {
             if ((payload.name as string) === "give_choice") {
               setIsThinking(false);
               setIsStreaming(false);
+              // The agent is asking, not answering — close out the (usually
+              // empty) turn bubble so it doesn't linger with spinning dots
+              // while the recruiter picks a chip.
+              finalizeTurn();
               const args = (payload.arguments as Record<string, unknown>) || {};
               const rawQs = Array.isArray(args.questions)
                 ? (args.questions as Record<string, unknown>[])
@@ -380,36 +463,25 @@ export function useRecruiterChat(): UseRecruiterChatReturn {
               }
               break;
             }
-            // Render a tool-call placeholder message.
-            const id = uid();
-            setMessages((prev) => [
-              ...prev,
-              {
-                id,
-                role: "tool",
-                content: "",
-                toolName: (payload.name as string) || "tool",
-                streaming: true,
-                createdAt: Date.now(),
-              },
+            // Append a tool step to the current turn bubble.
+            patchTurn((blocks) => [
+              ...blocks,
+              { kind: "tool", toolName: (payload.name as string) || "tool", streaming: true },
             ]);
             break;
           }
           case "tool_result": {
-            // Mark the most recent tool-row with this name as resolved.
+            // Resolve the last still-streaming tool step in the current turn.
             const name = (payload.name as string) || "";
-            setMessages((prev) => {
-              const idx = [...prev].reverse().findIndex(
-                (m) => m.role === "tool" && m.streaming && m.toolName === name,
-              );
-              if (idx === -1) return prev;
-              const real = prev.length - 1 - idx;
-              const next = [...prev];
-              next[real] = {
-                ...next[real],
-                streaming: false,
-                toolResultPreview: payload.preview as string | undefined,
-              };
+            patchTurn((blocks) => {
+              const next = [...blocks];
+              for (let i = next.length - 1; i >= 0; i--) {
+                const b = next[i];
+                if (b.kind === "tool" && b.streaming && (!name || b.toolName === name)) {
+                  next[i] = { ...b, streaming: false, preview: payload.preview as string | undefined };
+                  break;
+                }
+              }
               return next;
             });
             break;
@@ -439,26 +511,18 @@ export function useRecruiterChat(): UseRecruiterChatReturn {
               ]);
               break;
             }
-            // Attach to the most recent tool message if it has the same kind family,
-            // otherwise add a standalone tool message.
-            setMessages((prev) => {
-              const idx = [...prev].reverse().findIndex((m) => m.role === "tool");
-              if (idx === -1) {
-                return [
-                  ...prev,
-                  {
-                    id: uid(),
-                    role: "tool",
-                    content: "",
-                    attachments: [att],
-                    createdAt: Date.now(),
-                  },
-                ];
+            // Attach to the last tool step of the current turn; if there's no
+            // tool step yet, add one to carry the attachment.
+            patchTurn((blocks) => {
+              const next = [...blocks];
+              for (let i = next.length - 1; i >= 0; i--) {
+                const b = next[i];
+                if (b.kind === "tool") {
+                  next[i] = { ...b, attachments: [...(b.attachments || []), att] };
+                  return next;
+                }
               }
-              const real = prev.length - 1 - idx;
-              const next = [...prev];
-              const cur = next[real];
-              next[real] = { ...cur, attachments: [...(cur.attachments || []), att] };
+              next.push({ kind: "tool", toolName: "", streaming: false, attachments: [att] });
               return next;
             });
             break;
@@ -476,17 +540,30 @@ export function useRecruiterChat(): UseRecruiterChatReturn {
           case "token": {
             setIsThinking(false);
             setIsStreaming(true);
-            const id = ensureAssistant();
             const delta = (payload.delta as string) || "";
-            if (delta) {
-              setMessages((prev) =>
-                prev.map((m) => (m.id === id ? { ...m, content: m.content + delta } : m)),
-              );
-            }
+            // Guard empty deltas so we never materialize a blank bubble.
+            if (!delta) break;
+            const id = ensureTurn();
+            setMessages((prev) =>
+              prev.map((m) => {
+                if (m.id !== id) return m;
+                const blocks = m.blocks ? [...m.blocks] : [];
+                const last = blocks[blocks.length - 1];
+                if (last && last.kind === "text") {
+                  // Continue the current text run.
+                  blocks[blocks.length - 1] = { ...last, text: last.text + delta };
+                } else {
+                  // Text after a tool step starts a fresh run, so tools and
+                  // text stay in the order they actually happened.
+                  blocks.push({ kind: "text", text: delta });
+                }
+                return { ...m, content: m.content + delta, blocks };
+              }),
+            );
             break;
           }
           case "done": {
-            finalizeAssistant();
+            finalizeTurn();
             setIsStreaming(false);
             setIsThinking(false);
             // Don't re-enable the input when waiting for quick-reply chip click.
@@ -503,7 +580,7 @@ export function useRecruiterChat(): UseRecruiterChatReturn {
           case "error": {
             const msg = (payload.message as string) || "stream_error";
             setError(msg);
-            finalizeAssistant();
+            finalizeTurn();
             setIsStreaming(false);
             setIsThinking(false);
             break;
