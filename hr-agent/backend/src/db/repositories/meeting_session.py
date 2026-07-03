@@ -9,6 +9,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.constants.statuses import ACTIVE_MEETING_SESSION_BOT_STATUSES
 from src.db.base import MeetingSession
 
 
@@ -53,7 +54,7 @@ async def get_by_join_url(
     session: AsyncSession,
     *,
     join_url: str,
-    statuses: tuple[str, ...] = ("pending", "scheduled", "in_call"),
+    statuses: tuple[str, ...] = ACTIVE_MEETING_SESSION_BOT_STATUSES,
 ) -> MeetingSession | None:
     """Match a Read.ai report to its meeting_session by Teams join URL.
     Limited to non-terminal statuses to avoid re-triggering completed runs.
@@ -73,7 +74,7 @@ async def get_by_time_window(
     *,
     start_time: datetime,
     window_minutes: int = 30,
-    statuses: tuple[str, ...] = ("pending", "scheduled", "in_call"),
+    statuses: tuple[str, ...] = ACTIVE_MEETING_SESSION_BOT_STATUSES,
 ) -> MeetingSession | None:
     """Match a Read.ai webhook to its meeting_session by start_time +/- window.
     Used when the provider doesn't send the Teams join URL (Read.ai). Picks the

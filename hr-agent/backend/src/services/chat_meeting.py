@@ -23,6 +23,7 @@ from sqlalchemy import select
 
 from src.channels.email import send_email
 from src.config import get_settings
+from src.constants.statuses import ACTIVE_MEETING_SESSION_BOT_STATUSES
 from src.db.base import Application, Candidate, MeetingSession, Role
 from src.db.connection import session_scope
 from src.db.repositories.audit import log_audit
@@ -269,7 +270,7 @@ async def book_meeting(
                     MeetingSession.application_id == application_id,
                     MeetingSession.round == round,
                     MeetingSession.bot_status.in_(
-                        ("pending", "scheduled", "in_call")
+                        ACTIVE_MEETING_SESSION_BOT_STATUSES
                     ),
                 )
                 .order_by(MeetingSession.scheduled_at.desc())
