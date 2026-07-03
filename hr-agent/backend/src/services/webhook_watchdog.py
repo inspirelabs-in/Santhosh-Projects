@@ -17,6 +17,12 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import and_, or_, select
 
+from src.constants.external import ELEVENLABS_API_BASE
+from src.constants.statuses import TERMINAL_APPLICATION_STATUSES
+from src.constants.timers import (
+    WEBHOOK_WATCHDOG_INITIAL_DELAY_SECONDS,
+    WEBHOOK_WATCHDOG_LOOP_INTERVAL_SECONDS,
+)
 from src.db.base import (
     Application,
     AssessmentResult,
@@ -47,7 +53,7 @@ async def _try_recover_from_elevenlabs(call: VoiceCall) -> bool:
     if not settings.elevenlabs_api_key or not call.provider_call_id:
         return False
 
-    url = f"https://api.elevenlabs.io/v1/convai/conversations/{call.provider_call_id}"
+    url = f"{ELEVENLABS_API_BASE}/convai/conversations/{call.provider_call_id}"
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.get(
@@ -198,7 +204,7 @@ async def _check_stuck_voice_calls() -> int:
                             "voice_screen_scheduled",
                             "voice_screen_in_progress",
                         )),
-                        Application.status.notin_(("rejected", "hired", "withdrawn")),
+                        Application.status.notin_(TERMINAL_APPLICATION_STATUSES),
                         or_(
                             Application.current_stage_key.is_(None),
                             Application.current_stage_key.notin_(("rejected", "hired")),
@@ -263,7 +269,7 @@ async def _check_stuck_meetings() -> int:
                                 MeetingSession.created_at < now - timedelta(hours=3),
                             ),
                         ),
-                        Application.status.notin_(("rejected", "hired", "withdrawn")),
+                        Application.status.notin_(TERMINAL_APPLICATION_STATUSES),
                         # V2 terminal cursor: a rejected/hired candidate may not have
                         # its legacy `status` flipped, so exclude by cursor too.
                         or_(
@@ -320,7 +326,7 @@ async def _check_stuck_assessments() -> int:
                     and_(
                         AssessmentResult.status == "invited",
                         AssessmentResult.created_at < cutoff,
-                        Application.status.notin_(("rejected", "hired", "withdrawn")),
+                        Application.status.notin_(TERMINAL_APPLICATION_STATUSES),
                         or_(
                             Application.current_stage_key.is_(None),
                             Application.current_stage_key.notin_(("rejected", "hired")),
@@ -353,7 +359,7 @@ async def run_webhook_watchdog() -> None:
     """Background loop. Runs every 30 minutes."""
     from src.db.repositories.voice_call import sweep_stale_processing
 
-    await asyncio.sleep(600)  # initial delay
+    await asyncio.sleep(WEBHOOK_WATCHDOG_INITIAL_DELAY_SECONDS)  # initial delay
     while True:
         try:
             try:
@@ -375,4 +381,4 @@ async def run_webhook_watchdog() -> None:
             return
         except Exception:
             logger.exception("webhook watchdog crashed")
-        await asyncio.sleep(1800)  # 30 minutes
+        await asyncio.sleep(WEBHOOK_WATCHDOG_LOOP_INTERVAL_SECONDS)  # 30 minutes

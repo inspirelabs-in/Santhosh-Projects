@@ -19,6 +19,10 @@ from sqlalchemy import and_, func, select
 
 from src.channels.email import send_email
 from src.config import get_settings
+from src.constants.timers import (
+    AUTO_NUDGE_INITIAL_DELAY_SECONDS,
+    AUTO_NUDGE_LOOP_INTERVAL_SECONDS,
+)
 from src.db.base import Application, AuditLog, Candidate, Role
 from src.db.connection import session_scope
 from src.db.repositories.audit import log_audit
@@ -145,7 +149,7 @@ async def _run_nudges() -> int:
 
 async def run_auto_nudge_worker() -> None:
     """Background loop. Runs every 6 hours."""
-    await asyncio.sleep(300)  # initial delay to let app boot
+    await asyncio.sleep(AUTO_NUDGE_INITIAL_DELAY_SECONDS)  # initial delay to let app boot
     while True:
         try:
             count = await _run_nudges()
@@ -155,4 +159,4 @@ async def run_auto_nudge_worker() -> None:
             return
         except Exception:
             logger.exception("auto_nudge worker crashed")
-        await asyncio.sleep(21600)  # 6 hours
+        await asyncio.sleep(AUTO_NUDGE_LOOP_INTERVAL_SECONDS)  # 6 hours

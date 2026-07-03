@@ -20,6 +20,8 @@ from sqlalchemy import and_, func, select
 
 from src.channels import teams as teams_channel
 from src.config import get_settings
+from src.constants.statuses import TERMINAL_APPLICATION_STATUSES
+from src.constants.timers import STALL_DETECTOR_LOOP_INTERVAL_SECONDS
 from src.db.base import Application, Candidate, Interview, PipelineAlert, Role
 from src.db.connection import session_scope
 from src.db.repositories.policy import resolve_policy
@@ -173,7 +175,7 @@ async def _check_stalls() -> int:
                         and_(
                             Application.current_stage.in_(rule["stages"]),
                             Application.updated_at < cutoff,
-                            Application.status.notin_(("rejected", "hired", "withdrawn")),
+                            Application.status.notin_(TERMINAL_APPLICATION_STATUSES),
                         )
                     )
                 )
@@ -309,7 +311,7 @@ async def _auto_resolve() -> int:
             rule = next((r for r in STALL_RULES if r["name"] == alert.alert_type), None)
             if rule is None:
                 continue
-            if app.current_stage not in rule["stages"] or app.status in ("rejected", "hired", "withdrawn"):
+            if app.current_stage not in rule["stages"] or app.status in TERMINAL_APPLICATION_STATUSES:
                 alert.resolved_at = now
                 resolved += 1
 
@@ -340,4 +342,4 @@ async def run_stall_detector() -> None:
             return
         except Exception:
             logger.exception("stall detector crashed")
-        await asyncio.sleep(7200)  # 2 hours
+        await asyncio.sleep(STALL_DETECTOR_LOOP_INTERVAL_SECONDS)  # 2 hours
