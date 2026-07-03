@@ -34,11 +34,6 @@ class Settings(BaseSettings):
     # Redis
     redis_url: str = "redis://localhost:6379/0"
 
-    # Temporal
-    temporal_address: str = "localhost:7233"
-    temporal_namespace: str = "default"
-    temporal_task_queue: str = "hiring-agent"
-
     # LLM provider — routed via LiteLLM. Set LLM_MODEL_FAST/SMART with the
     # provider prefix (e.g. "openai/gpt-4o-mini", "groq/llama-3.3-70b-versatile",
     # "ollama/qwen2.5:7b", "anthropic/claude-haiku-4-5").
@@ -80,7 +75,6 @@ class Settings(BaseSettings):
     linkedin_author_urn: str | None = None
 
     r2_bucket_resumes: str = "hiring-agent-resumes"
-    r2_bucket_consent: str = "hiring-agent-consent"
     r2_region: str = "auto"
 
     # Outbound email provider selector.
@@ -324,11 +318,6 @@ class Settings(BaseSettings):
     # Phase 5: LLM-based classifiers (voicemail, candidate intent).
     # When off, falls back to regex/heuristic detection.
     enable_llm_classifiers: bool = False
-
-    # Phase 6: Confidence-driven gate removal. When enabled, non-finals
-    # human gates can be auto-advanced if pipeline confidence >= threshold
-    # AND the stage's autonomy level is full_auto.
-    enable_confidence_gates: bool = False
 
     # Arq worker (replaces FastAPI BackgroundTasks for durable jobs).
     # Falls back to BackgroundTasks when ARQ_ENABLED is false so the API
