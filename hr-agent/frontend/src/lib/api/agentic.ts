@@ -173,6 +173,46 @@ export interface AssessmentListItem {
   created_at: string;
 }
 
+export interface AssessmentQualitySignals {
+  depth?: string | null;
+  originality?: string | null;
+  clarity?: string | null;
+  technical_rigor?: string | null;
+  [key: string]: string | null | undefined;
+}
+
+export interface AssessmentCompleteness {
+  followed_instructions?: boolean | null;
+  missing_items?: string[] | null;
+  [key: string]: unknown;
+}
+
+export interface AssessmentAnalysis {
+  summary: string | null;
+  quality_signals: AssessmentQualitySignals | null;
+  completeness: AssessmentCompleteness | null;
+  highlights: string[] | null;
+  concerns: string[] | null;
+}
+
+export interface AssessmentDetail {
+  assessment_id: string;
+  application_id: string;
+  candidate_name: string | null;
+  role_title: string | null;
+  status: string;
+  kind: string | null;
+  provider: string;
+  created_at: string;
+  invite_sent_at: string | null;
+  completed_at: string | null;
+  normalized_score: number | null;
+  percentile: number | null;
+  fit_band: "green" | "amber" | "red" | null;
+  analysis: AssessmentAnalysis | null;
+  normalized_breakdown: Record<string, unknown> | null;
+}
+
 export const assessments = {
   dispatch(body: DispatchAssessmentBody) {
     return api.post<{ ok: boolean; application_id: string }>(
@@ -195,6 +235,9 @@ export const assessments = {
     if (params.offset) qs.set("offset", String(params.offset));
     const q = qs.toString();
     return api.get<AssessmentListItem[]>(`/agentic/assessments${q ? `?${q}` : ""}`);
+  },
+  detail(id: string) {
+    return api.get<AssessmentDetail>(`/agentic/assessments/${id}`);
   },
 };
 
