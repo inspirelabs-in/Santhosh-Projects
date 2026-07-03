@@ -321,32 +321,35 @@ export function PulseSidebar() {
       {/* Agent status */}
       <AgentStatusBadge />
 
-      {/* Chat header + new chat button */}
-      <div className="flex items-center justify-between px-3 pt-3 pb-1">
+      {/* Chat header */}
+      <div className="px-3 pt-3 pb-1">
         <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
           Chats
         </div>
-        <Button
-          onClick={() => void newConv()}
-          variant="default"
-          size="icon"
-          className="h-6 w-6 shrink-0 rounded-md shadow-sm bg-primary hover:bg-primary/90 text-white"
-          title="New chat"
-        >
-          <Plus className="h-3 w-3" />
-        </Button>
       </div>
 
-      {/* Search */}
+      {/* Search + new chat, aligned on one row */}
       <div className="px-3 pb-2">
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search chats"
-            className="w-full rounded-lg border border-border bg-background py-1 pl-7 pr-2 text-[11px] text-foreground outline-none placeholder:text-muted-foreground focus:border-primary/60 focus:ring-2 focus:ring-primary/20"
-          />
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search chats"
+              className="h-7 w-full rounded-lg border border-border bg-background pl-7 pr-2 text-[11px] text-foreground outline-none placeholder:text-muted-foreground focus:border-primary/60 focus:ring-2 focus:ring-primary/20"
+            />
+          </div>
+          <Button
+            onClick={() => void newConv()}
+            variant="default"
+            size="icon"
+            className="h-7 w-7 shrink-0 rounded-md shadow-sm bg-primary hover:bg-primary/90 text-white"
+            title="New chat"
+            aria-label="New chat"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </Button>
         </div>
       </div>
 
