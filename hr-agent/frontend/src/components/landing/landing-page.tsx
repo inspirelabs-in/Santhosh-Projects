@@ -68,7 +68,7 @@ const PIPELINE = [
 const STATS = [
   { value: "Custom", label: "pipeline shaped per role" },
   { value: "24/7", label: "agent triage on every inbox" },
-  { value: "100%", label: "actions audited and reversible" },
+  { value: "100%", label: "actions logged to an audit trail" },
   { value: "0", label: "silent auto-rejections" },
 ];
 
@@ -132,9 +132,9 @@ export function LandingPage() {
               <span className="text-brand-green">Start hiring signal.</span>
             </h1>
             <p className="mt-6 max-w-xl text-lg leading-relaxed text-muted-foreground">
-              GrabOn Hiring Pulse runs the whole funnel: parsing, calls, assignments,
-              interviews and offers. It maps real proof of work to your team context,
-              so your recruiters spend their time deciding, not chasing.
+              GrabOn Hiring Pulse runs the whole funnel: resume parsing and fit
+              scoring, AI voice screens, take-home assignments, interview analysis
+              and offers, so your recruiters spend their time deciding, not chasing.
             </p>
             <div className="mt-9 flex flex-col gap-3 sm:flex-row">
               <Button asChild size="lg" className="brand-glow h-12 px-7 text-base font-semibold">
@@ -149,7 +149,7 @@ export function LandingPage() {
             </div>
             <p className="mt-6 flex items-center gap-2 text-sm text-muted-foreground">
               <ShieldCheck className="h-4 w-4 text-brand-green" />
-              Every agent action is audited, reversible, and confirmed by a human.
+              Every action is audited. You choose what runs automatically and what waits for review.
             </p>
           </div>
 
@@ -273,7 +273,7 @@ export function LandingPage() {
             <ul className="mt-8 space-y-4">
               {[
                 { icon: Bot, t: "Draft roles and assignments", d: "Grounded in your JD and company context." },
-                { icon: GitBranch, t: "Move candidates safely", d: "Overrides and advances are audited and reversible." },
+                { icon: GitBranch, t: "Move candidates safely", d: "Overrides and advances are logged to the audit trail." },
                 { icon: ShieldCheck, t: "Human confirm on every action", d: "The agent never sends or rejects on its own." },
               ].map(({ icon: Icon, t, d }) => (
                 <li key={t} className="flex items-start gap-4">
@@ -326,7 +326,7 @@ export function LandingPage() {
           <div aria-hidden className="grain absolute inset-0 opacity-40" />
           <div className="relative">
             <h2 className="mx-auto max-w-2xl font-display text-4xl leading-tight tracking-tight sm:text-5xl">
-              Hire on proof, not keywords.
+              Hire on signal, not keywords.
             </h2>
             <p className="mx-auto mt-4 max-w-xl text-base text-brand-blue-deep/75">
               Tell us where to reach you and we will set up a workspace for your team.
