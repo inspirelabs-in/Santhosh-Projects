@@ -7,24 +7,14 @@ nudges the agent to share the assignment early).
 
 from __future__ import annotations
 
-import json
 import logging
-from typing import Any
 from uuid import UUID
 
 from src.agent.prompts import (
     ASSIGNMENT_GEN_V1,
     ASSIGNMENT_GEN_VERSION,
-    EXTRACT_TURN_V1,
-    EXTRACT_TURN_VERSION,
-    TAILORED_QS_V1,
-    TAILORED_QS_VERSION,
 )
-from src.agent.schemas import (
-    AssignmentBriefOut,
-    ExtractedTurn,
-    TailoredQuestionsOut,
-)
+from src.agent.schemas import AssignmentBriefOut
 from src.config import get_settings
 from src.llm.client import get_llm_client
 from src.llm.model_registry import Stage, model_for
@@ -58,36 +48,6 @@ async def _company_persona() -> tuple[str, str]:
             "Never invent fictional company names.",
             "the company",
         )
-
-
-# [SCRAPE] dead: gen_tailored_questions (Chat-V2). KEEP gen_assignment (live).
-async def gen_tailored_questions(
-    *,
-    role_title: str,
-    jd_text: str,
-    candidate_profile: dict[str, Any],
-    application_id: UUID,
-    candidate_id: UUID,
-) -> TailoredQuestionsOut:
-    prompt = compile_prompt(
-        "tailored_qs",
-        fallback=TAILORED_QS_V1,
-        role_title=role_title,
-        jd_text=_truncate(jd_text, 4000),
-        candidate_profile_json=json.dumps(candidate_profile, ensure_ascii=False)[:4000],
-    )
-    client = get_llm_client()
-    result = await client.complete(
-        prompt=prompt,
-        response_model=TailoredQuestionsOut,
-        trace_name="agent.tailored_qs",
-        prompt_version=TAILORED_QS_VERSION,
-        candidate_id=candidate_id,
-        application_id=application_id,
-        temperature=0.3,
-        max_tokens=900,
-    )
-    return result.parsed
 
 
 async def gen_assignment(
@@ -151,41 +111,5 @@ async def gen_assignment(
         temperature=0.7,
         max_tokens=8000,
         max_attempts=2,
-    )
-    return result.parsed
-
-
-# [SCRAPE] dead: extract_turn (Chat-V2). No live caller.
-async def extract_turn(
-    *,
-    candidate_message: str,
-    already_captured: dict[str, Any],
-    pending_questions: list[dict[str, Any]],
-    recent_history: list[dict[str, str]],
-    application_id: UUID,
-    candidate_id: UUID,
-) -> ExtractedTurn:
-    history_str = "\n".join(
-        f"{m['role']}: {_truncate(m.get('content') or '', 400)}"
-        for m in recent_history[-4:]
-    )
-    prompt = compile_prompt(
-        "extract_turn",
-        fallback=EXTRACT_TURN_V1,
-        candidate_message=_truncate(candidate_message, 2000),
-        already_captured_json=json.dumps(already_captured, ensure_ascii=False),
-        pending_questions_json=json.dumps(pending_questions, ensure_ascii=False),
-        recent_history=history_str or "(none)",
-    )
-    client = get_llm_client()
-    result = await client.complete(
-        prompt=prompt,
-        response_model=ExtractedTurn,
-        trace_name="agent.extract_turn",
-        prompt_version=EXTRACT_TURN_VERSION,
-        candidate_id=candidate_id,
-        application_id=application_id,
-        temperature=0.0,
-        max_tokens=400,
     )
     return result.parsed
