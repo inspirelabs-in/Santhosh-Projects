@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import and_, select
 
 from src.config import get_settings
+from src.constants.statuses import TERMINAL_APPLICATION_STATUSES
 from src.db.base import Application, Candidate
 from src.db.connection import session_scope
 from src.db.repositories.audit import log_audit
@@ -127,7 +128,7 @@ async def handle_inbound_call(
                 select(Application).where(
                     and_(
                         Application.candidate_id == candidate.id,
-                        Application.status.notin_(("rejected", "hired", "withdrawn")),
+                        Application.status.notin_(TERMINAL_APPLICATION_STATUSES),
                     )
                 ).order_by(Application.updated_at.desc())
             )
@@ -163,7 +164,7 @@ async def handle_inbound_call(
             dedup_extra=f"inbound-call-{payload.call_sid or normalised}-{datetime.now(UTC).strftime('%Y%m%d%H')}",
         )
 
-        if active_app and stage not in ("rejected", "hired", "withdrawn"):
+        if active_app and stage not in TERMINAL_APPLICATION_STATUSES:
             try:
                 from src.activities.v1_voice_screening import dispatch_voice_screening
                 await dispatch_voice_screening(application_id=active_app.id)
@@ -238,7 +239,7 @@ async def elevenlabs_initiation_webhook(
                     select(Application).where(
                         and_(
                             Application.candidate_id == candidate.id,
-                            Application.status.notin_(("rejected", "hired", "withdrawn")),
+                            Application.status.notin_(TERMINAL_APPLICATION_STATUSES),
                         )
                     ).order_by(Application.updated_at.desc())
                 )
