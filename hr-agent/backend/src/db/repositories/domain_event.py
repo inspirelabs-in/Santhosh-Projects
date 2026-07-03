@@ -98,3 +98,25 @@ async def resolve_open_for_application(
         ev.resolved_by = by
         n += 1
     return n
+
+
+async def resolve_open_for_stage(
+    session: AsyncSession, application_id: UUID, stage_key: str, *, by: str
+) -> int:
+    """Close open actionable events tied to a specific stage of an application
+    (called when the candidate advances PAST that stage's gate). Matches on the
+    event payload's ``stage_key``. Returns the count resolved."""
+    rows = await session.scalars(
+        select(DomainEvent).where(
+            DomainEvent.application_id == application_id,
+            DomainEvent.requires_action.is_(True),
+            DomainEvent.resolved_at.is_(None),
+            DomainEvent.payload["stage_key"].astext == str(stage_key),
+        )
+    )
+    n = 0
+    for ev in rows:
+        ev.resolved_at = func.now()
+        ev.resolved_by = by
+        n += 1
+    return n
