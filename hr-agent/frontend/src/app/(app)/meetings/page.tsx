@@ -41,7 +41,7 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 import { StatusTag } from "@/components/status-tag";
-import { ScoreBar } from "@/components/tier-badge";
+import { ScoreChip } from "@/components/tier-badge";
 import {
   meetings,
   type MeetingListItem,
@@ -375,7 +375,7 @@ export default function MeetingsPage() {
         {/* Main table */}
         <div className="bg-card rounded-xl shadow-card overflow-hidden">
           {/* Table header */}
-          <div className="grid grid-cols-[2fr_100px_150px_140px_120px_120px_36px] items-center gap-3 border-b border-border bg-muted/40 px-4 py-2.5 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground sticky top-0 backdrop-blur z-10">
+          <div className="grid grid-cols-[2fr_100px_150px_100px_120px_120px_36px] items-center gap-3 border-b-2 border-border bg-muted/70 px-4 py-2.5 font-mono text-[11px] font-bold uppercase tracking-[0.1em] text-foreground/70 sticky top-0 backdrop-blur z-10">
             <span>Candidate · Role</span>
             <span>Round</span>
             <span>Bot status</span>
@@ -417,7 +417,7 @@ export default function MeetingsPage() {
                     <button
                       type="button"
                       onClick={() => setSelected(row)}
-                      className={`grid w-full grid-cols-[2fr_100px_150px_140px_120px_120px_36px] items-center gap-3 px-4 py-3 text-left text-sm transition cursor-pointer hover:bg-muted/30 ${
+                      className={`grid w-full grid-cols-[2fr_100px_150px_100px_120px_120px_36px] items-center gap-3 px-4 py-3 text-left text-sm transition cursor-pointer hover:bg-muted/30 ${
                         isLive ? "bg-destructive/5" : ""
                       }`}
                     >
@@ -443,7 +443,7 @@ export default function MeetingsPage() {
                       <StatusTag stage={`technical_meeting_${row.bot_status}`} />
 
                       {/* Score */}
-                      <ScoreBar score={row.overall_score} />
+                      <ScoreChip score={row.overall_score} />
 
                       {/* Scheduled */}
                       <span className="text-xs text-muted-foreground">

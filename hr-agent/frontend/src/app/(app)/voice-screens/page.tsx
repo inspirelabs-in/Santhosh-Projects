@@ -26,7 +26,7 @@ import { Topbar } from "@/components/layout/topbar";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatusTag } from "@/components/status-tag";
-import { ScoreBar } from "@/components/tier-badge";
+import { ScoreChip } from "@/components/tier-badge";
 import {
   Sheet,
   SheetContent,
@@ -201,13 +201,13 @@ export default function VoiceCallsPage() {
         {/* Data table */}
         <div className="bg-card rounded-xl shadow-card overflow-hidden">
           {/* Sticky header */}
-          <div className="sticky top-0 z-10 bg-muted/50 backdrop-blur border-b border-border">
-            <div className="grid grid-cols-[2fr_1.5fr_130px_160px_120px_80px_100px_100px] px-4 py-2">
+          <div className="sticky top-0 z-10 bg-muted/70 backdrop-blur border-b-2 border-border">
+            <div className="grid grid-cols-[2fr_1.5fr_130px_160px_90px_100px_100px_100px] px-4 py-2.5">
               {["Candidate", "Role", "Type", "Status", "Score", "Duration", "Time", "Actions"].map(
                 (col) => (
                   <span
                     key={col}
-                    className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground"
+                    className="font-mono text-[11px] font-bold uppercase tracking-[0.1em] text-foreground/70"
                   >
                     {col}
                   </span>
@@ -255,7 +255,7 @@ export default function VoiceCallsPage() {
               return (
                 <div
                   key={row.voice_call_id}
-                  className="group grid grid-cols-[2fr_1.5fr_130px_160px_120px_80px_100px_100px] px-4 py-3 border-b border-border hover:bg-muted/30 transition cursor-pointer items-center"
+                  className="group grid grid-cols-[2fr_1.5fr_130px_160px_90px_100px_100px_100px] px-4 py-3 border-b border-border hover:bg-muted/30 transition cursor-pointer items-center"
                   onClick={() => setSelected(row)}
                 >
                   {/* Candidate */}
@@ -301,7 +301,7 @@ export default function VoiceCallsPage() {
                   {/* Score */}
                   <div>
                     {callKind === "screening" && row.overall_score != null ? (
-                      <ScoreBar score={row.overall_score} />
+                      <ScoreChip score={row.overall_score} />
                     ) : (
                       <span className="text-muted-foreground text-sm">—</span>
                     )}
@@ -493,7 +493,7 @@ function CallDetail({ row }: { row: VoiceCallListItem }) {
           </p>
           {(row.overall_score != null || row.verdict) && callKind === "screening" ? (
             <div className="flex items-center gap-3">
-              <ScoreBar score={row.overall_score} />
+              <ScoreChip score={row.overall_score} />
               {row.verdict ? (
                 <span
                   className={`rounded-full px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] ${
