@@ -23,6 +23,7 @@ import logging
 from typing import Any
 from uuid import UUID
 
+from src.constants.statuses import REJECTED_OR_WITHDRAWN_STATUSES
 from src.db.base import Application, Role
 from src.db.connection import session_scope
 from src.db.events import emit_event
@@ -62,7 +63,6 @@ def _agentic_cfg(rubric: dict | list | None) -> dict[str, Any]:
 
 # Map a manual gate's park action to the inbox action type + a human-readable note.
 _GATE_EVENT: dict[StageAction, tuple[str, str]] = {
-    StageAction.PARK_REVIEW: (ActionType.REVIEW_ASSESSMENT.value, "review the candidate's work"),
     StageAction.PARK_SCHEDULE: (ActionType.SCHEDULE_INTERVIEW.value, "schedule the interview"),
     StageAction.PARK_DECISION: (ActionType.HIRE_OR_REJECT.value, "make the hire / reject call"),
     StageAction.PARK_MANUAL: (ActionType.REVIEW_ASSESSMENT.value, "trigger this stage manually"),
@@ -79,7 +79,7 @@ async def auto_progress(*, application_id: UUID) -> str:
         app = await session.get(Application, application_id)
         if app is None:
             return "skipped:application_missing"
-        if (app.status or "").lower() in {"rejected", "withdrawn"}:
+        if (app.status or "").lower() in REJECTED_OR_WITHDRAWN_STATUSES:
             return "skipped:application_not_active"
         if app.role_id is None:
             return "skipped:no_role"
@@ -256,36 +256,6 @@ async def _park_gate(application_id: UUID, plan: Plan, *, role_id: UUID) -> str:
         )
 
     return f"parked:{stage.stage_key}"
-
-
-# ---------------------------------------------------------------------------
-# Auto-reject helper -- SUPERSEDED by stage_runner._auto_reject_with_email
-# ---------------------------------------------------------------------------
-
-
-async def auto_reject_if_configured(*, application_id: UUID, reason: str) -> bool:
-    """Thin pass-through to the centralised gate in stage_runner.
-
-    The original feature-flag default-off behaviour (``auto_reject_clear_reject``)
-    has been retired. All scored FAIL verdicts are now routed through
-    ``stage_runner._auto_reject_with_email`` which consults the stage's *mode*
-    (auto/manual) and always sends the rejection email. This shim remains only so
-    that any external caller that was not updated yet does not blow up with an
-    ImportError; it delegates immediately and always returns True on success.
-    """
-    from src.services.stage_runner import _auto_reject_with_email
-
-    try:
-        await _auto_reject_with_email(
-            application_id,
-            completed_stage_key="unknown",
-            score=None,
-            threshold=None,
-        )
-        return True
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("auto_reject_if_configured shim failed for %s: %s", application_id, exc)
-        return False
 
 
 # ---------------------------------------------------------------------------
