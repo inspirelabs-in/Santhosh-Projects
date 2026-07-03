@@ -56,7 +56,6 @@ from src.models.candidate import ApplicationStatus, CandidateStatus, FitTier
 from src.services import metrics
 from src.services.file_storage import presigned_get_url, upload_resume
 from src.services.request_rate_limit import enforce_rate_limit
-from src.services.temporal_client import get_temporal_client
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -639,21 +638,6 @@ class OverridePayload(BaseModel):
     new_fit_tier: FitTier | None = None
 
 
-async def _signal_workflow(application_id: UUID, decision: str) -> bool:
-    try:
-        client = await get_temporal_client()
-        handle = client.get_workflow_handle(f"candidate-journey-{application_id}")
-        await handle.signal("hr_override", decision)
-        return True
-    except Exception:
-        logger.exception(
-            "Failed to signal workflow for application %s (override=%s)",
-            application_id,
-            decision,
-        )
-        return False
-
-
 @router.post("/override/{application_id}", status_code=status.HTTP_202_ACCEPTED)
 async def override_application(
     request: Request,
@@ -710,15 +694,11 @@ async def override_application(
         )
         candidate_id = app.candidate_id
 
-    signalled = await _signal_workflow(application_id, payload.decision)
-
     # Post-shortlist automation: if HR shortlists a candidate who has NOT yet
     # been through screening, kick off the screening invite. Do NOT re-send
     # screening if the candidate already submitted a response — that would
     # reset application.status back to SCREENING_IN_PROGRESS and unwind the
-    # HR decision. In the "already-screened, HR approving post-screening"
-    # case the Temporal signal above unblocks the workflow's wait_condition
-    # and the journey proceeds to propose interview slots on its own.
+    # HR decision.
     screening_sent = False
     if payload.decision in ("approve", "force_shortlist"):
         already_screened = False
@@ -749,7 +729,6 @@ async def override_application(
         "application_id": str(application_id),
         "candidate_id": str(candidate_id),
         "decision": payload.decision,
-        "workflow_signalled": signalled,
         "screening_sent": screening_sent,
     }
 
@@ -1155,12 +1134,6 @@ async def bulk_action(
             )
             updated += 1
 
-    # Best-effort signal the underlying workflows (not fatal if they're already done).
-    if payload.action in ("reject", "withdraw"):
-        signal_name = "reject" if payload.action == "reject" else "withdraw"
-        for app_id in found_ids:
-            await _signal_workflow(app_id, signal_name)
-
     return {
         "ok": True,
         "updated": updated,
@@ -1230,11 +1203,9 @@ async def reupload_resume(
             },
         )
 
-    signalled = await _signal_workflow(application_id, "resume_uploaded")
     return {
         "ok": True,
         "candidate_id": str(candidate_id),
         "application_id": str(application_id),
         "r2_key": stored.key,
-        "workflow_signalled": signalled,
     }
