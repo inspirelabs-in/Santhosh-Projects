@@ -26,13 +26,11 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from src.config import get_settings
+from src.constants.external import GOOGLE_CALENDAR_OAUTH_SCOPES
 
 logger = logging.getLogger(__name__)
 
-SCOPES = [
-    "https://www.googleapis.com/auth/calendar",
-    "https://www.googleapis.com/auth/calendar.events",
-]
+SCOPES = GOOGLE_CALENDAR_OAUTH_SCOPES
 
 
 def _resolve_token_path() -> Path:
