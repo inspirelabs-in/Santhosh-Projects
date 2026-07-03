@@ -90,7 +90,6 @@ async def get_ui_settings(
             "readai_meeting_bot": bool(s.read_ai_webhook_secret or s.read_ai_api_key),
             "imap_inbound": bool(s.mail_inboxes),
             "object_storage": bool(s.r2_endpoint_url and s.r2_access_key_id),
-            "emotion_service": bool(s.emotion_model_endpoint and s.emotion_api_key),
             "langfuse_tracing": bool(s.langfuse_public_key and s.langfuse_secret_key),
             "sentry_errors": bool(s.sentry_dsn),
             "teams_alerts": bool(s.teams_webhook_alerts),
