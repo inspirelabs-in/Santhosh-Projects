@@ -7,6 +7,8 @@ single-tenant phase.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
@@ -105,6 +107,93 @@ async def set_persona(
     if org is not None:
         org.hiring_persona = persona
     return org
+
+
+async def get_org_overview(
+    session: AsyncSession, org_id: UUID | None = None
+) -> dict[str, Any] | None:
+    """Compact org snapshot for the onboarding read tool.
+
+    Returns ``{org_id, org_name, persona, org_context_summary}`` or ``None`` when
+    no org exists. ``persona`` is the raw ``hiring_persona`` dict (``{}`` if
+    unset). Resolves the default org when ``org_id`` is omitted.
+    """
+    org = (
+        await session.get(Organization, org_id)
+        if org_id is not None
+        else await get_default(session)
+    )
+    if org is None:
+        return None
+    persona = org.hiring_persona if isinstance(org.hiring_persona, dict) else {}
+    settings = org.settings if isinstance(org.settings, dict) else {}
+    ctx = settings.get("org_context") if isinstance(settings, dict) else None
+    summary = ctx.get("summary") if isinstance(ctx, dict) else None
+    return {
+        "org_id": str(org.id),
+        "org_name": org.name,
+        "persona": persona,
+        "org_context_summary": summary,
+    }
+
+
+async def merge_persona(
+    session: AsyncSession,
+    org_id: UUID | None,
+    patch: dict[str, Any],
+    *,
+    replace_lists: bool = False,
+    org_context_summary: str | None = None,
+) -> tuple[list[str], int] | None:
+    """Deep-merge ``patch`` into the org's hiring_persona (never a blind replace).
+
+    Scalars overwrite-if-present; list fields append+dedupe (or overwrite when
+    ``replace_lists``). Bumps ``version``, stamps ``updated_at``, validates the
+    result against ``HiringPersona`` before persisting, and optionally sets
+    ``settings.org_context.summary``. Returns ``(changed_fields, new_version)``
+    or ``None`` if the org doesn't exist. Resolves the default org when
+    ``org_id`` is omitted.
+    """
+    # Imported here to avoid a heavy import at module load.
+    from src.models.persona import HiringPersona
+    from src.recruiter_agent.org_onboarding import merge_persona_patch
+
+    org = (
+        await session.get(Organization, org_id)
+        if org_id is not None
+        else await get_default(session)
+    )
+    if org is None:
+        return None
+
+    current = org.hiring_persona if isinstance(org.hiring_persona, dict) else {}
+    merged, changed = merge_persona_patch(current, patch, replace_lists=replace_lists)
+
+    summary_changed = False
+    if isinstance(org_context_summary, str) and org_context_summary.strip():
+        summary_changed = True
+
+    if not changed and not summary_changed:
+        return [], int(current.get("version", 1) or 1)
+
+    new_version = int(current.get("version", 1) or 1) + 1
+    merged["version"] = new_version
+    merged["updated_at"] = datetime.now(UTC).isoformat()
+
+    # Pydantic is the rail — raises if the merged shape is invalid.
+    HiringPersona(**merged)
+
+    # Reassign fresh dicts so SQLAlchemy detects the JSONB mutation.
+    org.hiring_persona = dict(merged)
+    if summary_changed:
+        settings = dict(org.settings or {})
+        ctx = dict(settings.get("org_context") or {})
+        ctx["summary"] = org_context_summary.strip()
+        settings["org_context"] = ctx
+        org.settings = settings
+        changed = [*changed, "org_context_summary"]
+
+    return changed, new_version
 
 
 async def get_email_domains(
