@@ -2,9 +2,19 @@
 
 import { useMemo, useState } from "react";
 
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
+
 function pad(n: number): string {
   return String(n).padStart(2, "0");
 }
+
+const NO_TIME = "__none__";
 
 /**
  * Reliable cross-browser date + time picker. A native <input type="date"> plus
@@ -63,21 +73,26 @@ export function QuickDateTime({
         }}
         className="rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/20"
       />
-      <select
-        value={time}
-        onChange={(e) => {
-          setTime(e.target.value);
-          emit(date, e.target.value);
+      <Select
+        value={time || NO_TIME}
+        onValueChange={(nv) => {
+          const v = nv === NO_TIME ? "" : nv;
+          setTime(v);
+          emit(date, v);
         }}
-        className="rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/20"
       >
-        <option value="">Pick a time…</option>
-        {times.map((t) => (
-          <option key={t.value} value={t.value}>
-            {t.label}
-          </option>
-        ))}
-      </select>
+        <SelectTrigger className="rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/20">
+          <SelectValue placeholder="Pick a time…" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NO_TIME}>Pick a time…</SelectItem>
+          {times.map((t) => (
+            <SelectItem key={t.value} value={t.value}>
+              {t.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </div>
   );
 }
