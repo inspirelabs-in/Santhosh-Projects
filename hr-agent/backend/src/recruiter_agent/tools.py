@@ -19,6 +19,7 @@ from uuid import UUID
 
 from sqlalchemy import desc, func, select
 
+from src.constants.statuses import ROLE_STATUSES_AUTO_ACTIVATED_BY_ASSIGNMENT_DOC
 from src.db.base import (
     Application,
     AssignmentRow,
@@ -770,7 +771,7 @@ async def _persist_assignment(
                     r.assignment_problem_doc_key = pdf_key
                     r.assignment_problem_filename = pdf_filename
                 # Flip paused/draft → open now that the assignment is persisted.
-                if r.status in ("draft", "paused"):
+                if r.status in ROLE_STATUSES_AUTO_ACTIVATED_BY_ASSIGNMENT_DOC:
                     r.status = "open"
 
     return {
@@ -1862,24 +1863,6 @@ async def reschedule_meeting(
     )
 
 
-async def set_panel_member(
-    *,
-    role_id: str,
-    panel_member_id: str,
-    round: str,
-) -> dict[str, Any]:
-    rid = UUID(role_id)
-    async with session_scope() as session:
-        role = await session.get(Role, rid)
-        if role is None:
-            return {"error": "role_not_found"}
-        panel = list(role.interviewer_panel or [])
-        panel = [p for p in panel if not (isinstance(p, dict) and p.get("round") == round)]
-        panel.append({"round": round, "panel_member_id": panel_member_id})
-        role.interviewer_panel = panel
-    return {"ok": True, "message": f"Panel member set for {round}."}
-
-
 async def add_panel_member(
     *,
     name: str,
@@ -2262,6 +2245,120 @@ async def propose_role_draft(
 
 
 # ---------------------------------------------------------------------------
+# Org onboarding (get -> ask -> research -> write)
+# ---------------------------------------------------------------------------
+
+
+async def get_org_data() -> dict[str, Any]:
+    """Return the current org profile + coverage (what's set vs missing)."""
+    from src.db.repositories import organization as org_repo
+    from src.recruiter_agent.org_onboarding import build_setup_questions
+
+    async with session_scope() as session:
+        overview = await org_repo.get_org_overview(session)
+    if overview is None:
+        return {"error": "no_org", "message": "No organization exists yet."}
+    guide = build_setup_questions(overview.get("persona") or {})
+    empty = [a["field"] for a in guide["ask"]]
+    filled = guide["already_have"]
+    return {
+        "org_name": overview["org_name"],
+        "persona": overview["persona"],
+        "org_context_summary": overview["org_context_summary"],
+        "coverage": {
+            "filled": filled,
+            "empty": empty,
+            "filled_count": len(filled),
+            "total": len(filled) + len(empty),
+        },
+    }
+
+
+async def setup_org_manual() -> dict[str, Any]:
+    """Return the interview guide (questions for empty/weak fields only)."""
+    from src.db.repositories import organization as org_repo
+    from src.recruiter_agent.org_onboarding import build_setup_questions
+
+    async with session_scope() as session:
+        overview = await org_repo.get_org_overview(session)
+    if overview is None:
+        return {"error": "no_org", "message": "No organization exists yet."}
+    guide = build_setup_questions(overview.get("persona") or {})
+    return {"org_name": overview["org_name"], **guide}
+
+
+async def research_about_org(
+    *,
+    instruction: str,
+    org_name: str | None = None,
+    org_url: str | None = None,
+    focus_fields: list[str] | None = None,
+) -> dict[str, Any]:
+    """Web-research the org via Gemini; return a partial persona draft + sources."""
+    if not instruction or not instruction.strip():
+        return {"error": "instruction_required"}
+    from src.services.org_research import research_org
+
+    # Fall back to the stored org name when the LLM didn't pass one.
+    if not org_name:
+        from src.db.repositories import organization as org_repo
+
+        async with session_scope() as session:
+            overview = await org_repo.get_org_overview(session)
+        if overview:
+            org_name = overview.get("org_name")
+
+    return await research_org(
+        instruction=instruction,
+        org_name=org_name,
+        org_url=org_url,
+        focus_fields=focus_fields,
+    )
+
+
+async def update_org_data(
+    *,
+    patch: dict | None = None,
+    replace_lists: bool = False,
+    org_context_summary: str | None = None,
+    actor_hash: str | None = None,
+) -> dict[str, Any]:
+    """Merge a partial persona into the stored org profile (never a blind replace)."""
+    if not isinstance(patch, dict) or not patch:
+        if not (org_context_summary and org_context_summary.strip()):
+            return {"error": "empty_patch", "message": "Nothing to update."}
+        patch = {}
+
+    from src.db.repositories import organization as org_repo
+    from src.db.repositories.audit import log_audit
+
+    async with session_scope() as session:
+        try:
+            result = await org_repo.merge_persona(
+                session,
+                None,
+                patch,
+                replace_lists=replace_lists,
+                org_context_summary=org_context_summary,
+            )
+        except Exception as e:  # noqa: BLE001 -- Pydantic validation etc.
+            return {"error": f"invalid_persona: {e}"}
+        if result is None:
+            return {"error": "no_org", "message": "No organization exists yet."}
+        changed, version = result
+        if not changed:
+            return {"ok": True, "updated_fields": [], "message": "No changes — already up to date."}
+        await log_audit(
+            session,
+            action="org_updated",
+            actor=actor_hash or "pulse",
+            details={"fields": changed, "source": "pulse_onboarding"},
+        )
+
+    return {"ok": True, "updated_fields": changed, "version": version}
+
+
+# ---------------------------------------------------------------------------
 # Tool dispatch
 # ---------------------------------------------------------------------------
 
@@ -2301,17 +2398,21 @@ TOOLS: dict[str, Any] = {
     "suggest_meeting_slots": suggest_meeting_slots,
     "schedule_meeting": schedule_meeting,
     "reschedule_meeting": reschedule_meeting,
-    "set_panel_member": set_panel_member,
     "add_panel_member": add_panel_member,
     "parse_attachment": parse_attachment,
     "remember": remember,
     "publish_linkedin_post": publish_linkedin_post,
+    # Org onboarding
+    "get_org_data": get_org_data,
+    "setup_org_manual": setup_org_manual,
+    "research_about_org": research_about_org,
+    "update_org_data": update_org_data,
     # Admin
     "update_setting": update_setting,
 }
 
 
-_ACTOR_HASH_TOOLS = frozenset({"remember", "recall"})
+_ACTOR_HASH_TOOLS = frozenset({"remember", "recall", "update_org_data"})
 
 # Tools that ground on the recruiter's active role-draft artifact (its
 # ``assignment.brief``). ``call_tool`` injects the system-supplied conversation
