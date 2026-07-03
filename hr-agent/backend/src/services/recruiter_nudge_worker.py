@@ -30,6 +30,7 @@ import redis.asyncio as aioredis
 from sqlalchemy import desc, select
 
 from src.config import get_settings
+from src.constants.timers import CRASH_RETRY_BACKOFF_SECONDS
 from src.db.base import (
     Application,
     Candidate,
@@ -286,4 +287,4 @@ async def run_recruiter_nudge_worker() -> None:
             return
         except Exception:  # noqa: BLE001
             logger.exception("nudge worker crashed; restarting in 5s")
-            await asyncio.sleep(5)
+            await asyncio.sleep(CRASH_RETRY_BACKOFF_SECONDS)

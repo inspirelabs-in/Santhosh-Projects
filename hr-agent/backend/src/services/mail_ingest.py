@@ -17,6 +17,8 @@ from sqlalchemy import select
 from src.activities.intake import run_intake
 from src.classifiers.candidate_intent import classify_candidate_intent
 from src.config import get_settings
+from src.constants.statuses import TERMINAL_APPLICATION_STATUSES
+from src.constants.timers import MAIL_POLLER_IDLE_LOOP_SECONDS
 from src.db.base import Application, Candidate, ProcessedMessage, Role
 from src.db.connection import session_scope
 from src.db.repositories.role import list_open_roles
@@ -293,7 +295,7 @@ async def _route_reply(msg: InboundMessage) -> None:
                     await session.execute(
                         sa_select(Application)
                         .where(Application.candidate_id == candidate.id)
-                        .where(Application.status.notin_(("rejected", "hired", "withdrawn")))
+                        .where(Application.status.notin_(TERMINAL_APPLICATION_STATUSES))
                         .order_by(Application.updated_at.desc())
                         .limit(1)
                     )
@@ -500,7 +502,7 @@ async def run_mail_poller() -> None:
         POLLER_STATUS["last_error"] = "MAIL_INBOXES not configured"
         try:
             while True:
-                await asyncio.sleep(3600)
+                await asyncio.sleep(MAIL_POLLER_IDLE_LOOP_SECONDS)
         except asyncio.CancelledError:
             return
     interval = max(15, int(_settings.mail_poll_interval_seconds or 60))

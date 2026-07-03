@@ -29,6 +29,7 @@ from src.config_schema import (
     get_field_by_attr,
     secret_keys,
 )
+from src.constants.timers import CRASH_RETRY_BACKOFF_SECONDS
 from src.services.config_crypto import decrypt, encrypt, is_encrypted
 
 logger = logging.getLogger(__name__)
@@ -362,4 +363,4 @@ async def run_invalidation_listener() -> None:
             raise
         except Exception:
             logger.exception("config invalidation listener crashed; restarting in 5s")
-            await asyncio.sleep(5)
+            await asyncio.sleep(CRASH_RETRY_BACKOFF_SECONDS)
