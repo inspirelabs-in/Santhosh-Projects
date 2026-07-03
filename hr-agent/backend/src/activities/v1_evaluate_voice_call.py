@@ -284,7 +284,6 @@ async def evaluate_voice_call(
             session,
             voice_call_id,
             evaluation=score.model_dump(mode="json"),
-            emotion_features=None,
         )
 
         # Backfill candidate + application from extracted facts. Only writes

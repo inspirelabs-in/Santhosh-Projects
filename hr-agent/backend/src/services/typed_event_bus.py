@@ -1,10 +1,6 @@
-"""[SCRAPE/RETIRED] Typed, durable event bus backed by supervisor_events table.
+"""Typed, durable event bus backed by supervisor_events table.
 
-RETIRED with the supervisor: publish_event already no-ops when
-enable_supervisor=False (the default). Superseded by src/db/events.py.
-
-Original docs:
-
+publish_event no-ops when enable_supervisor=False (the default).
 
 Events are published (written to Postgres) and consumed by the supervisor
 engine via claim-based polling. Dedup keys prevent duplicate events from
