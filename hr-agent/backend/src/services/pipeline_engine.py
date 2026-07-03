@@ -30,9 +30,7 @@ the next one and says what to do:
   Note (SM-7): ``assessment_review`` is RETIRED — there is no separate "review the
   assignment" stage. The assignment stage itself auto-sends on entry and parks for
   HR review on submit, so a legacy ``assessment_review`` row hits the "unknown stage
-  type → skip" fallthrough in ``_action_for`` and the engine walks past it. The
-  ``PARK_REVIEW`` action below is consequently never produced (kept only so old
-  references resolve).
+  type → skip" fallthrough in ``_action_for`` and the engine walks past it.
 """
 
 from __future__ import annotations
@@ -52,7 +50,6 @@ class StageAction(StrEnum):
     FIRE_VOICE_SCREEN = "fire_voice_screen"
     FIRE_ASSIGNMENT = "fire_assignment"
     FIRE_OFFER = "fire_offer"
-    PARK_REVIEW = "park_review"        # DEAD (SM-7): assessment_review retired; never produced
     PARK_SCHEDULE = "park_schedule"    # interview gate (HR schedules the meeting)
     PARK_DECISION = "park_decision"    # decision gate (hire / reject)
     PARK_MANUAL = "park_manual"        # a "fire" stage set to manual mode

@@ -18,6 +18,12 @@ from typing import Any, Awaitable, Callable
 
 import httpx
 
+from src.constants.external import (
+    ELEVENLABS_API_BASE,
+    MS_GRAPH_DEFAULT_SCOPE,
+    MS_GRAPH_TOKEN_URL_TEMPLATE,
+)
+
 logger = logging.getLogger(__name__)
 
 PROBE_TIMEOUT = 10.0
@@ -153,11 +159,11 @@ async def probe_graph(cfg: dict[str, Any]) -> ProbeResult:
     async with httpx.AsyncClient(timeout=PROBE_TIMEOUT) as client:
         try:
             r = await client.post(
-                f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token",
+                MS_GRAPH_TOKEN_URL_TEMPLATE.format(tenant=tenant),
                 data={
                     "client_id": client_id,
                     "client_secret": secret,
-                    "scope": "https://graph.microsoft.com/.default",
+                    "scope": MS_GRAPH_DEFAULT_SCOPE,
                     "grant_type": "client_credentials",
                 },
             )
@@ -196,7 +202,7 @@ async def probe_elevenlabs(cfg: dict[str, Any]) -> ProbeResult:
     async with httpx.AsyncClient(timeout=PROBE_TIMEOUT) as client:
         try:
             r = await client.get(
-                "https://api.elevenlabs.io/v1/user",
+                f"{ELEVENLABS_API_BASE}/user",
                 headers={"xi-api-key": key},
             )
             if r.status_code == 200:
@@ -295,22 +301,6 @@ async def _probe_teams_webhook(url: str | None) -> ProbeResult:
             return _err(f"Teams probe error: {exc}")
 
 
-async def probe_emotion(cfg: dict[str, Any]) -> ProbeResult:
-    endpoint = cfg.get("EMOTION_MODEL_ENDPOINT") or ""
-    api_key = cfg.get("EMOTION_API_KEY") or ""
-    if not endpoint:
-        return _err("Missing EMOTION_MODEL_ENDPOINT")
-    async with httpx.AsyncClient(timeout=PROBE_TIMEOUT) as client:
-        try:
-            headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-            r = await client.get(f"{endpoint.rstrip('/')}/healthz", headers=headers)
-            if r.status_code == 200:
-                return _ok("Emotion service healthy")
-            return _err(f"Emotion service unhealthy: HTTP {r.status_code}")
-        except Exception as exc:  # noqa: BLE001
-            return _err(f"Emotion probe error: {exc}")
-
-
 async def probe_calcom(cfg: dict[str, Any]) -> ProbeResult:
     key = cfg.get("CALCOM_API_KEY") or ""
     base = cfg.get("CALCOM_BASE_URL") or "https://cal.com"
@@ -360,7 +350,6 @@ PROBES: dict[str, Callable[[dict[str, Any]], Awaitable[ProbeResult]]] = {
     "r2": probe_r2,
     "teams_hr": probe_teams_hr,
     "teams_alerts": probe_teams_alerts,
-    "emotion": probe_emotion,
     "calcom": probe_calcom,
     "google_calendar": probe_google_calendar,
 }
