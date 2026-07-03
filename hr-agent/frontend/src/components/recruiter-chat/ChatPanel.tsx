@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { BarChart3, Bot, Briefcase, Clock, Loader2, Plus, Search, Sparkles, User, Wrench } from "lucide-react";
+import { BarChart3, Briefcase, Clock, Loader2, Plus, Search, Sparkles, User, Wrench } from "lucide-react";
 import { MarkdownLite } from "@/components/markdown-lite";
 import { cn } from "@/lib/utils";
 import { AttachmentRenderer } from "./Attachments";
-import type { RecruiterMessage } from "@/lib/useRecruiterChat";
+import type { RecruiterMessage, TurnBlock } from "@/lib/useRecruiterChat";
 
 // The @-mention inserts a hidden "(application_id: <uuid>)" marker so Pulse can
 // pass the id straight to its tools. Recruiters shouldn't see that raw id in
@@ -47,7 +47,6 @@ const TOOL_LABELS_FULL: Record<string, string> = {
   add_candidate_note: "Adding note",
   schedule_interview: "Scheduling interview",
   propose_slots: "Finding interview slots",
-  // set_panel_member: "Updating panel",
   parse_attachment: "Parsing attachment",
   remember: "Remembering",
   recall: "Recalling memory",
@@ -68,19 +67,33 @@ const PROMPT_TILES: { label: string; query: string; icon: React.ReactNode }[] = 
   { label: "Search candidates", query: "Find candidates for ", icon: <Search className="h-4 w-4" /> },
 ];
 
-function ToolRow({
-  msg,
+function ThinkingDots({ label }: { label?: string }) {
+  return (
+    <div className="flex items-center gap-2 py-0.5">
+      <div className="flex gap-1">
+        <span className="h-2 w-2 animate-bounce rounded-full bg-primary/50" style={{ animationDelay: "0ms" }} />
+        <span className="h-2 w-2 animate-bounce rounded-full bg-primary/50" style={{ animationDelay: "150ms" }} />
+        <span className="h-2 w-2 animate-bounce rounded-full bg-primary/50" style={{ animationDelay: "300ms" }} />
+      </div>
+      <span className="text-xs text-muted-foreground">{label?.trim() || "Thinking…"}</span>
+    </div>
+  );
+}
+
+// A single tool step rendered inline inside the assistant bubble.
+function ToolStep({
+  block,
   conversationId,
   dispatch,
 }: {
-  msg: RecruiterMessage;
+  block: Extract<TurnBlock, { kind: "tool" }>;
   conversationId?: string | null;
   dispatch?: (m: string) => void;
 }) {
-  const label = msg.toolName ? TOOL_LABELS_FULL[msg.toolName] || msg.toolName : "Working";
-  const isStreaming = msg.streaming;
+  const label = block.toolName ? TOOL_LABELS_FULL[block.toolName] || block.toolName : "Working";
+  const isStreaming = block.streaming;
   return (
-    <div className="space-y-2 pl-10">
+    <div className="space-y-2">
       <div className="flex items-center gap-2 text-xs">
         <span
           className={cn(
@@ -88,36 +101,91 @@ function ToolRow({
             isStreaming ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground",
           )}
         >
-          {isStreaming ? (
-            <Loader2 className="h-3 w-3 animate-spin" />
-          ) : (
-            <Wrench className="h-3 w-3" />
-          )}
+          {isStreaming ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wrench className="h-3 w-3" />}
         </span>
         <span className={cn("font-mono text-[12px]", isStreaming ? "text-foreground" : "text-muted-foreground")}>
           {label}
         </span>
       </div>
-      {msg.attachments?.map((a, i) => (
-        <div key={i} className="ml-7">
-          <AttachmentRenderer att={a} conversationId={conversationId ?? null} dispatch={dispatch} />
-        </div>
+      {block.attachments?.map((a, i) => (
+        <AttachmentRenderer key={i} att={a} conversationId={conversationId ?? null} dispatch={dispatch} />
       ))}
+    </div>
+  );
+}
+
+// One assistant turn = one bubble. Renders the ordered blocks (text + tool
+// steps) and, while streaming with nothing to show yet, the thinking dots.
+function AssistantTurn({
+  msg,
+  thinkingLabel,
+  conversationId,
+  dispatch,
+}: {
+  msg: RecruiterMessage;
+  thinkingLabel?: string;
+  conversationId?: string | null;
+  dispatch?: (m: string) => void;
+}) {
+  const blocks = msg.blocks && msg.blocks.length > 0 ? msg.blocks : null;
+  const hasContent = !!(msg.content && msg.content.trim());
+  // Nothing rendered yet this turn -> show the loader in-bubble.
+  const showDots = !!msg.streaming && !blocks && !hasContent;
+
+  return (
+    <div className="flex w-full justify-start gap-3">
+      <PulseAvatar />
+      <div className={cn("max-w-[78%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed pulse-bubble-bot", msg.pending && "opacity-60")}>
+        {showDots ? (
+          <ThinkingDots label={thinkingLabel} />
+        ) : (
+          <div className="space-y-3">
+            {blocks
+              ? blocks.map((b, i) =>
+                  b.kind === "tool" ? (
+                    <ToolStep key={i} block={b} conversationId={conversationId} dispatch={dispatch} />
+                  ) : (
+                    <MarkdownLite key={i} source={b.text} />
+                  ),
+                )
+              : <MarkdownLite source={msg.content || ""} />}
+            {msg.streaming && (
+              <span className="ml-0.5 inline-block h-4 w-[3px] animate-pulse rounded-sm bg-primary/70 align-middle" />
+            )}
+            {msg.attachments && msg.attachments.length > 0 && (
+              <div className="space-y-2">
+                {msg.attachments.map((a, i) => (
+                  <AttachmentRenderer key={i} att={a} conversationId={conversationId ?? null} dispatch={dispatch} />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
 function MessageBubble({
   msg,
+  thinkingLabel,
   conversationId,
   dispatch,
 }: {
   msg: RecruiterMessage;
+  thinkingLabel?: string;
   conversationId?: string | null;
   dispatch?: (m: string) => void;
 }) {
-  if (msg.role === "tool")
-    return <ToolRow msg={msg} conversationId={conversationId} dispatch={dispatch} />;
+  if (msg.role === "assistant")
+    return (
+      <AssistantTurn
+        msg={msg}
+        thinkingLabel={thinkingLabel}
+        conversationId={conversationId}
+        dispatch={dispatch}
+      />
+    );
 
   const isUser = msg.role === "user";
 
@@ -136,9 +204,6 @@ function MessageBubble({
         ) : (
           <div className="-my-2">
             <MarkdownLite source={msg.content || ""} />
-            {msg.streaming && (
-              <span className="ml-0.5 inline-block h-4 w-[3px] animate-pulse rounded-sm bg-primary/70 align-middle" />
-            )}
             {msg.attachments && msg.attachments.length > 0 && (
               <div className="mt-3 space-y-2">
                 {msg.attachments.map((a, i) => (
@@ -163,17 +228,15 @@ function MessageBubble({
   );
 }
 
-function ThinkingIndicator({ label }: { label?: string }) {
+// Pre-stream placeholder: shown only in the gap between sending and the first
+// stream event, when no assistant turn bubble exists yet. Same bubble style,
+// so it reads as the start of the single turn bubble that replaces it.
+function PendingTurn({ label }: { label?: string }) {
   return (
-    <div className="flex items-start gap-3 pl-0">
+    <div className="flex w-full justify-start gap-3">
       <PulseAvatar />
-      <div className="flex items-center gap-2 rounded-2xl pulse-bubble-bot px-4 py-3">
-        <div className="flex gap-1">
-          <span className="h-2 w-2 animate-bounce rounded-full bg-primary/50" style={{ animationDelay: "0ms" }} />
-          <span className="h-2 w-2 animate-bounce rounded-full bg-primary/50" style={{ animationDelay: "150ms" }} />
-          <span className="h-2 w-2 animate-bounce rounded-full bg-primary/50" style={{ animationDelay: "300ms" }} />
-        </div>
-        <span className="ml-1 text-xs text-muted-foreground">{label?.trim() || "Thinking…"}</span>
+      <div className="rounded-2xl pulse-bubble-bot px-4 py-2.5">
+        <ThinkingDots label={label} />
       </div>
     </div>
   );
@@ -242,12 +305,23 @@ export function ChatMessages({
     );
   }
 
+  // Only show the standalone loader in the brief gap before the turn bubble
+  // exists. Once a streaming assistant turn is present it renders its own dots,
+  // so we never stack two bot bubbles.
+  const hasStreamingTurn = messages.some((m) => m.role === "assistant" && m.streaming);
+
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-6">
       {messages.map((m) => (
-        <MessageBubble key={m.id} msg={m} conversationId={conversationId ?? null} dispatch={dispatch} />
+        <MessageBubble
+          key={m.id}
+          msg={m}
+          thinkingLabel={thinkingLabel}
+          conversationId={conversationId ?? null}
+          dispatch={dispatch}
+        />
       ))}
-      {isThinking && <ThinkingIndicator label={thinkingLabel} />}
+      {isThinking && !hasStreamingTurn && <PendingTurn label={thinkingLabel} />}
       <div ref={endRef} />
     </div>
   );

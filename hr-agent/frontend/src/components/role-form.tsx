@@ -24,7 +24,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { Role } from "@/lib/types";
-// import { PanelMemberPicker } from "@/components/panel-member-picker";
 
 type RoleWritable = Omit<Role, "id" | "created_at"> & { id?: string };
 
@@ -581,27 +580,17 @@ function RoundConfigBlock({
       <p className="text-sm font-bold uppercase tracking-[0.12em] text-muted-foreground">
         {label} round
       </p>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <div className="space-y-1.5 sm:col-span-2">
-          {/* <Label>Panel members</Label>
-          <PanelMemberPicker
-            roleType={round}
-            value={cfg.panel_emails || []}
-            onChange={(emails) => onChange({ ...cfg, panel_emails: emails })}
-          /> */}
-        </div>
-        <div className="space-y-1.5">
-          <Label>Duration (minutes)</Label>
-          <Input
-            type="number"
-            min={15}
-            max={240}
-            value={cfg.duration_minutes}
-            onChange={(e) =>
-              onChange({ ...cfg, duration_minutes: Number(e.target.value) })
-            }
-          />
-        </div>
+      <div className="max-w-[10rem] space-y-1.5">
+        <Label>Duration (minutes)</Label>
+        <Input
+          type="number"
+          min={15}
+          max={240}
+          value={cfg.duration_minutes}
+          onChange={(e) =>
+            onChange({ ...cfg, duration_minutes: Number(e.target.value) })
+          }
+        />
       </div>
       <div className="space-y-2">
         <Label>Availability windows</Label>

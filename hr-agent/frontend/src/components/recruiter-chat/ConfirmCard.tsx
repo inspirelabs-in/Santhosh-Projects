@@ -12,6 +12,13 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
 import { MarkdownLite } from "@/components/markdown-lite";
 import { PipelineBuilder } from "@/components/pipeline-builder";
 import { getDashboardKey } from "@/lib/auth";
@@ -47,7 +54,7 @@ function EditableField({
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
-  const inputRef = useRef<HTMLInputElement | HTMLSelectElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (editing) inputRef.current?.focus();
@@ -56,6 +63,12 @@ function EditableField({
   function commit() {
     setEditing(false);
     if (draft !== value) onChange(draft);
+  }
+
+  function commitValue(v: string) {
+    setEditing(false);
+    setDraft(v);
+    if (v !== value) onChange(v);
   }
 
   if (!editing) {
@@ -82,17 +95,16 @@ function EditableField({
         <div className="font-mono text-[9px] uppercase tracking-wider text-primary/70">
           {label}
         </div>
-        <select
-          ref={inputRef as React.RefObject<HTMLSelectElement>}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={commit}
-          className="mt-0.5 w-full rounded border border-border bg-background px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-        >
-          {options.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </select>
+        <Select value={draft} onValueChange={(nv) => commitValue(nv)}>
+          <SelectTrigger className="mt-0.5 w-full rounded border border-border bg-background px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {options.map((o) => (
+              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
     );
   }
