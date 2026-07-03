@@ -30,6 +30,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
+import {
   panels,
   type PanelMember,
   type PanelMemberCreate,
@@ -83,6 +90,8 @@ const COMMON_TIMEZONES = [
   "America/Los_Angeles",
   "UTC",
 ];
+
+const SENIORITY_UNSET = "__unset__";
 
 type TabKey = "all" | PanelRoleType;
 
@@ -659,20 +668,27 @@ function MemberDialog({
               />
             </Field>
             <Field label="Seniority level">
-              <select
-                value={form.seniority_level ?? ""}
-                onChange={(e) =>
-                  setForm({ ...form, seniority_level: e.target.value })
+              <Select
+                value={form.seniority_level || SENIORITY_UNSET}
+                onValueChange={(nv) =>
+                  setForm({
+                    ...form,
+                    seniority_level: nv === SENIORITY_UNSET ? "" : nv,
+                  })
                 }
-                className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm"
               >
-                <option value="">Select level</option>
-                <option value="junior">Junior</option>
-                <option value="mid">Mid</option>
-                <option value="senior">Senior</option>
-                <option value="lead">Lead</option>
-                <option value="executive">Executive</option>
-              </select>
+                <SelectTrigger className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm">
+                  <SelectValue placeholder="Select level" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={SENIORITY_UNSET}>Select level</SelectItem>
+                  <SelectItem value="junior">Junior</SelectItem>
+                  <SelectItem value="mid">Mid</SelectItem>
+                  <SelectItem value="senior">Senior</SelectItem>
+                  <SelectItem value="lead">Lead</SelectItem>
+                  <SelectItem value="executive">Executive</SelectItem>
+                </SelectContent>
+              </Select>
             </Field>
           </div>
 
@@ -758,35 +774,41 @@ function MemberDialog({
 
           <div className="grid grid-cols-2 gap-3">
             <Field label="Timezone">
-              <select
+              <Select
                 value={form.timezone}
-                onChange={(e) =>
-                  setForm({ ...form, timezone: e.target.value })
-                }
-                className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm"
+                onValueChange={(nv) => setForm({ ...form, timezone: nv })}
               >
-                {COMMON_TIMEZONES.map((tz) => (
-                  <option key={tz} value={tz}>
-                    {tz}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm">
+                  <SelectValue placeholder="Select timezone" />
+                </SelectTrigger>
+                <SelectContent>
+                  {COMMON_TIMEZONES.map((tz) => (
+                    <SelectItem key={tz} value={tz}>
+                      {tz}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </Field>
             <Field label="Calendar provider">
-              <select
+              <Select
                 value={form.calendar_provider}
-                onChange={(e) =>
+                onValueChange={(nv) =>
                   setForm({
                     ...form,
-                    calendar_provider: e.target.value as CalendarProvider,
+                    calendar_provider: nv as CalendarProvider,
                   })
                 }
-                className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm"
               >
-                <option value="microsoft">Microsoft 365</option>
-                <option value="google">Google</option>
-                <option value="none">None / manual</option>
-              </select>
+                <SelectTrigger className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm">
+                  <SelectValue placeholder="Select calendar provider" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="microsoft">Microsoft 365</SelectItem>
+                  <SelectItem value="google">Google</SelectItem>
+                  <SelectItem value="none">None / manual</SelectItem>
+                </SelectContent>
+              </Select>
             </Field>
           </div>
           <Field label="Calendar id (optional)">

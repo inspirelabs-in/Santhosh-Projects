@@ -9,6 +9,13 @@ import { Topbar } from "@/components/layout/topbar";
 import { PageHeader } from "@/components/layout/page-header";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
 import { configApi, type AuditRow } from "@/lib/configClient";
 
 function fmt(v: unknown): string {
@@ -55,17 +62,21 @@ export default function AuditLogPage() {
               onChange={(e) => setFilter(e.target.value)}
               className="max-w-xs font-mono text-xs"
             />
-            <select
-              value={limit}
-              onChange={(e) => setLimit(parseInt(e.target.value, 10))}
-              className="h-9 rounded-md border border-input bg-background px-2 font-mono text-xs"
+            <Select
+              value={String(limit)}
+              onValueChange={(nv) => setLimit(parseInt(nv, 10))}
             >
-              {[50, 100, 250, 500].map((n) => (
-                <option key={n} value={n}>
-                  last {n}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger className="h-9 rounded-md border border-input bg-background px-2 font-mono text-xs">
+                <SelectValue placeholder="last 100" />
+              </SelectTrigger>
+              <SelectContent>
+                {[50, 100, 250, 500].map((n) => (
+                  <SelectItem key={n} value={String(n)}>
+                    last {n}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button variant="outline" size="sm" onClick={() => mutate()} disabled={isLoading}>
               <RefreshCw className="mr-1 h-3.5 w-3.5" />
               Refresh

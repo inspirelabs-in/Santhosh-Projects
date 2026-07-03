@@ -9,6 +9,13 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import {
   configApi,
@@ -16,6 +23,8 @@ import {
   type ConfigFieldDef,
   type GroupValues,
 } from "@/lib/configClient";
+
+const SELECT_NOT_SET = "__not_set__";
 
 export default function ConfigGroupPage({
   params,
@@ -154,18 +163,29 @@ export default function ConfigGroupPage({
                           />
                         </button>
                       ) : field.type === "select" && field.options ? (
-                        <select
-                          value={String(val ?? "")}
-                          onChange={(e) => setField(field.key, e.target.value)}
-                          className="h-9 w-full max-w-sm rounded-md border border-input bg-background px-3 font-mono text-xs"
+                        <Select
+                          value={String(val ?? "") || SELECT_NOT_SET}
+                          onValueChange={(nv) =>
+                            setField(
+                              field.key,
+                              nv === SELECT_NOT_SET ? "" : nv,
+                            )
+                          }
                         >
-                          <option value="">— not set —</option>
-                          {field.options.map((o) => (
-                            <option key={o} value={o}>
-                              {o}
-                            </option>
-                          ))}
-                        </select>
+                          <SelectTrigger className="h-9 w-full max-w-sm rounded-md border border-input bg-background px-3 font-mono text-xs">
+                            <SelectValue placeholder="— not set —" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={SELECT_NOT_SET}>
+                              — not set —
+                            </SelectItem>
+                            {field.options.map((o) => (
+                              <SelectItem key={o} value={o}>
+                                {o}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       ) : field.type === "textarea" || field.type === "json" ? (
                         <textarea
                           value={String(val ?? "")}
