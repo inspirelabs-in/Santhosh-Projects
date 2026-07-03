@@ -17,6 +17,7 @@ from sqlalchemy import and_, desc, select
 
 from src.api.auth import require_viewer
 from src.config import get_settings
+from src.constants.statuses import REJECTED_OR_WITHDRAWN_STATUSES
 from src.db.base import (
     Application,
     AssignmentRow,
@@ -102,7 +103,7 @@ async def rank_candidates_for_role(
 
         filters = [Application.role_id == role_id]
         if not include_rejected:
-            filters.append(Application.status.notin_(("rejected", "withdrawn")))
+            filters.append(Application.status.notin_(REJECTED_OR_WITHDRAWN_STATUSES))
 
         app_rows = (
             await session.execute(

@@ -12,8 +12,6 @@ import re
 from dataclasses import dataclass
 from uuid import UUID
 
-from temporalio import activity
-
 from src.channels.email import send_email
 from src.config import get_settings
 from src.db.connection import session_scope
@@ -185,8 +183,3 @@ async def run_rejection(payload: RejectionInput) -> RejectionResult:
         )
 
     return RejectionResult(sent=sent, category=category, trace_id=llm_result.trace_id)
-
-
-@activity.defn(name="rejection")
-async def rejection_activity(payload: RejectionInput) -> RejectionResult:
-    return await run_rejection(payload)
