@@ -1543,7 +1543,7 @@ export default function RoleDetailPage() {
                               value={piCognitiveLink}
                               onChange={(e) => { setPiCognitiveLink(e.target.value); setAssignmentDirty(true); }}
                               placeholder="https://app.predictiveindex.com/..."
-                              className="w-full rounded-md bg-transparent px-3 py-2 text-sm transition hover:bg-muted/40 focus:bg-muted/50 focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground/40"
+                              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm transition focus:outline-none focus:ring-2 focus:ring-primary/30 placeholder:text-muted-foreground/40"
                             />
                           </Field>
                           <Field label="Behavioural test URL">
@@ -1552,7 +1552,7 @@ export default function RoleDetailPage() {
                               value={piPersonalityLink}
                               onChange={(e) => { setPiPersonalityLink(e.target.value); setAssignmentDirty(true); }}
                               placeholder="https://app.predictiveindex.com/..."
-                              className="w-full rounded-md bg-transparent px-3 py-2 text-sm transition hover:bg-muted/40 focus:bg-muted/50 focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground/40"
+                              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm transition focus:outline-none focus:ring-2 focus:ring-primary/30 placeholder:text-muted-foreground/40"
                             />
                           </Field>
                         </div>
