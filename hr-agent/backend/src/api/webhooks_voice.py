@@ -34,6 +34,7 @@ from src.activities.v1_dispatch_voice_call import dispatch_voice_call
 from src.api.auth import require_admin
 from src.activities.v1_voice_screening import dispatch_voice_screening
 from src.config import get_settings
+from src.constants.external import ELEVENLABS_API_BASE
 from src.db.base import VoiceCall
 from src.db.connection import session_scope
 from src.db.repositories.audit import log_audit
@@ -493,7 +494,7 @@ async def _fetch_and_store_recording(
     settings = get_settings()
     if not settings.elevenlabs_api_key:
         return None
-    url = f"https://api.elevenlabs.io/v1/convai/conversations/{conversation_id}/audio"
+    url = f"{ELEVENLABS_API_BASE}/convai/conversations/{conversation_id}/audio"
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.get(url, headers={"xi-api-key": settings.elevenlabs_api_key})
@@ -1399,7 +1400,7 @@ async def recover_elevenlabs_conversation(
         return {"ok": True, "already_completed": True, "voice_call_id": str(voice_call_id)}
 
     # Fetch conversation from ElevenLabs API
-    url = f"https://api.elevenlabs.io/v1/convai/conversations/{conversation_id}"
+    url = f"{ELEVENLABS_API_BASE}/convai/conversations/{conversation_id}"
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.get(
             url, headers={"xi-api-key": settings.elevenlabs_api_key}

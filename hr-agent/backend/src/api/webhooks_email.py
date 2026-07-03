@@ -22,6 +22,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query, Request, status
 
 from src.config import get_settings
+from src.constants.external import MS_GRAPH_API_BASE, MS_GRAPH_DEFAULT_SCOPE, MS_GRAPH_TOKEN_URL_TEMPLATE
 from src.db.base import ProcessedMessage
 from src.db.connection import session_scope
 
@@ -160,7 +161,7 @@ async def _fetch_graph_message(message_id: str) -> dict | None:
         return None
     async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.get(
-            f"https://graph.microsoft.com/v1.0/me/messages/{message_id}",
+            f"{MS_GRAPH_API_BASE}/me/messages/{message_id}",
             headers={"Authorization": f"Bearer {token}"},
             params={
                 "$select": "from,subject,bodyPreview,receivedDateTime,internetMessageId,internetMessageHeaders"
@@ -180,11 +181,11 @@ async def _get_graph_token() -> str | None:
     tenant = _settings.graph_tenant_id or "common"
     async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.post(
-            f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token",
+            MS_GRAPH_TOKEN_URL_TEMPLATE.format(tenant=tenant),
             data={
                 "client_id": _settings.graph_client_id,
                 "client_secret": _settings.graph_client_secret,
-                "scope": "https://graph.microsoft.com/.default",
+                "scope": MS_GRAPH_DEFAULT_SCOPE,
                 "grant_type": "client_credentials",
             },
         )
