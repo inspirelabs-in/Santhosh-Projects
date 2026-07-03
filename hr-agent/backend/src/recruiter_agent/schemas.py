@@ -345,22 +345,6 @@ RECRUITER_TOOLS: list[dict] = [
     {
         "type": "function",
         "function": {
-            "name": "set_panel_member",
-            "description": "Assign a panel member to a role for a given round (technical | hr | ceo). Requires confirmation.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "role_id": {"type": "string"},
-                    "panel_member_id": {"type": "string"},
-                    "round": {"type": "string", "enum": ["technical", "hr", "ceo"]},
-                },
-                "required": ["role_id", "panel_member_id", "round"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "add_panel_member",
             "description": "Add a new interviewer to the workspace panel directory. Use when HR mentions a new team member who should conduct interviews. Requires confirmation.",
             "parameters": {
@@ -642,6 +626,59 @@ RECRUITER_TOOLS: list[dict] = [
                     "notes": {"type": "string"},
                 },
                 "required": [],
+            },
+        },
+    },
+    # ---------------- Org onboarding (get -> ask -> research -> write) ----------------
+    {
+        "type": "function",
+        "function": {
+            "name": "get_org_data",
+            "description": "Read the current organization profile (company mission, domain, values, hiring philosophy, tone) and a coverage summary of what's set vs missing. Call this FIRST whenever the user wants to set up, review, or update the org / company profile.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "setup_org_manual",
+            "description": "Get the interview guide for onboarding the org — the specific questions to ask the user, for the empty/weak fields only, each with why it matters and an example. Call this after get_org_data to know exactly what to ask (don't invent questions). Then ask the user conversationally.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "research_about_org",
+            "description": "Hand off a research task to a web-research sub-agent (searches the web + reads the company's pages) and get back a draft of the org profile (mission, domain, values, etc.) grounded in real sources, plus the fields it couldn't verify. Use to fill gaps the user doesn't want to type — ask for the company URL first if you don't have it. Review the draft with the user; then write it with update_org_data. Does NOT save anything itself.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "instruction": {"type": "string", "description": "Detailed, specific research direction — what to find and any known context."},
+                    "org_name": {"type": "string", "description": "Company name (defaults to the stored org name)."},
+                    "org_url": {"type": "string", "description": "Company website / careers URL, if known."},
+                    "focus_fields": {"type": "array", "items": {"type": "string"}, "description": "Persona fields to prioritise, e.g. ['mission','domain_context','values']."},
+                },
+                "required": ["instruction"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_org_data",
+            "description": "Write the organization profile. Pass ONLY the fields you're adding or changing (a partial persona) -- this MERGES into what's stored, it does not replace the whole profile. List fields (values, what_good_looks_like, anti_patterns) append + dedupe by default. Requires confirmation. Use after gathering answers and/or research. POLISH before writing: do not store the recruiter's raw phrasing verbatim. Rewrite each entry into a clean, well-formed line that matches the style and specificity of the existing entries (fix grammar, casing, make it a concrete observable signal, not a 2-3 word fragment). Preserve the recruiter's meaning exactly; never invent facts, add items they didn't ask for, or embellish with details they didn't give.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "patch": {
+                        "type": "object",
+                        "description": "Partial HiringPersona (POLISHED, not raw user text). Keys: company_name, mission, domain_context, hiring_philosophy, tone (strings); values ([{name, description}]); what_good_looks_like, anti_patterns (string arrays). For what_good_looks_like/anti_patterns each item is a complete, concrete signal phrase (e.g. 'Adapts quickly when the plan changes and re-prioritises without being asked' -- NOT 'be adaptable'). Include only what changed.",
+                    },
+                    "replace_lists": {"type": "boolean", "default": False, "description": "true = overwrite the given list fields instead of appending. Use only when the user wants to replace a list wholesale."},
+                    "org_context_summary": {"type": "string", "description": "Optional 2-3 sentence grounding paragraph about the company (stored as settings.org_context.summary)."},
+                },
+                "required": ["patch"],
             },
         },
     },
