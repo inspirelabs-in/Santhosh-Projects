@@ -26,6 +26,7 @@ from uuid import UUID
 import httpx
 
 from src.config import get_settings
+from src.constants.external import ELEVENLABS_API_BASE
 from src.models.v1 import VoiceQuestion
 
 logger = logging.getLogger(__name__)
@@ -98,7 +99,7 @@ class ElevenLabsConvAIProvider:
     Cancellation: ``DELETE /v1/convai/conversations/{conversation_id}``.
     """
 
-    BASE = "https://api.elevenlabs.io/v1"
+    BASE = ELEVENLABS_API_BASE
 
     def __init__(
         self,

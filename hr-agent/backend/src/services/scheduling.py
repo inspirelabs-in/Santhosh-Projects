@@ -30,6 +30,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_settings
+from src.constants.external import MS_GRAPH_API_BASE, MS_GRAPH_DEFAULT_SCOPE, MS_GRAPH_TOKEN_URL_TEMPLATE
 from src.db.base import MeetingSession
 from src.models.scheduling import RoundScheduling
 
@@ -125,12 +126,12 @@ async def _graph_token() -> str | None:
     settings = get_settings()
     if not (settings.graph_tenant_id and settings.graph_client_id and settings.graph_client_secret):
         return None
-    url = f"https://login.microsoftonline.com/{settings.graph_tenant_id}/oauth2/v2.0/token"
+    url = MS_GRAPH_TOKEN_URL_TEMPLATE.format(tenant=settings.graph_tenant_id)
     data = {
         "client_id": settings.graph_client_id,
         "client_secret": settings.graph_client_secret,
         "grant_type": "client_credentials",
-        "scope": "https://graph.microsoft.com/.default",
+        "scope": MS_GRAPH_DEFAULT_SCOPE,
     }
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
@@ -154,7 +155,7 @@ async def _graph_busy_intervals(
     token = await _graph_token()
     if token is None or not panel_emails:
         return None
-    url = f"https://graph.microsoft.com/v1.0/users/{organiser_email}/calendar/getSchedule"
+    url = f"{MS_GRAPH_API_BASE}/users/{organiser_email}/calendar/getSchedule"
     payload = {
         "schedules": panel_emails,
         "startTime": {"dateTime": start_utc.isoformat(), "timeZone": "UTC"},

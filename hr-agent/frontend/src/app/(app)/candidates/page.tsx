@@ -28,6 +28,7 @@ import { Pagination } from "@/components/pagination";
 import { Avatar } from "@/components/ui/avatar";
 import { QuickViewPanel } from "@/components/candidates/quick-view-panel";
 import { CandidateContextMenu } from "@/components/candidates/candidate-context-menu";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 
 interface Candidate {
   application_id: string;
@@ -526,17 +527,18 @@ function BulkRejectDialog({
           <label className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
             Rejection reason
           </label>
-          <select
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-          >
-            {REJECTION_CATEGORIES.map((c) => (
-              <option key={c.value} value={c.value}>
-                {c.label}
-              </option>
-            ))}
-          </select>
+          <Select value={category} onValueChange={(nv) => setCategory(nv)}>
+            <SelectTrigger className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30">
+              <SelectValue placeholder="Select a reason…" />
+            </SelectTrigger>
+            <SelectContent>
+              {REJECTION_CATEGORIES.map((c) => (
+                <SelectItem key={c.value} value={c.value}>
+                  {c.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="mt-6 flex items-center justify-end gap-2">

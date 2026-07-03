@@ -681,6 +681,29 @@ class RecruiterConversation(Base):
     )
 
 
+class RecruiterDigestState(Base):
+    """Per-recruiter presence + digest bookkeeping for the "welcome back" digest.
+
+    ``last_seen_at`` is bumped by the presence heartbeat while the tab is focused;
+    ``last_digest_at`` throttles repeat digests. Keyed by ``actor_hash`` (the same
+    stable per-recruiter identity as ``RecruiterConversation``).
+    """
+
+    __tablename__ = "recruiter_digest_state"
+
+    actor_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    last_digest_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class RecruiterMessage(Base):
     __tablename__ = "recruiter_messages"
 

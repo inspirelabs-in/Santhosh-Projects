@@ -78,7 +78,6 @@ async def generate_ceo_brief(*, application_id: UUID) -> str:
                 "verdict": latest_voice.verdict,
                 "answers": latest_voice.answers,
                 "evaluation": latest_voice.evaluation,
-                "emotion_features": latest_voice.emotion_features,
             }
 
         assessments = (

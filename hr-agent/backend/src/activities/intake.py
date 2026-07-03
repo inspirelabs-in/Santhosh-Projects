@@ -24,8 +24,6 @@ from uuid import UUID
 
 _URL_RE = re.compile(r"https?://[^\s<>\"')\]]+", re.IGNORECASE)
 
-from temporalio import activity
-
 from src.channels.email import send_email
 from src.db.connection import session_scope
 from sqlalchemy import select
@@ -220,13 +218,3 @@ async def run_intake(payload: IntakePayload) -> IntakeResult:
         files_stored=stored_keys,
         was_duplicate=was_duplicate,
     )
-
-
-# ---------------------------------------------------------------------------
-# Temporal wrapper
-# ---------------------------------------------------------------------------
-
-
-@activity.defn(name="intake")
-async def intake_activity(payload: IntakePayload) -> IntakeResult:
-    return await run_intake(payload)

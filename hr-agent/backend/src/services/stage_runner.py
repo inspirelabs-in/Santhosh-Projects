@@ -41,6 +41,7 @@ from uuid import UUID
 
 from src.db.base import Application, Role
 from src.db.connection import session_scope
+from src.db.repositories import domain_event as domain_event_repo
 from src.db.repositories import v1_application as app_repo
 from src.models.candidate import ApplicationStatus
 from src.models.pipeline import StageVerdict
@@ -138,6 +139,11 @@ async def _auto_reject_with_email(
         if app is None:
             return
         app.current_stage_key = "rejected"
+        # Keep the V1 legacy cursor in sync too: many read paths (e.g. the roles
+        # table's active-vs-rejected split) still classify off current_stage. If
+        # only current_stage_key is set, an auto/HR-review rejected candidate keeps
+        # its old current_stage (e.g. "report_ready") and wrongly counts as active.
+        app.current_stage = PipelineStage.REJECTED.value
         app.stage_status = str(StageStatus.FAILED)
         await emit_event(
             session,
@@ -283,6 +289,11 @@ async def advance_candidate(
             return f"parked_fail_manual:{completed_stage_key}"
 
         # mode == "auto" (or unset): auto-reject + email.
+        if completed_stage_key:
+            async with session_scope() as session:
+                await domain_event_repo.resolve_open_for_stage(
+                    session, application_id, completed_stage_key, by="stage_reject"
+                )
         per_stage_threshold_auto = (
             await _get_stage_threshold(application_id, completed_stage_key)
             if completed_stage_key
@@ -297,6 +308,11 @@ async def advance_candidate(
         return f"rejected:{completed_stage_key}"
 
     # 4. PASS -> advance through the role's pipeline (engine decides the next move).
+    if completed_stage_key:
+        async with session_scope() as session:
+            await domain_event_repo.resolve_open_for_stage(
+                session, application_id, completed_stage_key, by="stage_advance"
+            )
     from src.services.auto_progress import auto_progress
 
     decision = await auto_progress(application_id=application_id)

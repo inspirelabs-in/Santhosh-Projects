@@ -32,7 +32,6 @@ def test_viewer_cannot_write():
         "send_custom_email",
         "trigger_chat_invite",
         "schedule_interview",
-        "set_panel_member",
     ):
         assert not can("viewer", tool), tool
 
@@ -71,7 +70,6 @@ def test_destructive_tools_are_confirm_required():
         "override_stage",
         "send_custom_email",
         "schedule_interview",
-        "set_panel_member",
         "update_setting",
     }
     assert must_confirm.issubset(CONFIRM_REQUIRED)

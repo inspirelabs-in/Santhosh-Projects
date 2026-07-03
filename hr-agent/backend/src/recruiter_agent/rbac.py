@@ -53,9 +53,13 @@ TOOL_ROLES: dict[str, Role] = {
     "suggest_meeting_slots": "viewer",
     "schedule_meeting": "recruiter",
     "reschedule_meeting": "recruiter",
-    "set_panel_member": "recruiter",
     "parse_attachment": "recruiter",
     "remember": "recruiter",
+    # Org onboarding — no role gating (whoever chats can set up the org).
+    "get_org_data": "viewer",
+    "setup_org_manual": "viewer",
+    "research_about_org": "viewer",
+    "update_org_data": "viewer",
     # Admin
     "update_setting": "admin",
 }
@@ -76,8 +80,8 @@ CONFIRM_REQUIRED: frozenset[str] = frozenset(
         "schedule_interview",
         "schedule_meeting",
         "reschedule_meeting",
-        "set_panel_member",
         "update_setting",
+        "update_org_data",  # org-wide write -- confirm the diff first
         "publish_linkedin_post",  # external broadcast -- always confirm
     }
 )

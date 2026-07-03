@@ -57,7 +57,6 @@ GROUPS: list[str] = [
     "Channels",
     "Calendar",
     "Meeting Bot",
-    "Emotion",
     "Storage",
     "Branding",
     "Compliance",
@@ -873,34 +872,6 @@ FIELDS: list[ConfigField] = [
         default=False,
     ),
 
-    # ---------------- Emotion ----------------
-    ConfigField(
-        key="EMOTION_MODEL_PROVIDER",
-        settings_attr="emotion_model_provider",
-        group="Emotion",
-        label="Provider",
-        type="select",
-        options=["wav2vec2", "sensevoice", "disabled"],
-        default="wav2vec2",
-    ),
-    ConfigField(
-        key="EMOTION_MODEL_ENDPOINT",
-        settings_attr="emotion_model_endpoint",
-        group="Emotion",
-        label="Service endpoint",
-        type="url",
-        help="Base URL of emotion microservice. e.g. http://emotion:8090",
-        test_integration="emotion",
-    ),
-    ConfigField(
-        key="EMOTION_API_KEY",
-        settings_attr="emotion_api_key",
-        group="Emotion",
-        label="Bearer token",
-        type="secret",
-        is_secret=True,
-    ),
-
     # ---------------- Storage ----------------
     ConfigField(
         key="R2_ACCESS_KEY_ID",
@@ -928,14 +899,6 @@ FIELDS: list[ConfigField] = [
         subgroup="Object storage",
         label="Resumes bucket",
         default="hiring-agent-resumes",
-    ),
-    ConfigField(
-        key="R2_BUCKET_CONSENT",
-        settings_attr="r2_bucket_consent",
-        group="Storage",
-        subgroup="Object storage",
-        label="Consent bucket",
-        default="hiring-agent-consent",
     ),
     ConfigField(
         key="R2_REGION",

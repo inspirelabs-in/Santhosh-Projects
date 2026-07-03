@@ -9,6 +9,10 @@ RUN npm ci --no-audit --no-fund
 FROM node:20-alpine AS builder
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
+# Emit Next standalone output for this image (the runner stage copies
+# .next/standalone + server.js). Vercel leaves DOCKER_BUILD unset so it keeps
+# the default, non-standalone build.
+ENV DOCKER_BUILD=true
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 # Bake the backend URL into the build. Override at build time with:

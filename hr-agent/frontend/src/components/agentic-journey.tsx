@@ -19,7 +19,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ManualScheduleModal } from "@/components/manual-schedule-modal";
 import { StatusTag } from "@/components/status-tag";
-import { ScoreBar } from "@/components/tier-badge";
+import { ScoreChip } from "@/components/tier-badge";
 import {
   ceoDashboard,
   voiceCalls,
@@ -259,7 +259,7 @@ function PhoneScreenCard({
           {latest.duration_sec ? `${Math.round(latest.duration_sec)}s` : "—"}
         </span>
       </div>
-      <ScoreBar score={latest.overall_score} />
+      <ScoreChip score={latest.overall_score} />
 
       {latest.next_action ? (
         <p className="mt-2 rounded-md bg-primary/5 px-2 py-1 text-[11px]">

@@ -35,7 +35,6 @@ from src.api import (
     roles,
     settings as settings_router,
     policy_rules,
-    supervisor as supervisor_api,
     talent_search,
     v1_campaigns,
     v1_dashboard,
@@ -55,8 +54,6 @@ from src.services.auto_nudge import run_auto_nudge_worker
 from src.services.recruiter_nudge_worker import run_recruiter_nudge_worker
 from src.services.stall_detector import run_stall_detector
 from src.services.webhook_watchdog import run_webhook_watchdog
-# [SCRAPE/RETIRED] supervisor engine disabled (superseded by domain_events).
-# from src.supervisor.engine import run_supervisor_loop
 
 _settings = get_settings()
 logging.basicConfig(
@@ -98,10 +95,6 @@ async def lifespan(_: FastAPI):
     watchdog = asyncio.create_task(
         run_webhook_watchdog(), name="webhook-watchdog"
     )
-    # [SCRAPE/RETIRED] supervisor engine disabled; domain_events replaces it.
-    # supervisor = asyncio.create_task(
-    #     run_supervisor_loop(), name="supervisor-engine"
-    # )
     _all_tasks = (poller, config_listener, nudge_worker, stall_worker, auto_nudge, watchdog)
     try:
         yield
@@ -182,7 +175,6 @@ app.include_router(talent_search.router)
 app.include_router(analytics.router)
 app.include_router(export.router)
 app.include_router(candidate_ranking.router)
-app.include_router(supervisor_api.router)
 app.include_router(policy_rules.router)
 app.include_router(candidate_portal.router)
 app.include_router(leads.router)

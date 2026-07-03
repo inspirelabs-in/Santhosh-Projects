@@ -6,9 +6,14 @@ import { CalendarClock, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
 import { api } from "@/lib/api";
-// import { PanelMemberPicker } from "@/components/panel-member-picker";
-// import type { PanelRoleType } from "@/lib/api/panels";
 
 /**
  * Manual scheduling override. Used when:
@@ -35,7 +40,6 @@ export function ManualScheduleModal({
   );
   const [whenLocal, setWhenLocal] = useState("");
   const [duration, setDuration] = useState(45);
-  const [emails, setEmails] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -44,7 +48,6 @@ export function ManualScheduleModal({
     setError(null);
     try {
       if (!whenLocal) throw new Error("pick a date + time");
-      // if (emails.length === 0) throw new Error("pick at least one panel member");
       // datetime-local is local timezone; convert to ISO with offset.
       const local = new Date(whenLocal);
       const iso = local.toISOString();
@@ -58,7 +61,7 @@ export function ManualScheduleModal({
         round,
         scheduled_at: iso,
         duration_minutes: duration,
-        panel_emails: emails,
+        panel_emails: [],
       });
       if (!out.ok) throw new Error("backend rejected request");
       onSaved();
@@ -98,15 +101,19 @@ export function ManualScheduleModal({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label>Round</Label>
-              <select
+              <Select
                 value={round}
-                onChange={(e) => setRound(e.target.value as any)}
-                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm"
+                onValueChange={(nv) => setRound(nv as any)}
               >
-                <option value="technical">Technical</option>
-                <option value="ceo">CEO</option>
-                <option value="hr">HR</option>
-              </select>
+                <SelectTrigger className="mt-1 w-full text-sm">
+                  <SelectValue placeholder="Select round" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="technical">Technical</SelectItem>
+                  <SelectItem value="ceo">CEO</SelectItem>
+                  <SelectItem value="hr">HR</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <Label>Duration (min)</Label>
@@ -129,17 +136,6 @@ export function ManualScheduleModal({
               className="mt-1"
             />
           </div>
-          {/* <div>
-            <Label>Panel members</Label>
-            <div className="mt-1">
-              <PanelMemberPicker
-                roleType={round}
-                value={emails}
-                onChange={setEmails}
-              />
-            </div>
-          </div> */}
-
           {error ? <p className="text-xs text-destructive">{error}</p> : null}
 
           <div className="flex justify-end gap-2 pt-2">

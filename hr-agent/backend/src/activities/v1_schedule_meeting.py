@@ -35,6 +35,7 @@ from sqlalchemy import select
 
 from src.channels.email import send_email
 from src.config import get_settings
+from src.constants.statuses import ACTIVE_MEETING_SESSION_BOT_STATUSES
 from src.db.base import Application, Candidate, MeetingSession, Role, VoiceCall
 from src.db.connection import session_scope
 from src.db.repositories.audit import log_audit
@@ -132,7 +133,7 @@ async def schedule_meeting(
                 .where(
                     MeetingSession.application_id == application_id,
                     MeetingSession.round == round,
-                    MeetingSession.bot_status.in_(("pending", "scheduled", "in_call")),
+                    MeetingSession.bot_status.in_(ACTIVE_MEETING_SESSION_BOT_STATUSES),
                 )
                 .limit(1)
             )

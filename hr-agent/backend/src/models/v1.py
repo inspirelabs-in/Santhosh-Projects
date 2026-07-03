@@ -412,23 +412,6 @@ class VoiceAnswer(BaseModel):
     duration_sec: float | None = None
 
 
-class EmotionFeatures(BaseModel):
-    """[TO BE REMOVED] Paralinguistic features over the full call audio.
-
-    Orphaned: voice scoring moved to Gemini (gemini_audio_eval) which does this
-    inline. Only the dead emotion_client stub references this model.
-    """
-
-    avg_pitch_hz: float | None = None
-    pitch_variance: float | None = None
-    speaking_rate_wpm: float | None = None
-    pause_ratio: float | None = None
-    arousal_score: float | None = None
-    valence_score: float | None = None
-    dominant_emotion: str | None = None
-    confidence_score: float | None = None
-
-
 class ExtractedCandidateFacts(BaseModel):
     """Structured details extracted from the phone-screen transcript.
 

@@ -3,12 +3,15 @@
 import { useState } from "react";
 import { Check, X, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { api } from "@/lib/api";
 import { PI_PERSONAS } from "@/lib/pi-personas";
 import { MeetingReportCard } from "@/components/meeting-report-card";
 import type { StageViewEntry } from "@/lib/types";
 
 type Stage = string;
+
+const NO_PERSONA = "__none__";
 
 /**
  * Where the review panel is being rendered. Overview ("any") is the universal
@@ -189,18 +192,22 @@ export function AdminReviewPanel({ applicationId, currentStage, stageStatus, sta
           />
         </Field>
         <Field label="PI persona">
-          <select
-            value={piPersona}
-            onChange={(e) => setPiPersona(e.target.value)}
-            className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm"
+          <Select
+            value={piPersona || NO_PERSONA}
+            onValueChange={(nv) => setPiPersona(nv === NO_PERSONA ? "" : nv)}
           >
-            <option value="">— select —</option>
-            {PI_PERSONAS.map((p) => (
-              <option key={p} value={p.toLowerCase()}>
-                {p}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm">
+              <SelectValue placeholder="— select —" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NO_PERSONA}>— select —</SelectItem>
+              {PI_PERSONAS.map((p) => (
+                <SelectItem key={p} value={p.toLowerCase()}>
+                  {p}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </Field>
         <NotesField notes={notes} setNotes={setNotes} />
         <ActionRow

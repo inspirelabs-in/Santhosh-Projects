@@ -34,8 +34,6 @@ import logging
 from dataclasses import dataclass
 from uuid import UUID
 
-from temporalio import activity
-
 from src.channels import teams as teams_channel
 from src.config import get_settings
 from src.db.connection import session_scope
@@ -386,8 +384,3 @@ async def run_fit_score(payload: FitScoreInput) -> FitScoreOutput:
         knock_outs=knock_outs,
         trace_id=result.trace_id,
     )
-
-
-@activity.defn(name="fit_score")
-async def fit_score_activity(payload: FitScoreInput) -> FitScoreOutput:
-    return await run_fit_score(payload)

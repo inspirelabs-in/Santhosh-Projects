@@ -7,8 +7,6 @@
   {{ ui.hero_title("Thanks for applying, " ~ (candidate_name or "there") ~ ".") }}
   {{ ui.paragraph("We have your application for the <strong>" ~ role_title ~ "</strong> role at GrabOn. The agent has logged it and will move it through screening over the next 3-5 business days.") }}
 
-  {{ ui.highlight_box("<strong>Application reference:</strong> " ~ reference_id ~ "<br/><strong>Received:</strong> " ~ received_at, accent="primary") }}
-
   <p style="margin:18px 0 8px 0;font-family:{{ brand.font_stack }};font-size:13px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:{{ brand.muted_text }};">
     What happens next
   </p>

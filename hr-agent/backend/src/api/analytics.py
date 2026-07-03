@@ -17,6 +17,7 @@ from sqlalchemy import and_, case, cast, desc, extract, func, select, Float
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.auth import require_viewer
+from src.constants.statuses import TERMINAL_APPLICATION_STATUSES
 from src.db.base import Application, AuditLog, Candidate, Interview, Role
 from src.db.connection import session_scope
 
@@ -55,7 +56,7 @@ async def time_to_hire(
 
     async with session_scope() as session:
         # Overall average days to terminal state
-        terminal = ("rejected", "hired", "withdrawn")
+        terminal = TERMINAL_APPLICATION_STATUSES
         base_filter = [
             Application.created_at >= cutoff,
             Application.status.in_(terminal),
@@ -368,7 +369,7 @@ async def role_pipeline_health(
                     and_(
                         Application.role_id == role.id,
                         Application.updated_at < stale_cutoff,
-                        Application.status.notin_(("rejected", "hired", "withdrawn")),
+                        Application.status.notin_(TERMINAL_APPLICATION_STATUSES),
                     )
                 )
             ) or 0)

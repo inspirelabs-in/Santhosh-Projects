@@ -11,11 +11,13 @@ from src.llm.prompts.fit_score import FIT_SCORE_V1, FIT_SCORE_VERSION
 from src.llm.prompts.interview_report import INTERVIEW_REPORT_V1, INTERVIEW_REPORT_VERSION
 from src.llm.prompts.journey_report import JOURNEY_REPORT_V1, JOURNEY_REPORT_VERSION
 from src.llm.prompts.parse_resume import PARSE_RESUME_V1, PARSE_RESUME_VERSION
+from src.llm.prompts.org_research import ORG_RESEARCH_V1, ORG_RESEARCH_VERSION
 from src.llm.prompts.rejection_message import REJECTION_MESSAGE_V1, REJECTION_MESSAGE_VERSION
 from src.llm.prompts.score_open_text import SCORE_OPEN_TEXT_V1, SCORE_OPEN_TEXT_VERSION
 from src.llm.prompts.screening_eval import SCREENING_EVAL_V1, SCREENING_EVAL_VERSION
 from src.llm.prompts.screening_gen import SCREENING_GEN_V1, SCREENING_GEN_VERSION
 from src.llm.prompts.voice_screen_eval_audio import VOICE_SCREEN_EVAL_AUDIO_V1, VOICE_SCREEN_EVAL_AUDIO_VERSION
+from src.llm.prompts.welcome_digest import WELCOME_DIGEST_V1, WELCOME_DIGEST_VERSION
 
 __all__ = [
     "ASSIGNMENT_PARSE_V1",
@@ -28,6 +30,8 @@ __all__ = [
     "INTERVIEW_REPORT_VERSION",
     "JOURNEY_REPORT_V1",
     "JOURNEY_REPORT_VERSION",
+    "ORG_RESEARCH_V1",
+    "ORG_RESEARCH_VERSION",
     "PARSE_RESUME_V1",
     "PARSE_RESUME_VERSION",
     "REJECTION_MESSAGE_V1",
@@ -40,4 +44,6 @@ __all__ = [
     "SCREENING_GEN_VERSION",
     "VOICE_SCREEN_EVAL_AUDIO_V1",
     "VOICE_SCREEN_EVAL_AUDIO_VERSION",
+    "WELCOME_DIGEST_V1",
+    "WELCOME_DIGEST_VERSION",
 ]

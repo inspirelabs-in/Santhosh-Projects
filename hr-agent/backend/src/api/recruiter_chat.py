@@ -40,6 +40,51 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v2/recruiter-chat", tags=["recruiter-chat"])
 
 
+# One-per-pipeline stage types: their stage_key MUST equal their stage_type so the
+# runtime (which refers to them by canonical name, e.g. "assignment") can locate
+# them. "interview" is the only repeatable type -> it keeps a distinct key
+# (technical/ceo/hr/interview_N).
+# Single-instance stage types get a canonical key AND a canonical label (they are
+# system stages, one per pipeline). Multi-instance types (interview) keep their
+# unique key + recruiter-chosen label. This map is the one source for both.
+_STAGE_TYPE_LABELS = {
+    "intake": "Intake",
+    "parse": "Resume Parse",
+    "email_filter": "Email Filter",
+    "fit": "Fit Score",
+    "voice_screen": "Voice Screen",
+    "assignment": "Assignment",
+    "decision": "Decision",
+    "offer": "Offer",
+}
+_SINGLE_INSTANCE_STAGE_TYPES = set(_STAGE_TYPE_LABELS)
+
+
+def _canonical_stage_key(stage_type: str, stage_key: str | None, seen: set[str]) -> str:
+    st = str(stage_type)
+    if st in _SINGLE_INSTANCE_STAGE_TYPES:
+        return st
+    k = stage_key or st
+    if k in seen or k in _SINGLE_INSTANCE_STAGE_TYPES:
+        i = 1
+        while f"{st}_{i}" in seen:
+            i += 1
+        k = f"{st}_{i}"
+    return k
+
+
+def _canonical_label(stage_type: str, label: str | None) -> str:
+    """Canonical label for single-instance system stages; recruiter label otherwise.
+
+    Prevents a stale label (e.g. a stage switched voice_screen -> assignment in the
+    draft panel that kept "Voice Screen") from persisting on a system stage.
+    """
+    st = str(stage_type)
+    if st in _STAGE_TYPE_LABELS:
+        return _STAGE_TYPE_LABELS[st]
+    return (label or st.replace("_", " ").title()).strip()
+
+
 # ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
@@ -145,6 +190,30 @@ async def create_conversation(
         created_at=conv.created_at,
         updated_at=conv.updated_at,
     )
+
+
+@router.post("/presence", dependencies=[Depends(require_viewer)])
+async def presence(
+    actor: tuple[str, str] = Depends(_actor),
+    keepalive: bool = Query(default=False),
+) -> dict[str, Any]:
+    """Presence heartbeat for the "welcome back" digest.
+
+    ``keepalive=true`` (the periodic 60s ping while the tab is open) ONLY
+    refreshes ``last_seen_at`` and never creates a digest — this prevents the
+    digest from firing repeatedly during active use. ``keepalive=false`` (cold
+    page load + tab-return via ``visibilitychange``) evaluates the absence and,
+    if long enough, creates a "welcome back" conversation and returns its id.
+    Otherwise ``{"conversation_id": null}``. Deterministic — no LLM on keep-alive.
+    """
+    from src.recruiter_agent import digest as digest_mod
+
+    actor_hash, actor_role = actor
+    async with session_scope() as session:
+        result = await digest_mod.touch_presence(
+            session, actor_hash, actor_role, check_digest=not keepalive
+        )
+    return result or {"conversation_id": None}
 
 
 @router.get(
@@ -414,17 +483,18 @@ async def apply_artifact(
         _pos = len(_mandatory_pipeline)
         if draft.pipeline:
             for st in draft.pipeline:
-                if st.stage_key in seen_keys:
+                skey = _canonical_stage_key(st.stage_type, st.stage_key, seen_keys)
+                if skey in seen_keys:
                     continue
-                seen_keys.add(st.stage_key)
+                seen_keys.add(skey)
                 session.add(
                     RolePipelineStage(
                         role_id=role_id,
                         org_id=org_id,
                         position=_pos,
                         stage_type=str(st.stage_type),
-                        stage_key=st.stage_key,
-                        label=st.label,
+                        stage_key=skey,
+                        label=_canonical_label(st.stage_type, st.label),
                         mode=str(st.mode),
                         is_enabled=st.is_enabled,
                         config=st.config.model_dump(mode="json"),
@@ -434,6 +504,21 @@ async def apply_artifact(
                 _pos += 1
         else:
             await stage_repo.seed_default(session, role_id=role_id, org_id=org_id)
+
+        # Derive screening_modality from the actual pipeline instead of trusting
+        # the column default ("voice") — a role with no voice_screen stage must
+        # not silently report "voice" (see stage-identity-fix.md Phase 1b).
+        if draft.pipeline:
+            role.screening_modality = (
+                "voice"
+                if any(
+                    str(st.stage_type) == "voice_screen" and st.is_enabled
+                    for st in draft.pipeline
+                )
+                else "none"
+            )
+        else:
+            role.screening_modality = "none"
 
         await artifact_repo.set_status(session, artifact_id, ArtifactStatus.APPLIED)
         conversation_id = art.conversation_id

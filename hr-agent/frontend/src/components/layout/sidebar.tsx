@@ -17,7 +17,6 @@ import {
   Video,
   Crown,
   HeartHandshake,
-  Brain,
 } from "lucide-react";
 import useSWR from "swr";
 import { cn } from "@/lib/utils";
@@ -48,9 +47,6 @@ const nav: NavGroup[] = [
   ]},
   { section: "hr", items: [
     { href: "/hr", label: "HR journey", icon: HeartHandshake },
-  ]},
-  { section: "intelligence", items: [
-    { href: "/supervisor", label: "Supervisor", icon: Brain, roles: ["admin"] },
   ]},
   { section: "admin", items: [
     { href: "/audit", label: "Audit log", icon: ScrollText },

@@ -122,36 +122,6 @@ async def mark_in_progress(session: AsyncSession, voice_call_id: UUID) -> None:
         row.started_at = datetime.now(UTC)
 
 
-async def claim_completion(
-    session: AsyncSession, voice_call_id: UUID, sentinel_key: str
-) -> bool:
-    """[SCRAPE] superseded by claim_processing (processing_status CAS); no live
-    caller. The old transcript_r2_key sentinel could orphan a row on crash
-    (V-C1) -- the processing_status guard + watchdog sweep replace it.
-
-    Atomically claim webhook completion for ``voice_call_id``.
-
-    First caller wins. Returns True if this caller claimed it, False if another
-    concurrent webhook already did. Used as the idempotency primitive for the
-    voice webhook handler so duplicate ElevenLabs deliveries do not run the
-    evaluator twice. The sentinel is later overwritten with the real R2 key.
-    """
-    from sqlalchemy import update
-
-    stmt = (
-        update(VoiceCall)
-        .where(VoiceCall.id == voice_call_id)
-        .where(
-            (VoiceCall.transcript_r2_key.is_(None))
-            | (VoiceCall.transcript_r2_key == "")
-        )
-        .values(transcript_r2_key=sentinel_key)
-    )
-    result = await session.execute(stmt)
-    # rowcount == 1 -> we claimed it. 0 -> someone else already wrote a key.
-    return (result.rowcount or 0) > 0
-
-
 async def save_call_completion(
     session: AsyncSession,
     voice_call_id: UUID,
@@ -193,13 +163,11 @@ async def save_evaluation(
     voice_call_id: UUID,
     *,
     evaluation: dict[str, Any],
-    emotion_features: dict[str, Any] | None,
 ) -> None:
     row = await session.get(VoiceCall, voice_call_id)
     if row is None:
         raise ValueError(f"voice_call {voice_call_id} not found")
     row.evaluation = evaluation
-    row.emotion_features = emotion_features
     row.overall_score = int(evaluation.get("overall_score") or 0) or None
     row.verdict = evaluation.get("verdict")
 

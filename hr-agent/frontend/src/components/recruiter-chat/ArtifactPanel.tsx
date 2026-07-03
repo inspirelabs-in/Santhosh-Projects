@@ -17,6 +17,13 @@ import type { ArtifactData } from "@/lib/useRecruiterChat";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 /* ------------------------------------------------------------------ */
@@ -93,6 +100,10 @@ const STAGE_TYPE_LABELS: Record<string, string> = {
 
 const linesToArr = (s: string): string[] => s.split("\n");
 const arrToLines = (a?: string[]): string => (a || []).join("\n");
+
+/** Sentinel for the "Select..." placeholder option of remote_policy, since
+ *  Radix SelectItem cannot use an empty-string value. */
+const REMOTE_POLICY_NONE = "__none__";
 
 /** Docked (collapsed) width of the panel, in px. The chat surface reserves this
  *  much right-padding so the docked panel never covers the conversation. */
@@ -416,16 +427,24 @@ export function ArtifactPanel({
               </div>
               <div>
                 <FieldLabel>Remote policy</FieldLabel>
-                <select
-                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  value={draft.remote_policy || ""}
-                  onChange={(e) => patch({ remote_policy: e.target.value })}
+                <Select
+                  value={draft.remote_policy || REMOTE_POLICY_NONE}
+                  onValueChange={(nv) =>
+                    patch({
+                      remote_policy: nv === REMOTE_POLICY_NONE ? "" : nv,
+                    })
+                  }
                 >
-                  <option value="">Select...</option>
-                  <option value="onsite">Onsite</option>
-                  <option value="hybrid">Hybrid</option>
-                  <option value="remote">Remote</option>
-                </select>
+                  <SelectTrigger className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+                    <SelectValue placeholder="Select..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={REMOTE_POLICY_NONE}>Select...</SelectItem>
+                    <SelectItem value="onsite">Onsite</SelectItem>
+                    <SelectItem value="hybrid">Hybrid</SelectItem>
+                    <SelectItem value="remote">Remote</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 
@@ -492,25 +511,40 @@ export function ArtifactPanel({
                   value={s.label || ""}
                   onChange={(e) => setStage(i, { label: e.target.value })}
                 />
-                <select
-                  className="h-7 rounded border border-input bg-background px-1.5 text-xs"
+                <Select
                   value={s.stage_type || "interview"}
-                  onChange={(e) => setStage(i, { stage_type: e.target.value })}
+                  onValueChange={(nv) =>
+                    setStage(
+                      i,
+                      nv === "interview"
+                        ? { stage_type: nv }
+                        : { stage_type: nv, stage_key: nv, label: STAGE_TYPE_LABELS[nv] || nv },
+                    )
+                  }
                 >
-                  {STAGE_TYPES.map((t) => (
-                    <option key={t} value={t}>
-                      {STAGE_TYPE_LABELS[t] || t}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  className="h-7 rounded border border-input bg-background px-1.5 text-xs"
+                  <SelectTrigger className="h-7 rounded border border-input bg-background px-1.5 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {STAGE_TYPES.map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {STAGE_TYPE_LABELS[t] || t}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
                   value={s.mode || "manual"}
-                  onChange={(e) => setStage(i, { mode: e.target.value })}
+                  onValueChange={(nv) => setStage(i, { mode: nv })}
                 >
-                  <option value="auto">Auto</option>
-                  <option value="manual">Manual</option>
-                </select>
+                  <SelectTrigger className="h-7 rounded border border-input bg-background px-1.5 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">Auto</SelectItem>
+                    <SelectItem value="manual">Manual</SelectItem>
+                  </SelectContent>
+                </Select>
                 <Button
                   variant="ghost"
                   size="icon"
@@ -566,7 +600,9 @@ export function ArtifactPanel({
                   <div className="flex items-center gap-1 shrink-0">
                     <Input
                       type="number"
-                      className="h-7 w-12 text-center text-xs font-mono"
+                      min={0}
+                      max={100}
+                      className="h-7 w-20 text-center text-xs font-mono"
                       value={d.weight ?? 0}
                       onChange={(e) =>
                         setDim(i, { weight: Number(e.target.value) })

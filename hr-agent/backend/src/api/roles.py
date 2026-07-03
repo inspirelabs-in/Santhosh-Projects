@@ -14,6 +14,7 @@ from sqlalchemy import desc, select
 
 from src.api.auth import require_recruiter, require_viewer
 from src.config import get_settings
+from src.constants.statuses import ROLE_STATUSES_AUTO_ACTIVATED_BY_ASSIGNMENT_DOC
 from src.db.base import PanelMember, Role
 from src.db.connection import session_scope
 from src.db.repositories.audit import log_audit
@@ -571,7 +572,7 @@ async def upload_problem_doc(
         )
         role.assignment_problem_doc_key = stored.key
         role.assignment_problem_filename = filename
-        if role.status in ("draft", "paused"):
+        if role.status in ROLE_STATUSES_AUTO_ACTIVATED_BY_ASSIGNMENT_DOC:
             role.status = "open"
         await log_audit(
             session,
@@ -625,7 +626,7 @@ async def publish_assignment(
         )
         role.assignment_problem_doc_key = stored.key
         role.assignment_problem_filename = filename
-        if role.status in ("draft", "paused"):
+        if role.status in ROLE_STATUSES_AUTO_ACTIVATED_BY_ASSIGNMENT_DOC:
             role.status = "open"
         new_status = role.status
         await log_audit(

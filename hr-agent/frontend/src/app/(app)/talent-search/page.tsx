@@ -8,6 +8,7 @@ import { Topbar } from "@/components/layout/topbar";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { swrFetcher } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
@@ -26,6 +27,8 @@ function similarityVariant(s: number): "success" | "warning" | "muted" {
 function pct(s: number) {
   return `${Math.round(s * 100)}%`;
 }
+
+const ALL_ROLES = "__all__";
 
 export default function TalentSearchPage() {
   const [query, setQuery] = useState("");
@@ -121,20 +124,24 @@ export default function TalentSearchPage() {
             <span className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted-foreground whitespace-nowrap">
               Match to role
             </span>
-            <select
-              value={selectedRole}
-              onChange={(e) => matchToRole(e.target.value)}
-              className="h-10 min-w-[200px] rounded-lg border border-border bg-card px-3 text-sm outline-none ring-ring focus:ring-2"
+            <Select
+              value={selectedRole || ALL_ROLES}
+              onValueChange={(nv) => matchToRole(nv === ALL_ROLES ? "" : nv)}
             >
-              <option value="">Select a role...</option>
-              {roles
-                ?.filter((r) => r.status === "open")
-                .map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.title}
-                  </option>
-                ))}
-            </select>
+              <SelectTrigger className="h-10 min-w-[200px] rounded-lg border border-border bg-card px-3 text-sm outline-none ring-ring focus:ring-2">
+                <SelectValue placeholder="Select a role..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_ROLES}>Select a role...</SelectItem>
+                {roles
+                  ?.filter((r) => r.status === "open")
+                  .map((r) => (
+                    <SelectItem key={r.id} value={r.id}>
+                      {r.title}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
 

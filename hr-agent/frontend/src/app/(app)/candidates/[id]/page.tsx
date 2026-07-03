@@ -41,6 +41,7 @@ import { StatusTag, type Stage } from "@/components/status-tag";
 import { SkeletonLines } from "@/components/skeleton";
 import { swrFetcher, api } from "@/lib/api";
 import { ActivityTimeline } from "@/components/candidate-detail/activity-timeline";
+import { MarkdownLite } from "@/components/markdown-lite";
 import { AdminReviewPanel } from "@/components/admin-review-panel";
 import type { StageViewEntry, CriterionScore, DimensionScore, FitAssessment } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -134,8 +135,7 @@ function CandidatePipelineTimeline({ stages }: { stages: StageViewEntry[] }) {
   );
 }
 
-const TABS = ["Overview", "Fit Score", "Assignment", "Voice", "Interviews", "Timeline"] as const;
-type TabName = (typeof TABS)[number];
+type TabName = "Overview" | "Fit Score" | "Assignment" | "Voice" | "Interviews" | "Timeline";
 
 /* ------------------------------------------------------------------ */
 /*  Tier / score badge                                                */
@@ -2007,8 +2007,8 @@ function TimelineTab({ data }: { data: any }) {
             <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
               <FileSearch className="h-3.5 w-3.5" /> CEO Brief
             </h3>
-            <div className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap">
-              {data.journey_report}
+            <div className="prose prose-sm dark:prose-invert max-h-[50vh] max-w-none overflow-y-auto pr-1 text-sm leading-relaxed">
+              <MarkdownLite source={data.journey_report} />
             </div>
           </CardContent>
         </Card>
@@ -2106,7 +2106,9 @@ function TimelineTab({ data }: { data: any }) {
       <Card>
         <CardContent className="p-5">
           <h3 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">Activity Timeline</h3>
-          <ActivityTimeline entries={data.audit ?? []} />
+          <div className="max-h-[50vh] overflow-y-auto pr-1">
+            <ActivityTimeline entries={data.audit ?? []} />
+          </div>
         </CardContent>
       </Card>
     </div>
@@ -2162,6 +2164,17 @@ export default function CandidateDetailPage() {
   const role = data.role ?? {};
   const isRejected = data.current_stage === "rejected" || data.current_stage_key === "rejected";
   const isInvalidIntake = !!data.intake_error;
+
+  const sv = data.stage_view as StageViewEntry[] | null | undefined;
+  const visibleTabs: TabName[] = [
+    "Overview",
+    "Fit Score",
+    ...(pipelineHasStageType(sv, "assignment") ? (["Assignment"] as const) : []),
+    ...(pipelineHasStageType(sv, "voice_screen") ? (["Voice"] as const) : []),
+    ...(pipelineHasStageType(sv, "interview") ? (["Interviews"] as const) : []),
+    "Timeline",
+  ] as TabName[];
+  const effectiveTab: TabName = visibleTabs.includes(activeTab) ? activeTab : "Overview";
 
   return (
     <div className="flex h-full flex-col">
@@ -2236,14 +2249,14 @@ export default function CandidateDetailPage() {
 
           {/* Tab navigation */}
           <div className="mt-4 flex gap-0 border-b border-border overflow-x-auto">
-            {TABS.map((tab) => (
+            {visibleTabs.map((tab) => (
               <button
                 key={tab}
                 type="button"
                 onClick={() => setActiveTab(tab)}
                 className={cn(
                   "whitespace-nowrap px-4 py-2.5 text-sm font-medium transition-colors",
-                  activeTab === tab
+                  effectiveTab === tab
                     ? "text-primary border-b-2 border-primary -mb-px"
                     : "text-muted-foreground hover:text-foreground"
                 )}
@@ -2255,14 +2268,14 @@ export default function CandidateDetailPage() {
 
           {/* Tab content */}
           <div className="py-5">
-            {activeTab === "Overview" && <OverviewTab data={data} applicationId={id} mutate={() => mutate()} />}
-            {activeTab === "Fit Score" && <FitScoreTab data={data} applicationId={id} mutate={() => mutate()} />}
-            {activeTab === "Assignment" && <AssignmentTab data={data} applicationId={id} mutate={() => mutate()} />}
-            {activeTab === "Voice" && <VoiceTab data={data} applicationId={id} mutate={() => mutate()} />}
-            {activeTab === "Interviews" && (
+            {effectiveTab === "Overview" && <OverviewTab data={data} applicationId={id} mutate={() => mutate()} />}
+            {effectiveTab === "Fit Score" && <FitScoreTab data={data} applicationId={id} mutate={() => mutate()} />}
+            {effectiveTab === "Assignment" && <AssignmentTab data={data} applicationId={id} mutate={() => mutate()} />}
+            {effectiveTab === "Voice" && <VoiceTab data={data} applicationId={id} mutate={() => mutate()} />}
+            {effectiveTab === "Interviews" && (
               <InterviewsTab data={data} applicationId={id} mutate={() => mutate()} />
             )}
-            {activeTab === "Timeline" && <TimelineTab data={data} />}
+            {effectiveTab === "Timeline" && <TimelineTab data={data} />}
           </div>
         </div>
       </div>

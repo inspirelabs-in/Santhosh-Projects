@@ -10,6 +10,8 @@ import {
   Plus,
   Loader2,
   ChevronRight,
+  ThumbsUp,
+  ThumbsDown,
 } from "lucide-react";
 
 import { Topbar } from "@/components/layout/topbar";
@@ -39,12 +41,14 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 import { StatusTag } from "@/components/status-tag";
+import { MarkdownLite } from "@/components/markdown-lite";
 import {
   assessments,
   type AssessmentListItem,
   type AssessmentKind,
+  type AssessmentDetail,
 } from "@/lib/api/agentic";
-import { fmtRelative, fmtDate } from "@/lib/utils";
+import { fmtRelative, fmtDate, cn } from "@/lib/utils";
 
 const BAND_CLASS = {
   green: "bg-emerald-50 text-emerald-700 border border-emerald-200",
@@ -78,6 +82,14 @@ export default function AssessmentsPage() {
   const [bandFilter, setBandFilter] = useState<string>("all");
   const [selected, setSelected] = useState<AssessmentListItem | null>(null);
   const [showDispatch, setShowDispatch] = useState(false);
+
+  const {
+    data: detail,
+    isLoading: detailLoading,
+  } = useSWR<AssessmentDetail>(
+    selected ? `/agentic/assessments/${selected.assessment_id}` : null,
+    () => assessments.detail(selected!.assessment_id),
+  );
 
   const stats = useMemo(() => {
     const rows = data ?? [];
@@ -243,7 +255,7 @@ export default function AssessmentsPage() {
         {/* Main table */}
         <div className="bg-card rounded-xl shadow-card overflow-hidden">
           {/* Table header */}
-          <div className="grid grid-cols-[2fr_1.5fr_120px_150px_90px_110px_110px_32px] items-center gap-3 border-b border-border bg-muted/40 px-4 py-2.5 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground sticky top-0 backdrop-blur z-10">
+          <div className="grid grid-cols-[2fr_1.5fr_120px_150px_90px_110px_110px_32px] items-center gap-3 border-b-2 border-border bg-muted/70 px-4 py-2.5 font-mono text-[11px] font-bold uppercase tracking-[0.1em] text-foreground/70 sticky top-0 backdrop-blur z-10">
             <span>Candidate · Role</span>
             <span>Role</span>
             <span>Kind</span>
@@ -358,19 +370,16 @@ export default function AssessmentsPage() {
               </SheetHeader>
 
               <SheetBody className="space-y-5">
-                {/* Scores — prominent */}
+                {/* Scores — prominent, compact */}
                 <div>
-                  <p className="mb-3 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                    Scores
-                  </p>
                   <div className="flex items-end gap-6">
                     <div>
                       <p className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground mb-0.5">
                         Percentile
                       </p>
-                      <p className="font-mono text-4xl font-extrabold tabular-nums leading-none text-foreground">
-                        {selected.percentile != null
-                          ? `${Math.round(selected.percentile)}%`
+                      <p className="font-mono text-3xl font-extrabold tabular-nums leading-none text-foreground">
+                        {(detail?.percentile ?? selected.percentile) != null
+                          ? `${Math.round((detail?.percentile ?? selected.percentile)!)}%`
                           : "—"}
                       </p>
                     </div>
@@ -378,53 +387,154 @@ export default function AssessmentsPage() {
                       <p className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground mb-0.5">
                         Normalized
                       </p>
-                      <p className="font-mono text-4xl font-extrabold tabular-nums leading-none text-foreground">
-                        {selected.normalized_score != null
-                          ? selected.normalized_score.toFixed(2)
+                      <p className="font-mono text-3xl font-extrabold tabular-nums leading-none text-foreground">
+                        {(detail?.normalized_score ?? selected.normalized_score) != null
+                          ? (detail?.normalized_score ?? selected.normalized_score)!.toFixed(2)
                           : "—"}
                       </p>
                     </div>
-                    {selected.fit_band ? (
-                      <div className="ml-auto">
-                        <p className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground mb-1">
-                          Band
-                        </p>
-                        <span
-                          className={`inline-block rounded-full px-3 py-1 font-mono text-xs font-semibold uppercase tracking-[0.15em] ${BAND_CLASS[selected.fit_band]}`}
-                        >
-                          {selected.fit_band}
-                        </span>
-                      </div>
+                    {(detail?.fit_band ?? selected.fit_band) ? (
+                      <span
+                        className={`ml-auto inline-block h-fit rounded-full px-2.5 py-1 font-mono text-[10px] font-semibold uppercase tracking-[0.15em] ${BAND_CLASS[(detail?.fit_band ?? selected.fit_band)!]}`}
+                      >
+                        {detail?.fit_band ?? selected.fit_band}
+                      </span>
                     ) : null}
                   </div>
+                  <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground/70">
+                    {(detail?.kind ?? selected.kind) ?? "assessment"} · {detail?.provider ?? selected.provider}
+                  </p>
                 </div>
 
                 <div className="border-t border-border" />
 
-                {/* Identifiers */}
-                <div>
-                  <p className="mb-3 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                    Identifiers
-                  </p>
-                  <div className="space-y-2 text-xs">
-                    <div className="flex justify-between gap-4">
-                      <span className="text-muted-foreground shrink-0">Assessment</span>
-                      <span className="font-mono break-all text-right">{selected.assessment_id}</span>
-                    </div>
-                    <div className="flex justify-between gap-4">
-                      <span className="text-muted-foreground shrink-0">Application</span>
-                      <span className="font-mono break-all text-right">{selected.application_id}</span>
-                    </div>
-                    <div className="flex justify-between gap-4">
-                      <span className="text-muted-foreground shrink-0">Provider</span>
-                      <span className="font-mono">{selected.provider}</span>
-                    </div>
-                    <div className="flex justify-between gap-4">
-                      <span className="text-muted-foreground shrink-0">Kind</span>
-                      <span className="font-mono uppercase">{selected.kind ?? "—"}</span>
+                {/* AI Analysis — the star of the panel */}
+                {detailLoading ? (
+                  <div className="flex items-center gap-2 py-8 justify-center text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Loading analysis…
+                  </div>
+                ) : detail?.analysis ? (
+                  <div className="space-y-4">
+                    <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                      AI Analysis
+                    </p>
+
+                    {detail.analysis.summary ? (
+                      <div className="rounded-lg border-l-4 border-primary bg-primary/5 p-3 max-h-[45vh] overflow-y-auto">
+                        <MarkdownLite source={detail.analysis.summary} />
+                      </div>
+                    ) : null}
+
+                    {detail.analysis.quality_signals ? (
+                      <div>
+                        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                          Quality Signals
+                        </p>
+                        <div className="grid grid-cols-2 gap-2">
+                          {(["depth", "originality", "clarity", "technical_rigor"] as const).map((dim) =>
+                            detail.analysis!.quality_signals?.[dim] ? (
+                              <div key={dim} className="rounded-lg border border-border p-2.5 text-center">
+                                <div className="text-[10px] capitalize text-muted-foreground">
+                                  {dim.replace(/_/g, " ")}
+                                </div>
+                                <div className="mt-1">
+                                  <QualityBadge level={detail.analysis!.quality_signals![dim]!} />
+                                </div>
+                              </div>
+                            ) : null,
+                          )}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {detail.analysis.completeness ? (
+                      <div className="rounded-lg border border-border p-3">
+                        <div className="flex items-center justify-between">
+                          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                            Completeness
+                          </p>
+                          <span
+                            className={cn(
+                              "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase",
+                              detail.analysis.completeness.followed_instructions
+                                ? "bg-emerald-100 text-emerald-700"
+                                : "bg-red-100 text-red-700",
+                            )}
+                          >
+                            {detail.analysis.completeness.followed_instructions
+                              ? "Instructions Followed"
+                              : "Not Followed"}
+                          </span>
+                        </div>
+                        {detail.analysis.completeness.missing_items &&
+                        detail.analysis.completeness.missing_items.length > 0 ? (
+                          <ul className="mt-2 space-y-0.5">
+                            {detail.analysis.completeness.missing_items.map((item, i) => (
+                              <li key={i} className="flex items-start gap-2 text-xs text-destructive/80">
+                                <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-destructive" />
+                                {item}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                      </div>
+                    ) : null}
+
+                    {detail.analysis.highlights && detail.analysis.highlights.length > 0 ? (
+                      <div>
+                        <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-emerald-600">
+                          <ThumbsUp className="h-3 w-3" /> Highlights
+                        </p>
+                        <ul className="space-y-1">
+                          {detail.analysis.highlights.map((h, i) => (
+                            <li key={i} className="flex items-start gap-2 text-xs">
+                              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
+                              {h}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+
+                    {detail.analysis.concerns && detail.analysis.concerns.length > 0 ? (
+                      <div>
+                        <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-amber-600">
+                          <ThumbsDown className="h-3 w-3" /> Concerns
+                        </p>
+                        <ul className="space-y-1">
+                          {detail.analysis.concerns.map((c, i) => (
+                            <li key={i} className="flex items-start gap-2 text-xs">
+                              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+                              {c}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : detail?.normalized_breakdown ? (
+                  <div>
+                    <p className="mb-2 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                      Score Breakdown
+                    </p>
+                    <div className="space-y-1.5 text-xs">
+                      {Object.entries(detail.normalized_breakdown).map(([k, v]) => (
+                        <div key={k} className="flex justify-between gap-4">
+                          <span className="capitalize text-muted-foreground shrink-0">
+                            {k.replace(/_/g, " ")}
+                          </span>
+                          <span className="font-mono text-right">
+                            {typeof v === "object" ? JSON.stringify(v) : String(v)}
+                          </span>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                </div>
+                ) : (
+                  <p className="py-6 text-center text-sm text-muted-foreground">
+                    No analysis available
+                  </p>
+                )}
 
                 <div className="border-t border-border" />
 
@@ -482,6 +592,27 @@ export default function AssessmentsPage() {
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* QualityBadge — low/medium/high chip, matches candidate Assignment tab       */
+/* -------------------------------------------------------------------------- */
+function QualityBadge({ level }: { level: string }) {
+  const colors: Record<string, string> = {
+    high: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
+    medium: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
+    low: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
+  };
+  return (
+    <span
+      className={cn(
+        "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase",
+        colors[level] ?? "bg-muted text-muted-foreground",
+      )}
+    >
+      {level}
+    </span>
   );
 }
 

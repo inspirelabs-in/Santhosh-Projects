@@ -24,6 +24,7 @@ from typing import Any
 import httpx
 
 from src.config import get_settings
+from src.constants.external import MS_GRAPH_API_BASE, MS_GRAPH_DEFAULT_SCOPE, MS_GRAPH_TOKEN_URL_TEMPLATE
 
 logger = logging.getLogger(__name__)
 
@@ -36,12 +37,12 @@ async def _token() -> str:
         and settings.graph_client_secret
     ):
         raise RuntimeError("Microsoft Graph credentials not configured")
-    url = f"https://login.microsoftonline.com/{settings.graph_tenant_id}/oauth2/v2.0/token"
+    url = MS_GRAPH_TOKEN_URL_TEMPLATE.format(tenant=settings.graph_tenant_id)
     data = {
         "client_id": settings.graph_client_id,
         "client_secret": settings.graph_client_secret,
         "grant_type": "client_credentials",
-        "scope": "https://graph.microsoft.com/.default",
+        "scope": MS_GRAPH_DEFAULT_SCOPE,
     }
     async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.post(url, data=data)
@@ -93,7 +94,7 @@ async def create_online_meeting(
         },
         "allowMeetingChat": "enabled",
     }
-    url = f"https://graph.microsoft.com/v1.0/users/{organiser_email}/onlineMeetings"
+    url = f"{MS_GRAPH_API_BASE}/users/{organiser_email}/onlineMeetings"
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(
             url,
@@ -114,7 +115,7 @@ async def create_online_meeting(
 
 async def cancel_online_meeting(*, organiser_email: str, meeting_id: str) -> None:
     token = await _token()
-    url = f"https://graph.microsoft.com/v1.0/users/{organiser_email}/onlineMeetings/{meeting_id}"
+    url = f"{MS_GRAPH_API_BASE}/users/{organiser_email}/onlineMeetings/{meeting_id}"
     async with httpx.AsyncClient(timeout=15.0) as client:
         try:
             resp = await client.delete(

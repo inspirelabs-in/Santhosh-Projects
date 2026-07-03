@@ -5,6 +5,7 @@ import { AuthGate } from "@/components/auth-gate";
 import { FirstRunGate } from "@/components/first-run-gate";
 import { PulseSidebar } from "@/components/layout/pulse-sidebar";
 import { RecruiterChatProvider } from "@/lib/RecruiterChatProvider";
+import { PresenceWatcher } from "@/components/recruiter-chat/PresenceWatcher";
 import { CommandPalette } from "@/components/command-palette";
 import { KeyboardHelpDialog } from "@/components/keyboard-help-dialog";
 import { KeyboardNav } from "@/components/keyboard-nav";
@@ -34,6 +35,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 {children}
               </main>
             </div>
+            <PresenceWatcher />
             <CommandPalette />
             <KeyboardHelpDialog />
             <KeyboardNav />

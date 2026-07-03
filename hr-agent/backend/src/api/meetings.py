@@ -1020,6 +1020,130 @@ async def list_assessments(
         return merged[: limit + offset][offset:]
 
 
+class AssessmentAnalysis(BaseModel):
+    summary: str | None = None
+    quality_signals: dict[str, Any] | None = None
+    completeness: dict[str, Any] | None = None
+    highlights: list[str] | None = None
+    concerns: list[str] | None = None
+
+
+class AssessmentDetail(BaseModel):
+    assessment_id: UUID
+    application_id: UUID
+    candidate_name: str | None
+    role_title: str | None
+    status: str
+    kind: str | None
+    provider: str
+    created_at: datetime
+    invite_sent_at: datetime | None
+    completed_at: datetime | None
+    normalized_score: float | None
+    percentile: float | None
+    fit_band: str | None
+    analysis: AssessmentAnalysis | None = None
+    normalized_breakdown: dict[str, Any] | None = None
+
+
+@router.get("/assessments/{assessment_id}", response_model=AssessmentDetail)
+async def get_assessment_detail(
+    assessment_id: UUID,
+    _: Annotated[str, Depends(require_viewer)],
+) -> AssessmentDetail:
+    """Detail view for a single assessment row.
+
+    `assessment_id` may refer either to a real `AssessmentResult.id` (PI /
+    third-party assessments) or -- for the synthetic V1 "assignment" rows
+    surfaced by `list_assessments` -- to an `Application.id` directly, since
+    those rows have no backing `AssessmentResult`.
+    """
+    async with session_scope() as session:
+        stmt = (
+            select(AssessmentResult, Application, Candidate, Role)
+            .join(Application, Application.id == AssessmentResult.application_id)
+            .join(Candidate, Candidate.id == Application.candidate_id)
+            .outerjoin(Role, Role.id == Application.role_id)
+            .where(AssessmentResult.id == assessment_id)
+        )
+        row = (await session.execute(stmt)).first()
+
+        if row is not None:
+            result, app, cand, role = row
+            analysis = None
+            if result.assessment_kind == "assignment" and app.assignment_submission:
+                parse_result = app.assignment_submission.get("parse_result")
+                if parse_result:
+                    analysis = AssessmentAnalysis(
+                        summary=parse_result.get("summary"),
+                        quality_signals=parse_result.get("quality_signals"),
+                        completeness=parse_result.get("completeness"),
+                        highlights=parse_result.get("highlights"),
+                        concerns=parse_result.get("concerns"),
+                    )
+            return AssessmentDetail(
+                assessment_id=result.id,
+                application_id=result.application_id,
+                candidate_name=cand.name,
+                role_title=role.title if role is not None else None,
+                status=result.status,
+                kind=result.assessment_kind,
+                provider=result.provider,
+                created_at=result.created_at,
+                invite_sent_at=result.invite_sent_at,
+                completed_at=result.completed_at,
+                normalized_score=float(result.normalized_score) if result.normalized_score is not None else None,
+                percentile=float(result.percentile) if result.percentile is not None else None,
+                fit_band=result.fit_band,
+                analysis=analysis,
+                normalized_breakdown=result.normalized if analysis is None else None,
+            )
+
+        # Fall back: synthetic V1 assignment row, id is the Application.id.
+        app_stmt = (
+            select(Application, Candidate, Role)
+            .join(Candidate, Candidate.id == Application.candidate_id)
+            .outerjoin(Role, Role.id == Application.role_id)
+            .where(Application.id == assessment_id)
+        )
+        app_row = (await session.execute(app_stmt)).first()
+        if app_row is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "assessment not found")
+
+        app, cand, role = app_row
+        item = _assignment_row_for(app, cand, role)
+
+        analysis = None
+        if app.assignment_submission:
+            parse_result = app.assignment_submission.get("parse_result")
+            if parse_result:
+                analysis = AssessmentAnalysis(
+                    summary=parse_result.get("summary"),
+                    quality_signals=parse_result.get("quality_signals"),
+                    completeness=parse_result.get("completeness"),
+                    highlights=parse_result.get("highlights"),
+                    concerns=parse_result.get("concerns"),
+                )
+
+        return AssessmentDetail(
+            assessment_id=item.assessment_id,
+            application_id=item.application_id,
+            candidate_name=item.candidate_name,
+            role_title=item.role_title,
+            status=item.status,
+            kind=item.kind,
+            provider=item.provider,
+            created_at=item.created_at,
+            invite_sent_at=item.invite_sent_at,
+            completed_at=item.completed_at,
+            normalized_score=item.normalized_score,
+            percentile=item.percentile,
+            fit_band=item.fit_band,
+            analysis=analysis,
+            normalized_breakdown=None,
+        )
+
+
 class MeetingListItem(BaseModel):
     meeting_session_id: UUID
     application_id: UUID

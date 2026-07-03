@@ -18,6 +18,7 @@ from sqlalchemy import and_, select
 
 from src.classifiers.candidate_intent import classify_candidate_intent
 from src.config import get_settings
+from src.constants.statuses import TERMINAL_APPLICATION_STATUSES
 from src.db.base import Application, Candidate
 from src.db.connection import session_scope
 from src.db.repositories.audit import log_audit
@@ -83,7 +84,7 @@ async def handle_inbound_sms(request: Request) -> dict[str, Any]:
                 select(Application).where(
                     and_(
                         Application.candidate_id == candidate.id,
-                        Application.status.notin_(("rejected", "hired", "withdrawn")),
+                        Application.status.notin_(TERMINAL_APPLICATION_STATUSES),
                     )
                 ).order_by(Application.updated_at.desc())
             )

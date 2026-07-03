@@ -31,13 +31,14 @@ import httpx
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from src.config import get_settings
+from src.constants.external import MS_GRAPH_API_BASE, MS_GRAPH_DEFAULT_SCOPE, MS_GRAPH_TOKEN_URL_TEMPLATE
 
 logger = logging.getLogger(__name__)
 _settings = get_settings()
 
 _RESEND_API = "https://api.resend.com/emails"
-_GRAPH_API = "https://graph.microsoft.com/v1.0"
-_GRAPH_TOKEN_URL = "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
+_GRAPH_API = MS_GRAPH_API_BASE
+_GRAPH_TOKEN_URL = MS_GRAPH_TOKEN_URL_TEMPLATE
 _TEMPLATES_DIR = Path(__file__).parent / "templates" / "email"
 
 # Cached Graph access token. Tuple of (token, epoch_expiry).
@@ -121,7 +122,7 @@ async def _graph_access_token() -> str:
     data = {
         "client_id": _settings.graph_client_id,
         "client_secret": _settings.graph_client_secret,
-        "scope": "https://graph.microsoft.com/.default",
+        "scope": MS_GRAPH_DEFAULT_SCOPE,
         "grant_type": "client_credentials",
     }
     async with httpx.AsyncClient(timeout=15.0) as client:

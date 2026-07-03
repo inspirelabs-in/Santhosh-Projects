@@ -68,17 +68,6 @@ services:
       minio:       { condition: service_healthy }
       minio-init:  { condition: service_completed_successfully }
 
-  emotion:
-    image: hiring-agent-emotion:local
-    container_name: hiring-agent-emotion
-    restart: unless-stopped
-    profiles: ["voice"]
-    build:
-      context: ./emotion-service
-      dockerfile: Dockerfile
-    env_file: ./emotion-service/.env
-    ports: ["127.0.0.1:8090:8090"]
-
   worker:
     image: hiring-agent-backend:local
     container_name: hiring-agent-worker

@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from src.config import get_settings
+from src.constants.external import GOOGLE_CALENDAR_OAUTH_SCOPES
 from src.models.scheduling import TimeSlot
 
 logger = logging.getLogger(__name__)
@@ -31,10 +32,7 @@ _settings = get_settings()
 _IST = timezone(timedelta(hours=5, minutes=30))
 _BUSINESS_START = time(10, 0)
 _BUSINESS_END = time(18, 0)
-_SCOPES = [
-    "https://www.googleapis.com/auth/calendar",
-    "https://www.googleapis.com/auth/calendar.events",
-]
+_SCOPES = GOOGLE_CALENDAR_OAUTH_SCOPES
 
 
 @dataclass
@@ -200,88 +198,3 @@ async def find_free_slots(
         if len(free) >= max_slots:
             break
     return free
-
-
-# [SCRAPE] dead: create_event/cancel_event (only legacy schedule.py uses them). KEEP find_free_slots (live).
-async def create_event(
-    *,
-    summary: str,
-    description: str,
-    start: datetime,
-    end: datetime,
-    attendees: list[str],
-    location: str | None = None,
-) -> CalendarEvent | None:
-    """Create a calendar event with a Google Meet link and return its metadata."""
-    service = _build_service()
-    if service is None:
-        logger.info("Calendar unavailable; skipping event creation")
-        return None
-
-    body: dict[str, Any] = {
-        "summary": summary,
-        "description": description,
-        "start": {"dateTime": start.isoformat(), "timeZone": "Asia/Kolkata"},
-        "end": {"dateTime": end.isoformat(), "timeZone": "Asia/Kolkata"},
-        "attendees": [{"email": e} for e in attendees],
-        "conferenceData": {
-            "createRequest": {
-                "requestId": secrets.token_hex(16),
-                "conferenceSolutionKey": {"type": "hangoutsMeet"},
-            }
-        },
-        "reminders": {
-            "useDefault": False,
-            "overrides": [
-                {"method": "email", "minutes": 24 * 60},
-                {"method": "popup", "minutes": 30},
-            ],
-        },
-    }
-    if location:
-        body["location"] = location
-
-    def _insert() -> dict[str, Any]:
-        return (
-            service.events()
-            .insert(
-                calendarId="primary",
-                body=body,
-                conferenceDataVersion=1,
-                sendUpdates="all",
-            )
-            .execute()
-        )
-
-    event = await asyncio.to_thread(_insert)
-    meet_link = None
-    for entry in (event.get("conferenceData", {}).get("entryPoints", [])):
-        if entry.get("entryPointType") == "video":
-            meet_link = entry.get("uri")
-            break
-
-    return CalendarEvent(
-        event_id=event["id"],
-        meeting_link=meet_link,
-        html_link=event.get("htmlLink"),
-        start=start,
-        end=end,
-    )
-
-
-async def cancel_event(event_id: str) -> bool:
-    service = _build_service()
-    if service is None:
-        return False
-
-    def _delete() -> None:
-        service.events().delete(
-            calendarId="primary", eventId=event_id, sendUpdates="all"
-        ).execute()
-
-    try:
-        await asyncio.to_thread(_delete)
-        return True
-    except Exception as e:  # noqa: BLE001 -- log + return False is enough
-        logger.warning("Cancel event %s failed: %s", event_id, e)
-        return False

@@ -16,15 +16,20 @@ export function StatusBadge({ status }: { status: string | null | undefined }) {
   return <Badge variant={variant as any}>{status.replace(/_/g, " ")}</Badge>;
 }
 
-export function ScoreBar({ score }: { score: number | null | undefined }) {
-  if (score == null) return <span className="text-muted-foreground">—</span>;
-  const color = score >= 60 ? "bg-success" : "bg-destructive";
+export function ScoreChip({ score }: { score: number | null | undefined }) {
+  if (score == null) return <span className="text-sm text-muted-foreground">—</span>;
+  const rounded = Math.round(score);
+  const tone =
+    rounded >= 70
+      ? "bg-emerald-500/15 text-emerald-600"
+      : rounded >= 40
+        ? "bg-amber-500/15 text-amber-600"
+        : "bg-destructive/15 text-destructive";
   return (
-    <div className="flex items-center gap-2">
-      <div className="h-1.5 w-24 overflow-hidden rounded-full bg-muted">
-        <div className={`h-full ${color}`} style={{ width: `${Math.max(0, Math.min(100, score))}%` }} />
-      </div>
-      <span className="text-xs font-medium tabular-nums">{score}</span>
-    </div>
+    <span
+      className={`inline-flex h-6 min-w-[2.5rem] items-center justify-center rounded-md px-2 font-mono text-xs font-bold tabular-nums ${tone}`}
+    >
+      {rounded}
+    </span>
   );
 }

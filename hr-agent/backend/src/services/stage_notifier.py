@@ -20,32 +20,24 @@ logger = logging.getLogger(__name__)
 _settings = get_settings()
 
 # Map stage transitions to candidate-facing notifications.
-# Only notify on stages candidates care about.
+# Only notify on stages candidates care about, and ONLY with a template whose
+# body actually fits that moment. The "acknowledgement" template is the
+# application-RECEIVED email (body: "Thanks for applying, we have your
+# application") and must NEVER be reused for progress/review notifications: doing
+# so sends the candidate a second "application received" email at a late stage
+# (e.g. right before a rejection), which reads as a duplicate confirmation.
+# Progress stages that only had that mismatched template are intentionally
+# omitted until they get correctly-worded templates of their own.
 STAGE_NOTIFICATIONS: dict[str, dict] = {
     "screening_sent": {
         "template": "screening_reminder",
         "subject": "Next step: Complete your screening",
         "message_key": "screening_invite_received",
     },
-    "screening_evaluated": {
-        "template": "acknowledgement",
-        "subject": "Your screening has been reviewed",
-        "message_key": "screening_reviewed",
-    },
     "assignment_sent": {
         "template": "nudge",
         "subject": "Your assignment is ready",
         "message_key": "assignment_available",
-    },
-    "report_ready": {
-        "template": "acknowledgement",
-        "subject": "Your application is under final review",
-        "message_key": "under_review",
-    },
-    "technical_pending_approval": {
-        "template": "acknowledgement",
-        "subject": "Your application is being reviewed by our team",
-        "message_key": "tech_review_started",
     },
 }
 
